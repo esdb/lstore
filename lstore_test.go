@@ -96,3 +96,20 @@ func Test_scan_by_blob(t *testing.T) {
 	should.Nil(err)
 	should.Equal(1, len(batch))
 }
+
+func Test_scan_by_int_range(t *testing.T) {
+	should := require.New(t)
+	store := newTestStore()
+	_, err := store.Append(intDataRow(1))
+	should.Nil(err)
+	_, err = store.Append(intDataRow(3))
+	should.Nil(err)
+	_, err = store.Append(intDataRow(2))
+	should.Nil(err)
+	iter := store.Scan(0, 100, &IntRangeFilter{Min: 1, Max: 2})
+	rows, err := iter()
+	should.Nil(err)
+	should.Equal(2, len(rows))
+	should.Equal(int64(1), rows[0].IntValues[0])
+	should.Equal(int64(2), rows[1].IntValues[0])
+}

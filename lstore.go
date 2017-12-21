@@ -55,7 +55,7 @@ func (store *Store) init() error {
 		if err != nil {
 			return err
 		}
-		err = file.Truncate(200 * 1024 * 1024)
+		err = file.Truncate(200 * 1024)
 		if err != nil {
 			return err
 		}
@@ -95,21 +95,16 @@ func (store *Store) Write(offset Offset, row Row) (Offset, error) {
 	if err != nil {
 		return 0, err
 	}
-	if offset < store.tail {
+	if offset != store.tail {
 		return 0, WriteOnceError
 	}
 	gocStream := store.stream
-	gocStream.Reset(nil)
-	gocStream.Marshal(row)
+	gocStream.Reset(store.mapped[offset:offset])
+	size := gocStream.Marshal(row)
 	if gocStream.Error != nil {
 		return 0, gocStream.Error
 	}
-	buf := gocStream.Buffer()
-	copy(store.mapped[offset:], buf)
-	tail := offset + Offset(len(buf))
-	if tail > store.tail {
-		store.tail = tail
-	}
+	store.tail = offset + Offset(size)
 	return store.tail, nil
 }
 
@@ -159,6 +154,11 @@ type IntRangeFilter struct {
 	Index int
 	Min   int64
 	Max   int64
+}
+
+func (filter *IntRangeFilter) matches(row *Row) bool {
+	value := row.IntValues[filter.Index]
+	return value >= filter.Min && value <= filter.Max
 }
 
 // IntValueFilter == Value
