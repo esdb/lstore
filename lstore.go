@@ -1,7 +1,6 @@
 package lstore
 
 import (
-	"errors"
 	"github.com/esdb/gocodec"
 	"os"
 	"github.com/edsrzf/mmap-go"
@@ -12,7 +11,6 @@ type Store struct {
 	mapped        mmap.MMap
 	file          *os.File
 	filename      string
-	currentOffset Offset
 	stream        *gocodec.Stream
 	iter          *gocodec.Iterator
 }
@@ -20,7 +18,6 @@ type Store struct {
 func NewStore(filename string) *Store {
 	return &Store{
 		filename:      filename,
-		currentOffset: 0,
 		stream:        gocodec.NewStream(nil),
 		iter:          gocodec.NewIterator(nil),
 	}
@@ -89,9 +86,6 @@ func (store *Store) Write(offset Offset, row Row) (Offset, error) {
 	if err != nil {
 		return 0, err
 	}
-	if offset != store.currentOffset {
-		return 0, errors.New("only support sequential write")
-	}
 	gocStream := store.stream
 	gocStream.Reset(nil)
 	gocStream.Marshal(row)
@@ -99,10 +93,8 @@ func (store *Store) Write(offset Offset, row Row) (Offset, error) {
 		return 0, gocStream.Error
 	}
 	buf := gocStream.Buffer()
-	copy(store.mapped[store.currentOffset:], buf)
-	writtenAt := store.currentOffset
-	store.currentOffset += Offset(len(buf))
-	return writtenAt, nil
+	copy(store.mapped[offset:], buf)
+	return offset + Offset(len(buf)), nil
 }
 
 func (store *Store) Read(offset Offset) (Row, error) {
