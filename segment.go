@@ -13,6 +13,7 @@ type Segment struct {
 	mapped   mmap.MMap
 	file     *os.File
 	filename string
+	size     int64
 	tail     Offset
 	stream   *gocodec.Stream
 	iter     *gocodec.Iterator
@@ -21,6 +22,7 @@ type Segment struct {
 func NewSegment(filename string) *Segment {
 	return &Segment{
 		filename: filename,
+		size: 256 * 1024 * 1024,
 		stream:   gocodec.NewStream(nil),
 		iter:     gocodec.NewIterator(nil),
 	}
@@ -34,6 +36,7 @@ const RowTypeJunk RowType = 6
 const RowTypeConfigurationChange = 5
 
 var WriteOnceError = errors.New("every offset can only be written once")
+var SegmentOverflowError = errors.New("please rotate to new segment")
 
 type Row struct {
 	Reserved    uint8
@@ -55,7 +58,7 @@ func (segment *Segment) init() error {
 		if err != nil {
 			return err
 		}
-		err = file.Truncate(200 * 1024)
+		err = file.Truncate(segment.size)
 		if err != nil {
 			return err
 		}
@@ -105,6 +108,12 @@ func (segment *Segment) Write(offset Offset, row Row) (Offset, error) {
 		return 0, gocStream.Error
 	}
 	segment.tail = offset + Offset(size)
+	if segment.tail >= Offset(len(segment.mapped)) {
+		for i := offset; i < Offset(len(segment.mapped)); i++ {
+			segment.mapped[i] = 0
+		}
+		return segment.tail, SegmentOverflowError
+	}
 	return segment.tail, nil
 }
 
@@ -130,7 +139,7 @@ func (segment *Segment) ReadMultiple(offset Offset, maxRead int) ([]*Row, error)
 	iter := segment.iter
 	iter.Reset(segment.mapped[offset:segment.tail])
 	var rows []*Row
-	for i := 0; i< maxRead; i++ {
+	for i := 0; i < maxRead; i++ {
 		if len(iter.Buffer()) == 0 {
 			return rows, nil
 		}

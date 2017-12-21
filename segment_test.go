@@ -136,3 +136,14 @@ func Test_scan_by_both_blob_and_int_range(t *testing.T) {
 	should.Equal(1, len(rows))
 	should.Equal(int64(2), rows[0].IntValues[0])
 }
+
+func Test_write_to_end_should_fail(t *testing.T) {
+	should := require.New(t)
+	segment := newTestSegment()
+	segment.size = 200
+	offset1, err := segment.Append(intRow(1))
+	should.Nil(err)
+	segment.file.Truncate(int64(offset1))
+	_, err = segment.Append(intRow(1))
+	should.Equal(SegmentOverflowError, err)
+}
