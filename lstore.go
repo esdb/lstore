@@ -8,18 +8,19 @@ import (
 )
 
 type Store struct {
-	mapped        mmap.MMap
-	file          *os.File
-	filename      string
-	stream        *gocodec.Stream
-	iter          *gocodec.Iterator
+	mapped   mmap.MMap
+	file     *os.File
+	filename string
+	tail     Offset
+	stream   *gocodec.Stream
+	iter     *gocodec.Iterator
 }
 
 func NewStore(filename string) *Store {
 	return &Store{
-		filename:      filename,
-		stream:        gocodec.NewStream(nil),
-		iter:          gocodec.NewIterator(nil),
+		filename: filename,
+		stream:   gocodec.NewStream(nil),
+		iter:     gocodec.NewIterator(nil),
 	}
 }
 
@@ -37,6 +38,7 @@ type Row struct {
 	FloatValues []float64
 	BlobValues  []Blob
 }
+
 
 type Offset uint64
 
@@ -81,6 +83,10 @@ func (store *Store) close() error {
 	return nil
 }
 
+func (store *Store) Append(row Row) (Offset, error) {
+	return store.Write(store.tail, row)
+}
+
 func (store *Store) Write(offset Offset, row Row) (Offset, error) {
 	err := store.init()
 	if err != nil {
@@ -94,7 +100,11 @@ func (store *Store) Write(offset Offset, row Row) (Offset, error) {
 	}
 	buf := gocStream.Buffer()
 	copy(store.mapped[offset:], buf)
-	return offset + Offset(len(buf)), nil
+	tail := offset + Offset(len(buf))
+	if tail > store.tail {
+		store.tail = tail
+	}
+	return store.tail, nil
 }
 
 func (store *Store) Read(offset Offset) (Row, error) {
