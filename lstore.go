@@ -190,6 +190,19 @@ func (filter *BlobValueFilter) matches(row *Row) bool {
 	return bytes.Equal(row.BlobValues[filter.Index], filter.Value)
 }
 
+type AndFilter struct {
+	Filters []Filter
+}
+
+func (filter *AndFilter) matches(row *Row) bool {
+	for _, filter := range filter.Filters {
+		if !filter.matches(row) {
+			return false
+		}
+	}
+	return true
+}
+
 func (store *Store) Scan(startOffset Offset, batchSize int, filter Filter) (func() ([]*Row, error)) {
 	err := store.init()
 	iter := store.iter
