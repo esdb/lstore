@@ -9,7 +9,7 @@ import (
 	"bytes"
 )
 
-type Store struct {
+type Segment struct {
 	mapped   mmap.MMap
 	file     *os.File
 	filename string
@@ -18,8 +18,8 @@ type Store struct {
 	iter     *gocodec.Iterator
 }
 
-func NewStore(filename string) *Store {
-	return &Store{
+func NewSegment(filename string) *Segment {
+	return &Segment{
 		filename: filename,
 		stream:   gocodec.NewStream(nil),
 		iter:     gocodec.NewIterator(nil),
@@ -45,13 +45,13 @@ type Row struct {
 
 type Offset uint64
 
-func (store *Store) init() error {
-	if store.file != nil {
+func (segment *Segment) init() error {
+	if segment.file != nil {
 		return nil
 	}
-	file, err := os.OpenFile(store.filename, os.O_RDWR, 0666)
+	file, err := os.OpenFile(segment.filename, os.O_RDWR, 0666)
 	if err != nil {
-		file, err = os.OpenFile(store.filename, os.O_RDWR|os.O_CREATE, 0666)
+		file, err = os.OpenFile(segment.filename, os.O_RDWR|os.O_CREATE, 0666)
 		if err != nil {
 			return err
 		}
@@ -60,25 +60,25 @@ func (store *Store) init() error {
 			return err
 		}
 	}
-	store.file = file
+	segment.file = file
 	mapped, err := mmap.Map(file, mmap.RDWR, 0)
 	if err != nil {
-		countlog.Error("event!store.failed to mmap", "err", err, "filename", store.filename)
+		countlog.Error("event!segment.failed to mmap", "err", err, "filename", segment.filename)
 		return err
 	}
-	store.mapped = mapped
+	segment.mapped = mapped
 	return nil
 }
 
-func (store *Store) close() error {
-	if store.mapped != nil {
-		err := store.mapped.Unmap()
+func (segment *Segment) close() error {
+	if segment.mapped != nil {
+		err := segment.mapped.Unmap()
 		if err != nil {
 			return err
 		}
 	}
-	if store.file != nil {
-		err := store.file.Close()
+	if segment.file != nil {
+		err := segment.file.Close()
 		if err != nil {
 			return err
 		}
@@ -86,35 +86,35 @@ func (store *Store) close() error {
 	return nil
 }
 
-func (store *Store) Append(row Row) (Offset, error) {
-	return store.Write(store.tail, row)
+func (segment *Segment) Append(row Row) (Offset, error) {
+	return segment.Write(segment.tail, row)
 }
 
-func (store *Store) Write(offset Offset, row Row) (Offset, error) {
-	err := store.init()
+func (segment *Segment) Write(offset Offset, row Row) (Offset, error) {
+	err := segment.init()
 	if err != nil {
 		return 0, err
 	}
-	if offset != store.tail {
+	if offset != segment.tail {
 		return 0, WriteOnceError
 	}
-	gocStream := store.stream
-	gocStream.Reset(store.mapped[offset:offset])
+	gocStream := segment.stream
+	gocStream.Reset(segment.mapped[offset:offset])
 	size := gocStream.Marshal(row)
 	if gocStream.Error != nil {
 		return 0, gocStream.Error
 	}
-	store.tail = offset + Offset(size)
-	return store.tail, nil
+	segment.tail = offset + Offset(size)
+	return segment.tail, nil
 }
 
-func (store *Store) Read(offset Offset) (*Row, error) {
-	err := store.init()
+func (segment *Segment) Read(offset Offset) (*Row, error) {
+	err := segment.init()
 	if err != nil {
 		return nil, err
 	}
-	iter := store.iter
-	iter.Reset(store.mapped[offset:])
+	iter := segment.iter
+	iter.Reset(segment.mapped[offset:])
 	row := iter.Unmarshal((*Row)(nil))
 	if iter.Error != nil {
 		return nil, err
@@ -122,13 +122,13 @@ func (store *Store) Read(offset Offset) (*Row, error) {
 	return row.(*Row), nil
 }
 
-func (store *Store) ReadMultiple(offset Offset, maxRead int) ([]*Row, error) {
-	err := store.init()
+func (segment *Segment) ReadMultiple(offset Offset, maxRead int) ([]*Row, error) {
+	err := segment.init()
 	if err != nil {
 		return nil, err
 	}
-	iter := store.iter
-	iter.Reset(store.mapped[offset:store.tail])
+	iter := segment.iter
+	iter.Reset(segment.mapped[offset:segment.tail])
 	var rows []*Row
 	for i := 0; i< maxRead; i++ {
 		if len(iter.Buffer()) == 0 {
@@ -203,10 +203,10 @@ func (filter *AndFilter) matches(row *Row) bool {
 	return true
 }
 
-func (store *Store) Scan(startOffset Offset, batchSize int, filter Filter) (func() ([]*Row, error)) {
-	err := store.init()
-	iter := store.iter
-	iter.Reset(store.mapped[startOffset:store.tail])
+func (segment *Segment) Scan(startOffset Offset, batchSize int, filter Filter) (func() ([]*Row, error)) {
+	err := segment.init()
+	iter := segment.iter
+	iter.Reset(segment.mapped[startOffset:segment.tail])
 	return func() ([]*Row, error) {
 		if err != nil {
 			return nil, err
