@@ -5,6 +5,7 @@ import (
 	"os"
 	"github.com/edsrzf/mmap-go"
 	"github.com/v2pro/plz/countlog"
+	"errors"
 )
 
 type Store struct {
@@ -30,6 +31,7 @@ type RowType uint8
 const RowTypeData RowType = 7
 const RowTypeJunk RowType = 6
 const RowTypeConfigurationChange = 5
+var WriteOnceError = errors.New("every offset can only be written once")
 
 type Row struct {
 	Reserved    uint8
@@ -91,6 +93,9 @@ func (store *Store) Write(offset Offset, row Row) (Offset, error) {
 	err := store.init()
 	if err != nil {
 		return 0, err
+	}
+	if offset < store.tail {
+		return 0, WriteOnceError
 	}
 	gocStream := store.stream
 	gocStream.Reset(nil)

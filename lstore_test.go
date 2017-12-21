@@ -15,7 +15,6 @@ func intDataRow(values ...int64) Row {
 	return Row{RowType: RowTypeData, IntValues: values}
 }
 
-
 func Test_write_read_one_entry(t *testing.T) {
 	should := require.New(t)
 	store := newTestStore()
@@ -55,4 +54,13 @@ func Test_append(t *testing.T) {
 	row, err = store.Read(offset1)
 	should.Nil(err)
 	should.Equal(int64(2), row.IntValues[0])
+}
+
+func Test_write_once(t *testing.T) {
+	should := require.New(t)
+	store := newTestStore()
+	_, err := store.Write(0, intDataRow(1))
+	should.Nil(err)
+	_, err = store.Write(0, intDataRow(1))
+	should.Equal(WriteOnceError, err)
 }
