@@ -6,6 +6,7 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"github.com/v2pro/plz/countlog"
 	"errors"
+	"bytes"
 )
 
 type Store struct {
@@ -31,6 +32,7 @@ type RowType uint8
 const RowTypeData RowType = 7
 const RowTypeJunk RowType = 6
 const RowTypeConfigurationChange = 5
+
 var WriteOnceError = errors.New("every offset can only be written once")
 
 type Row struct {
@@ -40,7 +42,6 @@ type Row struct {
 	FloatValues []float64
 	BlobValues  []Blob
 }
-
 
 type Offset uint64
 
@@ -112,16 +113,105 @@ func (store *Store) Write(offset Offset, row Row) (Offset, error) {
 	return store.tail, nil
 }
 
-func (store *Store) Read(offset Offset) (Row, error) {
+func (store *Store) Read(offset Offset) (*Row, error) {
 	err := store.init()
 	if err != nil {
-		return Row{}, err
+		return nil, err
 	}
 	iter := store.iter
 	iter.Reset(store.mapped[offset:])
 	row := iter.Unmarshal((*Row)(nil))
 	if iter.Error != nil {
-		return Row{}, err
+		return nil, err
 	}
-	return *row.(*Row), nil
+	return row.(*Row), nil
+}
+
+func (store *Store) ReadMultiple(offset Offset, maxRead int) ([]*Row, error) {
+	err := store.init()
+	if err != nil {
+		return nil, err
+	}
+	iter := store.iter
+	iter.Reset(store.mapped[offset:store.tail])
+	var rows []*Row
+	for i := 0; i< maxRead; i++ {
+		if len(iter.Buffer()) == 0 {
+			return rows, nil
+		}
+		// reset iter.baseOffset
+		iter.Reset(iter.Buffer())
+		row := iter.Unmarshal((*Row)(nil))
+		if iter.Error != nil {
+			return nil, err
+		}
+		rows = append(rows, row.(*Row))
+	}
+	return rows, nil
+}
+
+type Filter interface {
+	matches(row *Row) bool
+}
+
+// IntRangeFilter [Min, Max]
+type IntRangeFilter struct {
+	Index int
+	Min   int64
+	Max   int64
+}
+
+// IntValueFilter == Value
+type IntValueFilter struct {
+	Index int
+	Value int64
+}
+
+// FloatRangeFilter [Min, Max]
+type FloatRangeFilter struct {
+	Index int
+	Min   float64
+	Max   float64
+}
+
+// FloatValueFilter == Value
+type FloatValueFilter struct {
+	Index int
+	Value float64
+}
+
+// BlobValueFilter == Value
+type BlobValueFilter struct {
+	Index int
+	Value Blob
+}
+
+func (filter *BlobValueFilter) matches(row *Row) bool {
+	return bytes.Equal(row.BlobValues[filter.Index], filter.Value)
+}
+
+func (store *Store) Scan(startOffset Offset, batchSize int, filter Filter) (func() ([]*Row, error)) {
+	err := store.init()
+	iter := store.iter
+	iter.Reset(store.mapped[startOffset:store.tail])
+	return func() ([]*Row, error) {
+		if err != nil {
+			return nil, err
+		}
+		var rows []*Row
+		for i := 0; i < batchSize; i++ {
+			if len(iter.Buffer()) == 0 {
+				return rows, nil
+			}
+			iter.Reset(iter.Buffer())
+			row := iter.Unmarshal((*Row)(nil)).(*Row)
+			if iter.Error != nil {
+				return nil, iter.Error
+			}
+			if filter.matches(row) {
+				rows = append(rows, row)
+			}
+		}
+		return rows, nil
+	}
 }
