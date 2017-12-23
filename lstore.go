@@ -12,12 +12,12 @@ import (
 const TailSegmentFileName = "tail.segment"
 
 type Store struct {
-	Directory string
-	CommandQueueSize int
+	Directory          string
+	CommandQueueSize   int
 	TailSegmentMaxSize int64
-	currentVersion   unsafe.Pointer
-	commandQueue     chan Command
-	executor         *concurrent.UnboundedExecutor
+	currentVersion     unsafe.Pointer
+	commandQueue       chan Command
+	executor           *concurrent.UnboundedExecutor
 }
 
 type Command func(store *StoreVersion) *StoreVersion
@@ -59,6 +59,12 @@ func (store *Store) startCommandQueue(initialVersion *StoreVersion) {
 	store.executor = concurrent.NewUnboundedExecutor()
 	store.executor.Go(func(ctx context.Context) {
 		currentVersion := initialVersion
+		defer func() {
+			err := currentVersion.Close()
+			if err != nil {
+				countlog.Error("event!store.failed to close", "err", err)
+			}
+		}()
 		for {
 			var command Command
 			select {
@@ -129,7 +135,7 @@ func (store *StoreVersion) Close() error {
 	if !store.decreaseReference() {
 		return nil // still in use
 	}
-	return nil
+	return store.tail.Close()
 }
 
 func (store *StoreVersion) decreaseReference() bool {

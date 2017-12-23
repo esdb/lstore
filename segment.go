@@ -61,12 +61,21 @@ func (segment *Segment) Close() error {
 	if segment.writeMMap != nil {
 		err := segment.writeMMap.Unmap()
 		if err != nil {
+			countlog.Error("event!segment.failed to unmap write", "err", err)
+			return err
+		}
+	}
+	if segment.readMMap != nil {
+		err := segment.readMMap.Unmap()
+		if err != nil {
+			countlog.Error("event!segment.failed to unmap read", "err", err)
 			return err
 		}
 	}
 	if segment.file != nil {
 		err := segment.file.Close()
 		if err != nil {
+			countlog.Error("event!segment.failed to close file", "err", err)
 			return err
 		}
 	}

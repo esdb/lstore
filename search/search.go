@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/esdb/lstore"
 	"github.com/esdb/gocodec"
+	"unsafe"
 )
 
 type Row struct {
@@ -23,7 +24,16 @@ func (iter *Iterator) Next()([]Row, error) {
 	gocIter := iter.gocIter
 	var batch []Row
 	for i := 0; i < iter.batchSize; i++ {
-		offset := lstore.Offset(iter.tailSegmentSize - len(gocIter.Buffer()))
+		buf := gocIter.Buffer()
+		bufSize := len(buf)
+		if bufSize < 8 {
+			return batch, nil
+		}
+		nextEntrySize := *(*uint64)(unsafe.Pointer(&buf[0]))
+		if nextEntrySize == 0 {
+			return batch, nil
+		}
+		offset := lstore.Offset(iter.tailSegmentSize - bufSize)
 		entry, _ := gocIter.Unmarshal((*lstore.Entry)(nil)).(*lstore.Entry)
 		if gocIter.Error != nil {
 			return nil, gocIter.Error
