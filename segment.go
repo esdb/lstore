@@ -28,7 +28,7 @@ const EntryTypeData EntryType = 7
 const EntryTypeJunk EntryType = 6
 const EntryTypeConfigurationChange = 5
 
-func OpenSegment(filename string, maxSize int64) (*Segment, error) {
+func openSegment(filename string, maxSize int64) (*Segment, error) {
 	file, err := os.OpenFile(filename, os.O_RDWR, 0666)
 	if err != nil {
 		file, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0666)

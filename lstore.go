@@ -6,6 +6,7 @@ import (
 	"github.com/v2pro/plz/concurrent"
 	"context"
 	"github.com/v2pro/plz/countlog"
+	"path"
 )
 
 const TailSegmentFileName = "tail.segment"
@@ -13,6 +14,7 @@ const TailSegmentFileName = "tail.segment"
 type Store struct {
 	Directory string
 	CommandQueueSize int
+	TailSegmentMaxSize int64
 	currentVersion   unsafe.Pointer
 	commandQueue     chan Command
 	executor         *concurrent.UnboundedExecutor
@@ -32,17 +34,25 @@ func (store *Store) Start() error {
 	if store.Directory == "" {
 		store.Directory = "/tmp"
 	}
+	if store.TailSegmentMaxSize == 0 {
+		store.TailSegmentMaxSize = 200 * 1024 * 1024
+	}
 	store.commandQueue = make(chan Command, store.CommandQueueSize)
 	initialVersion, err := store.loadData()
 	if err != nil {
 		return err
 	}
+	atomic.StorePointer(&store.currentVersion, unsafe.Pointer(initialVersion))
 	store.startCommandQueue(initialVersion)
 	return nil
 }
 
 func (store *Store) loadData() (*StoreVersion, error) {
-	return nil, nil
+	segment, err := openSegment(path.Join(store.Directory, TailSegmentFileName), store.TailSegmentMaxSize)
+	if err != nil {
+		return nil, err
+	}
+	return &StoreVersion{referenceCounter: 1, tail: segment}, nil
 }
 
 func (store *Store) startCommandQueue(initialVersion *StoreVersion) {
@@ -50,7 +60,12 @@ func (store *Store) startCommandQueue(initialVersion *StoreVersion) {
 	store.executor.Go(func(ctx context.Context) {
 		currentVersion := initialVersion
 		for {
-			command := <-store.commandQueue
+			var command Command
+			select {
+			case <-ctx.Done():
+				return
+			case command = <-store.commandQueue:
+			}
 			newVersion := handleCommand(command, currentVersion)
 			if newVersion != nil {
 				err := currentVersion.Close()
