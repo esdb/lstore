@@ -1,6 +1,8 @@
 package lstore
 
-import "github.com/esdb/gocodec"
+import (
+	"github.com/esdb/gocodec"
+)
 
 // Reader is not thread safe, can only be used from one goroutine
 type Reader struct {
@@ -13,7 +15,12 @@ type Reader struct {
 }
 
 func (store *Store) NewReader() (*Reader, error) {
-	reader := &Reader{store: store, tailBlock: &rowBasedBlock{rows: nil}, gocIter: gocodec.NewIterator(nil)}
+	reader := &Reader{
+		store: store,
+		tailBlock: &rowBasedBlock{rows: nil},
+		gocIter: gocodec.NewIterator(nil),
+		currentVersion: store.Latest(),
+	}
 	if err := reader.Refresh(); err != nil {
 		return nil, err
 	}
@@ -22,22 +29,18 @@ func (store *Store) NewReader() (*Reader, error) {
 
 func (reader *Reader) Refresh() error {
 	latestVersion := reader.store.Latest()
-	if reader.currentVersion == nil || latestVersion.tailSegment != reader.currentVersion.TailSegment() {
-		reader.currentVersion = latestVersion
+	if latestVersion.tailSegment != reader.currentVersion.TailSegment() {
 		reader.tailRows = make([]Row, 0, 4)
-		reader.tailOffset = reader.currentVersion.tailSegment.StartOffset
+		reader.tailOffset = latestVersion.tailSegment.StartOffset
+		reader.tailBlock = nil
 	}
-	newRows, tailOffset, err := reader.currentVersion.tailSegment.read(reader.tailOffset, reader)
-	if err != nil {
-		return err
+	if reader.currentVersion != latestVersion {
+		if err := reader.currentVersion.Close(); err != nil {
+			return err
+		}
+		reader.currentVersion = latestVersion
 	}
-	if len(newRows) == 0 {
-		return nil
-	}
-	reader.tailRows = append(reader.tailRows, newRows...)
-	reader.tailOffset = tailOffset
-	reader.tailBlock = &rowBasedBlock{rows: reader.tailRows}
-	return nil
+	return reader.currentVersion.tailSegment.read(reader)
 }
 
 func (reader *Reader) CurrentVersion() *StoreVersion {
@@ -46,10 +49,6 @@ func (reader *Reader) CurrentVersion() *StoreVersion {
 
 func (reader *Reader) TailBlock() Block {
 	return reader.tailBlock
-}
-
-func (reader *Reader) GocIterator() *gocodec.Iterator {
-	return reader.gocIter
 }
 
 func (reader *Reader) Close() error {

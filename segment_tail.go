@@ -6,18 +6,17 @@ import (
 	"github.com/v2pro/plz/countlog"
 	"github.com/esdb/gocodec"
 	"errors"
-	"context"
+	"sync/atomic"
+	"io"
 )
 
 var SegmentOverflowError = errors.New("please rotate to new segment")
 type TailSegment struct {
 	SegmentHeader
 	Path      string
-	writeMMap mmap.MMap
-	writeBuf  []byte
 	readBuf   []byte
 	resources []func() error
-	Tail      Offset
+	tail      uint64 // writer use atomic to notify readers
 }
 
 func openTailSegment(path string, maxSize int64, startOffset Offset) (*TailSegment, error) {
@@ -66,7 +65,7 @@ func openTailSegment(path string, maxSize int64, startOffset Offset) (*TailSegme
 	segment.SegmentHeader = *segmentHeader
 	segment.readBuf = iter.Buffer()
 	segment.Path = path
-	segment.Tail = startOffset
+	segment.tail = uint64(startOffset)
 	return segment, nil
 }
 
@@ -110,44 +109,37 @@ func (segment *TailSegment) Close() error {
 	return nil
 }
 
-func (segment *TailSegment) Write(ctx context.Context, entry *Entry) (Offset, error) {
-	buf := segment.writeBuf
-	maxTail := segment.StartOffset + Offset(len(buf))
-	offset := segment.Tail
-	if offset >= maxTail {
-		return 0, SegmentOverflowError
-	}
-	stream := ctx.Value("stream").(*gocodec.Stream)
-	stream.Reset(buf[offset-segment.StartOffset:offset-segment.StartOffset])
-	size := stream.Marshal(*entry)
-	if stream.Error != nil {
-		return 0, stream.Error
-	}
-	tail := offset + Offset(size)
-	if tail >= maxTail {
-		return 0, SegmentOverflowError
-	}
-	segment.Tail = tail
-	return offset, nil
+func (segment *TailSegment) updateTail(tail Offset) {
+	atomic.StoreUint64(&segment.tail, uint64(tail))
 }
 
-func (segment *TailSegment) read(startOffset Offset, reader *Reader) ([]Row, Offset, error) {
-	iter := reader.GocIterator()
+func (segment *TailSegment) getTail() Offset {
+	return Offset(atomic.LoadUint64(&segment.tail))
+}
+
+func (segment *TailSegment) read(reader *Reader) error {
+	iter := reader.gocIter
 	var rows []Row
-	currentOffset := startOffset
+	startOffset := reader.tailOffset
+	if startOffset == segment.getTail() {
+		// tail not moved
+		return nil
+	}
+	buf := segment.readBuf[startOffset:]
+	bufSize := Offset(len(buf))
+	iter.Reset(buf)
 	for {
-		iter.Reset(segment.readBuf[currentOffset:])
-		nextEntrySize := iter.NextSize()
-		if nextEntrySize == 0 {
-			return rows, currentOffset, nil
+		currentOffset := startOffset + (bufSize - Offset(len(iter.Buffer())))
+		entry, _ := iter.Copy((*Entry)(nil)).(*Entry)
+		if iter.Error == io.EOF {
+			reader.tailRows = rows
+			reader.tailOffset = currentOffset
+			reader.tailBlock = &rowBasedBlock{rows: reader.tailRows}
+			return nil
 		}
-		nextOffset := currentOffset+Offset(nextEntrySize)
-		iter.Reset(append([]byte(nil), segment.readBuf[currentOffset:nextOffset]...))
-		entry, _ := iter.Unmarshal((*Entry)(nil)).(*Entry)
 		if iter.Error != nil {
-			return nil, 0, iter.Error
+			return iter.Error
 		}
 		rows = append(rows, Row{Entry: entry, Offset: currentOffset})
-		currentOffset = nextOffset
 	}
 }

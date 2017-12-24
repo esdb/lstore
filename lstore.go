@@ -6,7 +6,6 @@ import (
 	"github.com/v2pro/plz/concurrent"
 	"context"
 	"path"
-	"fmt"
 )
 
 const TailSegmentFileName = "tail.segment"
@@ -23,12 +22,10 @@ func (conf *Config) TailSegmentPath() string {
 
 type Store struct {
 	Config
+	*Writer
 	currentVersion unsafe.Pointer
-	commandQueue   chan Command
-	executor       *concurrent.UnboundedExecutor
+	executor       *concurrent.UnboundedExecutor // owns writer and compacter
 }
-
-type Command func(ctx context.Context, store *StoreVersion) *StoreVersion
 
 type StoreVersion struct {
 	config           Config
@@ -47,42 +44,15 @@ func (store *Store) Start() error {
 	if store.TailSegmentMaxSize == 0 {
 		store.TailSegmentMaxSize = 200 * 1024 * 1024
 	}
-	store.commandQueue = make(chan Command, store.CommandQueueSize)
 	initialVersion, err := store.loadData()
 	if err != nil {
 		return err
 	}
 	atomic.StorePointer(&store.currentVersion, unsafe.Pointer(initialVersion))
-	store.startCommandQueue(initialVersion)
+	store.executor = concurrent.NewUnboundedExecutor()
+	store.Writer = &Writer{make(chan Command, store.CommandQueueSize)}
+	store.Writer.start(store, initialVersion)
 	return nil
-}
-
-func (store *Store) loadData() (*StoreVersion, error) {
-	tailSegment, err := openTailSegment(store.TailSegmentPath(), store.TailSegmentMaxSize, 0)
-	if err != nil {
-		return nil, err
-	}
-	var reversedRawSegments []*RawSegment
-	startOffset := tailSegment.StartOffset
-	for startOffset != 0 {
-		prev := path.Join(store.Directory, fmt.Sprintf("%d.segment", startOffset))
-		rawSegment, err := openRawSegment(prev, startOffset)
-		if err != nil {
-			return nil, err
-		}
-		reversedRawSegments = append(reversedRawSegments, rawSegment)
-		startOffset = rawSegment.StartOffset
-	}
-	rawSegments := make([]*RawSegment, len(reversedRawSegments))
-	for i := 0; i < len(reversedRawSegments); i++ {
-		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
-	}
-	return &StoreVersion{
-		referenceCounter: 1,
-		config:           store.Config,
-		rawSegments:      rawSegments,
-		tailSegment:      tailSegment,
-	}, nil
 }
 
 func (store *Store) Stop(ctx context.Context) {
@@ -106,14 +76,6 @@ func (store *Store) Latest() *StoreVersion {
 		}
 		return store
 	}
-}
-
-func (version *StoreVersion) TailSegment() *TailSegment {
-	return version.tailSegment
-}
-
-func (version *StoreVersion) RawSegments() []*RawSegment {
-	return version.rawSegments
 }
 
 func (version *StoreVersion) Close() error {
