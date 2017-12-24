@@ -6,6 +6,7 @@ import (
 	"github.com/v2pro/plz/concurrent"
 	"context"
 	"path"
+	"fmt"
 )
 
 const TailSegmentFileName = "tail.segment"
@@ -57,11 +58,31 @@ func (store *Store) Start() error {
 }
 
 func (store *Store) loadData() (*StoreVersion, error) {
-	segment, err := openTailSegment(path.Join(store.Directory, TailSegmentFileName), store.TailSegmentMaxSize, 0)
+	tailSegment, err := openTailSegment(store.TailSegmentPath(), store.TailSegmentMaxSize, 0)
 	if err != nil {
 		return nil, err
 	}
-	return &StoreVersion{config: store.Config, referenceCounter: 1, tailSegment: segment}, nil
+	var reversedRawSegments []*RawSegment
+	startOffset := tailSegment.StartOffset
+	for startOffset != 0 {
+		prev := path.Join(store.Directory, fmt.Sprintf("%d.segment", startOffset))
+		rawSegment, err := openRawSegment(prev, startOffset)
+		if err != nil {
+			return nil, err
+		}
+		reversedRawSegments = append(reversedRawSegments, rawSegment)
+		startOffset = rawSegment.StartOffset
+	}
+	rawSegments := make([]*RawSegment, len(reversedRawSegments))
+	for i := 0; i < len(reversedRawSegments); i++ {
+		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
+	}
+	return &StoreVersion{
+		referenceCounter: 1,
+		config:           store.Config,
+		rawSegments:      rawSegments,
+		tailSegment:      tailSegment,
+	}, nil
 }
 
 func (store *Store) Stop(ctx context.Context) {
