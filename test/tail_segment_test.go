@@ -100,5 +100,8 @@ func Test_write_rotation(t *testing.T) {
 	should.Equal(lstore.Offset(0), offset)
 	offset, err = write.Execute(context.Background(), store, intEntry(2))
 	should.Nil(err)
-	should.Equal(lstore.Offset(0x58), offset)
+	should.Equal(lstore.Offset(88), offset)
+	offset, err = write.Execute(context.Background(), store, intEntry(3))
+	should.Nil(err)
+	should.Equal(lstore.Offset(176), offset)
 }

@@ -34,32 +34,32 @@ func Execute(ctx context.Context, store *lstore.Store, entry *lstore.Entry) (lst
 }
 
 func writeOrRotate(store *lstore.StoreVersion, entry *lstore.Entry) (*lstore.StoreVersion, Result) {
-	result := tryWrite(store, entry)
+	result := tryWrite(store.Tail(), entry)
 	if result.Error == SegmentOverflowError {
 		rotatedStore, err := store.AddSegment()
 		if err != nil {
 			return nil, Result{0, err}
 		}
-		result = tryWrite(rotatedStore, entry)
+		result = tryWrite(rotatedStore.Tail(), entry)
 		return rotatedStore, result
 	}
 	return nil, result
 }
 
-func tryWrite(store *lstore.StoreVersion, entry *lstore.Entry) Result {
-	segment := store.Tail()
+func tryWrite(segment *lstore.Segment, entry *lstore.Entry) Result {
 	buf := segment.WriteBuffer()
-	if segment.Tail >= lstore.Offset(len(buf)) {
+	maxTail := segment.StartOffset + lstore.Offset(len(buf))
+	offset := segment.Tail
+	if offset >= maxTail {
 		return Result{0, SegmentOverflowError}
 	}
-	offset := segment.Tail
-	stream := gocodec.NewStream(buf[offset:offset])
+	stream := gocodec.NewStream(buf[offset-segment.StartOffset:offset-segment.StartOffset])
 	size := stream.Marshal(*entry)
 	if stream.Error != nil {
 		return Result{0, stream.Error}
 	}
 	tail := offset + lstore.Offset(size)
-	if tail >= segment.StartOffset + lstore.Offset(len(buf)) {
+	if tail >= maxTail {
 		return Result{0, SegmentOverflowError}
 	}
 	segment.Tail = tail

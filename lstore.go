@@ -186,6 +186,6 @@ func (version *StoreVersion) AddSegment() (*StoreVersion, error) {
 	if err != nil {
 		return nil, err
 	}
-	countlog.Info("event!store.rotated", "tail", oldVersion.tail.Tail)
+	countlog.Info("event!store.rotated", "tail", newVersion.tail.StartOffset)
 	return &newVersion, nil
 }
