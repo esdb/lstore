@@ -8,13 +8,13 @@ import (
 	"context"
 	"github.com/esdb/lstore/write"
 	"github.com/esdb/lstore/search"
+	"path"
 )
 
 func testStore() *lstore.Store {
-	os.Remove("/tmp/" + lstore.TailSegmentFileName)
-	store := &lstore.Store{
-		Directory: "/tmp",
-	}
+	store := &lstore.Store{}
+	store.Directory = "/tmp"
+	os.Remove(path.Join(store.Directory, lstore.TailSegmentFileName))
 	err := store.Start()
 	if err != nil {
 		panic(err)
@@ -74,9 +74,8 @@ func Test_reopen(t *testing.T) {
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), offset)
 	store.Stop(context.Background())
-	store = &lstore.Store{
-		Directory: "/tmp",
-	}
+	store = &lstore.Store{}
+	store.Directory = "/tmp"
 	err = store.Start()
 	should.Nil(err)
 	iter := search.Execute(context.Background(), store, 0, 2)
@@ -86,4 +85,20 @@ func Test_reopen(t *testing.T) {
 	should.Equal(1, len(rows))
 	should.Equal([]int64{1}, rows[0].IntValues)
 	store.Stop(context.Background())
+}
+
+func Test_write_rotation(t *testing.T) {
+	should := require.New(t)
+	store := &lstore.Store{}
+	store.Directory = "/tmp"
+	store.TailSegmentMaxSize = 0x58
+	os.Remove(path.Join(store.Directory, lstore.TailSegmentFileName))
+	err := store.Start()
+	should.Nil(err)
+	offset, err := write.Execute(context.Background(), store, intEntry(1))
+	should.Nil(err)
+	should.Equal(lstore.Offset(0), offset)
+	offset, err = write.Execute(context.Background(), store, intEntry(2))
+	should.Nil(err)
+	should.Equal(lstore.Offset(0x58), offset)
 }

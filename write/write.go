@@ -1,6 +1,5 @@
 package write
 
-
 import (
 	"github.com/esdb/lstore"
 	"context"
@@ -12,7 +11,7 @@ var SegmentOverflowError = errors.New("please rotate to new segment")
 
 type Result struct {
 	Offset lstore.Offset
-	Error error
+	Error  error
 }
 
 func AsyncExecute(ctx context.Context, store *lstore.Store, entry *lstore.Entry, resultChan chan<- Result) {
@@ -35,18 +34,18 @@ func Execute(ctx context.Context, store *lstore.Store, entry *lstore.Entry) (lst
 
 func writeToTail(store *lstore.StoreVersion, entry *lstore.Entry) Result {
 	segment := store.Tail()
-	mapped := segment.WriteMMap()
-	if segment.Tail >= lstore.Offset(len(mapped)) {
+	buf := segment.WriteBuffer()
+	if segment.Tail >= lstore.Offset(len(buf)) {
 		return Result{0, SegmentOverflowError}
 	}
 	offset := segment.Tail
-	stream := gocodec.NewStream(mapped[offset:offset])
+	stream := gocodec.NewStream(buf[offset:offset])
 	size := stream.Marshal(*entry)
 	if stream.Error != nil {
 		return Result{0, stream.Error}
 	}
 	segment.Tail = offset + lstore.Offset(size)
-	if segment.Tail >= lstore.Offset(len(mapped)) {
+	if segment.Tail >= lstore.Offset(len(buf)) {
 		return Result{0, SegmentOverflowError}
 	}
 	return Result{offset, nil}

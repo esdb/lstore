@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/esdb/lstore"
 	"github.com/esdb/gocodec"
-	"unsafe"
 )
 
 type Row struct {
@@ -13,34 +12,38 @@ type Row struct {
 }
 
 type Iterator struct {
-	store *lstore.StoreVersion
-	gocIter *gocodec.Iterator
-	tailSegmentSize int
-	batchSize int
-	filters []Filter
+	store         *lstore.StoreVersion
+	gocIter       *gocodec.Iterator
+	buf           []byte
+	currentOffset lstore.Offset
+	batchSize     int
+	filters       []Filter
 }
 
-func (iter *Iterator) Next()([]Row, error) {
+func (iter *Iterator) Next() ([]Row, error) {
 	gocIter := iter.gocIter
 	var batch []Row
 	for i := 0; i < iter.batchSize; i++ {
-		buf := gocIter.Buffer()
+		buf := iter.buf[iter.currentOffset:]
 		bufSize := len(buf)
 		if bufSize < 8 {
-			return batch, nil
+			return nil, nil // done
 		}
-		nextEntrySize := *(*uint64)(unsafe.Pointer(&buf[0]))
+		gocIter.Reset(buf)
+		nextEntrySize := lstore.Offset(gocIter.NextSize())
 		if nextEntrySize == 0 {
-			return batch, nil
+			return batch, nil // done
 		}
-		offset := lstore.Offset(iter.tailSegmentSize - bufSize)
+		// copy next entry from mmap, as mmap is readonly in this case
+		gocIter.Reset(append([]byte(nil), iter.buf[iter.currentOffset:iter.currentOffset+nextEntrySize]...))
 		entry, _ := gocIter.Unmarshal((*lstore.Entry)(nil)).(*lstore.Entry)
 		if gocIter.Error != nil {
 			return nil, gocIter.Error
 		}
 		if iter.matches(entry) {
-			batch = append(batch, Row{Offset: offset, Entry: entry})
+			batch = append(batch, Row{Offset: iter.currentOffset, Entry: entry})
 		}
+		iter.currentOffset += nextEntrySize
 	}
 	return batch, nil
 }
@@ -61,13 +64,14 @@ func (iter *Iterator) Close() error {
 func Execute(ctx context.Context, storeHolder *lstore.Store,
 	startOffset lstore.Offset, batchSize int, filters ...Filter) *Iterator {
 	store := storeHolder.Latest()
-	mapped := store.Tail().ReadMMap()
-	gocIter := gocodec.NewIterator(mapped[startOffset:])
+	buf := store.Tail().ReadBuffer()
+	gocIter := gocodec.NewIterator(nil)
 	return &Iterator{
-		store: store,
-		gocIter: gocIter,
-		tailSegmentSize: len(mapped),
-		batchSize: batchSize,
-		filters: filters,
+		store:         store,
+		gocIter:       gocIter,
+		buf:           buf,
+		currentOffset: startOffset,
+		batchSize:     batchSize,
+		filters:       filters,
 	}
 }

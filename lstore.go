@@ -11,19 +11,25 @@ import (
 
 const TailSegmentFileName = "tail.segment"
 
-type Store struct {
+type Config struct {
 	Directory          string
 	CommandQueueSize   int
 	TailSegmentMaxSize int64
-	currentVersion     unsafe.Pointer
-	commandQueue       chan Command
-	executor           *concurrent.UnboundedExecutor
+}
+
+type Store struct {
+	Config
+	currentVersion unsafe.Pointer
+	commandQueue   chan Command
+	executor       *concurrent.UnboundedExecutor
 }
 
 type Command func(store *StoreVersion) *StoreVersion
 
 type StoreVersion struct {
+	config           Config
 	referenceCounter uint32
+	segments         []*Segment
 	tail             *Segment
 }
 
@@ -48,7 +54,7 @@ func (store *Store) Start() error {
 }
 
 func (store *Store) loadData() (*StoreVersion, error) {
-	segment, err := openSegment(path.Join(store.Directory, TailSegmentFileName), store.TailSegmentMaxSize)
+	segment, err := openSegment(path.Join(store.Directory, TailSegmentFileName), store.TailSegmentMaxSize, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -127,25 +133,36 @@ func (store *Store) AsyncExecute(ctx context.Context, cmd Command) {
 	}
 }
 
-func (store *StoreVersion) Tail() *Segment {
-	return store.tail
+func (version *StoreVersion) Tail() *Segment {
+	return version.tail
 }
 
-func (store *StoreVersion) Close() error {
-	if !store.decreaseReference() {
+func (version *StoreVersion) Close() error {
+	if !version.decreaseReference() {
 		return nil // still in use
 	}
-	return store.tail.Close()
+	return version.tail.Close()
 }
 
-func (store *StoreVersion) decreaseReference() bool {
+func (version *StoreVersion) decreaseReference() bool {
 	for {
-		counter := atomic.LoadUint32(&store.referenceCounter)
+		counter := atomic.LoadUint32(&version.referenceCounter)
 		if counter == 0 {
 			return true
 		}
-		if atomic.CompareAndSwapUint32(&store.referenceCounter, counter, counter-1) {
-			return counter == 1 // last one should close the store
+		if atomic.CompareAndSwapUint32(&version.referenceCounter, counter, counter-1) {
+			return counter == 1 // last one should close the version
 		}
 	}
+}
+
+func (version *StoreVersion) AddSegment() *StoreVersion {
+	newVersion := *version
+	newVersion.referenceCounter = 1
+	newVersion.segments = make([]*Segment, len(version.segments)+1)
+	i := 0
+	for ; i < len(version.segments); i++ {
+		newVersion.segments[i] = version.segments[i]
+	}
+	return &newVersion
 }
