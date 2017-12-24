@@ -63,7 +63,21 @@ func Execute(ctx context.Context, reader *lstore.Reader, req Request) RowIterato
 		req.BatchSizeHint = 64
 	}
 	blkIter := t1Search(reader, req.Filters)
+	remaining := req.LimitSize
 	return func() ([]lstore.Row, error) {
-		return t2Search(reader, blkIter, req)
+		batch, err := t2Search(reader, blkIter, req)
+		if err != nil {
+			return nil, err
+		}
+		if req.LimitSize > 0 {
+			if remaining == 0 {
+				return nil, io.EOF
+			}
+			if remaining < len(batch) {
+				batch = batch[:remaining]
+			}
+			remaining -= len(batch)
+		}
+		return batch, nil
 	}
 }

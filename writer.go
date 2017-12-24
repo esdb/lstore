@@ -72,17 +72,17 @@ func (version *StoreVersion) AddSegment() (*StoreVersion, error) {
 	var err error
 	for ; i < len(oldVersion.rawSegments); i++ {
 		oldSegment := oldVersion.rawSegments[i]
-		newVersion.rawSegments[i], err = openRawSegment(oldSegment.Path)
+		newVersion.rawSegments[i] = oldSegment
 		if err != nil {
 			return nil, err
 		}
 	}
 	conf := oldVersion.config
-	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.segment", oldVersion.tailSegment.StartOffset))
+	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.segment", oldVersion.tailSegment.Tail))
 	if err = os.Rename(oldVersion.tailSegment.Path, rotatedTo); err != nil {
 		return nil, err
 	}
-	newVersion.rawSegments[i], err = openRawSegment(rotatedTo)
+	newVersion.rawSegments[i], err = openRawSegment(rotatedTo, oldVersion.tailSegment.Tail)
 	newVersion.tailSegment, err = openTailSegment(
 		conf.TailSegmentPath(), conf.TailSegmentMaxSize, oldVersion.tailSegment.Tail)
 	if err != nil {

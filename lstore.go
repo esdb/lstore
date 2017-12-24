@@ -5,9 +5,7 @@ import (
 	"sync/atomic"
 	"github.com/v2pro/plz/concurrent"
 	"context"
-	"github.com/v2pro/plz/countlog"
 	"path"
-	"errors"
 )
 
 const TailSegmentFileName = "tail.segment"
@@ -101,23 +99,7 @@ func (version *StoreVersion) Close() error {
 	if !version.decreaseReference() {
 		return nil // still in use
 	}
-	var hasError bool
-	for _, rawSegment := range version.rawSegments {
-		err := rawSegment.Close()
-		if err != nil {
-			countlog.Error("event!store.failed to close segment", "err", err, "path", rawSegment.Path)
-			hasError = true
-		}
-	}
-	err := version.tailSegment.Close()
-	if err != nil {
-		countlog.Error("event!store.failed to close tail segment", "err", err)
-		hasError = true
-	}
-	if hasError {
-		return errors.New("not all segments closed properly")
-	}
-	return nil
+	return version.tailSegment.Close()
 }
 
 func (version *StoreVersion) decreaseReference() bool {

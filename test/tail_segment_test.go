@@ -76,17 +76,19 @@ func Test_write_two_entries(t *testing.T) {
 	should.Equal([]int64{2}, rows[0].IntValues)
 }
 
-func Test_reopen(t *testing.T) {
+func Test_reopen_tail_segment(t *testing.T) {
 	should := require.New(t)
 	store := testStore()
 	offset, err := write.Execute(context.Background(), store, intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), offset)
+
 	store.Stop(context.Background())
 	store = &lstore.Store{}
 	store.Directory = "/tmp"
 	err = store.Start()
 	should.Nil(err)
+
 	reader, err := store.NewReader()
 	should.Nil(err)
 	defer reader.Close()
@@ -103,6 +105,7 @@ func Test_reopen(t *testing.T) {
 func Test_write_rotation(t *testing.T) {
 	should := require.New(t)
 	store := &lstore.Store{}
+	defer store.Stop(context.Background())
 	store.Directory = "/tmp"
 	store.TailSegmentMaxSize = 140
 	os.Remove(store.TailSegmentPath())
