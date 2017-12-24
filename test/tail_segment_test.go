@@ -41,9 +41,13 @@ func Test_write_read_one_entry(t *testing.T) {
 	offset, err := write.Execute(context.Background(), store, intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), offset)
-	iter := search.Execute(context.Background(), store, 0, 2)
-	defer iter.Close()
-	rows, err := iter.Next()
+	reader, err := store.NewReader()
+	should.Nil(err)
+	defer reader.Close()
+	iter := search.Execute(context.Background(), reader, search.Request{
+		LimitSize: 2,
+	})
+	rows, err := iter()
 	should.Nil(err)
 	should.Equal(1, len(rows))
 	should.Equal([]int64{1}, rows[0].IntValues)
@@ -59,9 +63,14 @@ func Test_write_two_entries(t *testing.T) {
 	offset, err = write.Execute(context.Background(), store, intEntry(2))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0x58), offset)
-	iter := search.Execute(context.Background(), store, offset, 2)
-	defer iter.Close()
-	rows, err := iter.Next()
+	reader, err := store.NewReader()
+	should.Nil(err)
+	defer reader.Close()
+	iter := search.Execute(context.Background(), reader, search.Request{
+		StartOffset: offset,
+		LimitSize: 2,
+	})
+	rows, err := iter()
 	should.Nil(err)
 	should.Equal(1, len(rows))
 	should.Equal([]int64{2}, rows[0].IntValues)
@@ -78,9 +87,13 @@ func Test_reopen(t *testing.T) {
 	store.Directory = "/tmp"
 	err = store.Start()
 	should.Nil(err)
-	iter := search.Execute(context.Background(), store, 0, 2)
-	defer iter.Close()
-	rows, err := iter.Next()
+	reader, err := store.NewReader()
+	should.Nil(err)
+	defer reader.Close()
+	iter := search.Execute(context.Background(), reader, search.Request{
+		LimitSize: 2,
+	})
+	rows, err := iter()
 	should.Nil(err)
 	should.Equal(1, len(rows))
 	should.Equal([]int64{1}, rows[0].IntValues)

@@ -7,8 +7,7 @@ import (
 	"context"
 	"github.com/v2pro/plz/countlog"
 	"path"
-	"fmt"
-	"os"
+	"errors"
 )
 
 const TailSegmentFileName = "tail.segment"
@@ -30,13 +29,13 @@ type Store struct {
 	executor       *concurrent.UnboundedExecutor
 }
 
-type Command func(store *StoreVersion) *StoreVersion
+type Command func(ctx context.Context, store *StoreVersion) *StoreVersion
 
 type StoreVersion struct {
 	config           Config
 	referenceCounter uint32
-	segments         []*Segment
-	tail             *Segment
+	rawSegments      []*RawSegment
+	tailSegment      *TailSegment
 }
 
 func (store *Store) Start() error {
@@ -64,49 +63,7 @@ func (store *Store) loadData() (*StoreVersion, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &StoreVersion{config: store.Config, referenceCounter: 1, tail: segment}, nil
-}
-
-func (store *Store) startCommandQueue(initialVersion *StoreVersion) {
-	store.executor = concurrent.NewUnboundedExecutor()
-	store.executor.Go(func(ctx context.Context) {
-		currentVersion := initialVersion
-		defer func() {
-			err := currentVersion.Close()
-			if err != nil {
-				countlog.Error("event!store.failed to close", "err", err)
-			}
-		}()
-		for {
-			var command Command
-			select {
-			case <-ctx.Done():
-				return
-			case command = <-store.commandQueue:
-			}
-			newVersion := handleCommand(command, currentVersion)
-			if newVersion != nil {
-				atomic.StorePointer(&store.currentVersion, unsafe.Pointer(newVersion))
-				err := currentVersion.Close()
-				if err != nil {
-					countlog.Error("event!store.failed to close", "err", err)
-				}
-				currentVersion = newVersion
-			}
-		}
-	})
-}
-
-func handleCommand(command Command, currentVersion *StoreVersion) *StoreVersion {
-	defer func() {
-		recovered := recover()
-		if recovered != nil && recovered != concurrent.StopSignal {
-			countlog.Fatal("event!store.panic",
-				"err", recovered,
-				"stacktrace", countlog.ProvideStacktrace)
-		}
-	}()
-	return command(currentVersion)
+	return &StoreVersion{config: store.Config, referenceCounter: 1, tailSegment: segment}, nil
 }
 
 func (store *Store) Stop(ctx context.Context) {
@@ -132,22 +89,35 @@ func (store *Store) Latest() *StoreVersion {
 	}
 }
 
-func (store *Store) AsyncExecute(ctx context.Context, cmd Command) {
-	select {
-	case store.commandQueue <- cmd:
-	case <-ctx.Done():
-	}
+func (version *StoreVersion) TailSegment() *TailSegment {
+	return version.tailSegment
 }
 
-func (version *StoreVersion) Tail() *Segment {
-	return version.tail
+func (version *StoreVersion) RawSegments() []*RawSegment {
+	return version.rawSegments
 }
 
 func (version *StoreVersion) Close() error {
 	if !version.decreaseReference() {
 		return nil // still in use
 	}
-	return version.tail.Close()
+	var hasError bool
+	for _, rawSegment := range version.rawSegments {
+		err := rawSegment.Close()
+		if err != nil {
+			countlog.Error("event!store.failed to close segment", "err", err, "path", rawSegment.Path)
+			hasError = true
+		}
+	}
+	err := version.tailSegment.Close()
+	if err != nil {
+		countlog.Error("event!store.failed to close tail segment", "err", err)
+		hasError = true
+	}
+	if hasError {
+		return errors.New("not all segments closed properly")
+	}
+	return nil
 }
 
 func (version *StoreVersion) decreaseReference() bool {
@@ -157,35 +127,7 @@ func (version *StoreVersion) decreaseReference() bool {
 			return true
 		}
 		if atomic.CompareAndSwapUint32(&version.referenceCounter, counter, counter-1) {
-			return counter == 1 // last one should close the version
+			return counter == 1 // last one should close the currentVersion
 		}
 	}
-}
-
-func (version *StoreVersion) AddSegment() (*StoreVersion, error) {
-	oldVersion := version
-	newVersion := *oldVersion
-	newVersion.referenceCounter = 1
-	newVersion.segments = make([]*Segment, len(oldVersion.segments)+1)
-	i := 0
-	var err error
-	for ; i < len(oldVersion.segments); i++ {
-		oldSegment := oldVersion.segments[i]
-		newVersion.segments[i], err = openSegment(oldSegment.Path)
-		if err != nil {
-			return nil, err
-		}
-	}
-	conf := oldVersion.config
-	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.segment", oldVersion.tail.StartOffset))
-	if err = os.Rename(oldVersion.tail.Path, rotatedTo); err != nil {
-		return nil, err
-	}
-	newVersion.segments[i], err = openSegment(rotatedTo)
-	newVersion.tail, err = openTailSegment(conf.TailSegmentPath(), conf.TailSegmentMaxSize, oldVersion.tail.Tail)
-	if err != nil {
-		return nil, err
-	}
-	countlog.Info("event!store.rotated", "tail", newVersion.tail.StartOffset)
-	return &newVersion, nil
 }

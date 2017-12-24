@@ -3,75 +3,67 @@ package search
 import (
 	"context"
 	"github.com/esdb/lstore"
-	"github.com/esdb/gocodec"
+	"io"
 )
 
-type Row struct {
-	*lstore.Entry
-	Offset lstore.Offset
+type Request struct {
+	StartOffset   lstore.Offset
+	BatchSizeHint int
+	LimitSize     int
+	Filters       []lstore.Filter
 }
 
-type Iterator struct {
-	store         *lstore.StoreVersion
-	gocIter       *gocodec.Iterator
-	buf           []byte
-	currentOffset lstore.Offset
-	batchSize     int
-	filters       []Filter
-}
+type blockIterator func() (lstore.Block, error)
+type RowIterator func() ([]lstore.Row, error)
 
-func (iter *Iterator) Next() ([]Row, error) {
-	gocIter := iter.gocIter
-	var batch []Row
-	for i := 0; i < iter.batchSize; i++ {
-		buf := iter.buf[iter.currentOffset:]
-		bufSize := len(buf)
-		if bufSize < 8 {
-			return nil, nil // done
+// t1Search speed up by tree of bloomfilter (for int,blob) and min max (for int)
+func t1Search(reader *lstore.Reader, filters []lstore.Filter) blockIterator {
+	store := reader.CurrentVersion()
+	rawSegments := store.RawSegments()
+	currentRawSegmentIndex := 0
+	return func() (lstore.Block, error) {
+		if currentRawSegmentIndex < len(rawSegments) {
+			block := rawSegments[currentRawSegmentIndex].AsBlock
+			currentRawSegmentIndex++
+			return block, nil
 		}
-		gocIter.Reset(buf)
-		nextEntrySize := lstore.Offset(gocIter.NextSize())
-		if nextEntrySize == 0 {
-			return batch, nil // done
+		if currentRawSegmentIndex == len(rawSegments) {
+			currentRawSegmentIndex++
+			return reader.TailBlock(), nil
 		}
-		// copy next entry from mmap, as mmap is readonly in this case
-		gocIter.Reset(append([]byte(nil), iter.buf[iter.currentOffset:iter.currentOffset+nextEntrySize]...))
-		entry, _ := gocIter.Unmarshal((*lstore.Entry)(nil)).(*lstore.Entry)
-		if gocIter.Error != nil {
-			return nil, gocIter.Error
-		}
-		if iter.matches(entry) {
-			batch = append(batch, Row{Offset: iter.currentOffset, Entry: entry})
-		}
-		iter.currentOffset += nextEntrySize
+		return nil, io.EOF
 	}
-	return batch, nil
 }
 
-func (iter *Iterator) matches(entry *lstore.Entry) bool {
-	for _, filter := range iter.filters {
-		if !filter.matches(entry) {
-			return false
+// t2Search speed up by column based disk layout (for compacted segments)
+// and in memory cache (for raw segments and tail segment)
+func t2Search(reader *lstore.Reader, blkIter blockIterator, req Request) ([]lstore.Row, error) {
+
+	var batch []lstore.Row
+	for {
+		blk, err := blkIter()
+		if err != nil {
+			if err == io.EOF && len(batch) > 0 {
+				return batch, nil
+			}
+			return nil, err
+		}
+		batch, err = blk.Search(reader, req.StartOffset, req.Filters, batch)
+		if err != nil {
+			return nil, err
+		}
+		if len(batch) >= req.BatchSizeHint {
+			return batch, err
 		}
 	}
-	return true
 }
 
-func (iter *Iterator) Close() error {
-	return iter.store.Close()
-}
-
-func Execute(ctx context.Context, storeHolder *lstore.Store,
-	startOffset lstore.Offset, batchSize int, filters ...Filter) *Iterator {
-	store := storeHolder.Latest()
-	buf := store.Tail().ReadBuffer()
-	gocIter := gocodec.NewIterator(nil)
-	return &Iterator{
-		store:         store,
-		gocIter:       gocIter,
-		buf:           buf,
-		currentOffset: startOffset,
-		batchSize:     batchSize,
-		filters:       filters,
+func Execute(ctx context.Context, reader *lstore.Reader, req Request) RowIterator {
+	if req.BatchSizeHint == 0 {
+		req.BatchSizeHint = 64
+	}
+	blkIter := t1Search(reader, req.Filters)
+	return func() ([]lstore.Row, error) {
+		return t2Search(reader, blkIter, req)
 	}
 }

@@ -1,12 +1,11 @@
-package search
+package lstore
 
 import (
 	"bytes"
-	"github.com/esdb/lstore"
 )
 
 type Filter interface {
-	matches(entry *lstore.Entry) bool
+	matches(entry *Entry) bool
 }
 
 // IntRangeFilter [Min, Max]
@@ -16,7 +15,7 @@ type IntRangeFilter struct {
 	Max   int64
 }
 
-func (filter *IntRangeFilter) matches(entry *lstore.Entry) bool {
+func (filter *IntRangeFilter) matches(entry *Entry) bool {
 	value := entry.IntValues[filter.Index]
 	return value >= filter.Min && value <= filter.Max
 }
@@ -30,9 +29,9 @@ type IntValueFilter struct {
 // BlobValueFilter == Value
 type BlobValueFilter struct {
 	Index int
-	Value lstore.Blob
+	Value Blob
 }
 
-func (filter *BlobValueFilter) matches(entry *lstore.Entry) bool {
+func (filter *BlobValueFilter) matches(entry *Entry) bool {
 	return bytes.Equal(entry.BlobValues[filter.Index], filter.Value)
 }
