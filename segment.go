@@ -21,12 +21,13 @@ type Entry struct {
 }
 
 type Segment struct {
+	Path      string
 	SegmentHeader
 	writeMMap mmap.MMap
-	writeBuf []byte
-	readBuf  []byte
+	writeBuf  []byte
+	readBuf   []byte
 	resources []func() error
-	Tail      Offset
+	Tail      Offset // only used for tail
 }
 
 type SegmentHeader struct {
@@ -41,10 +42,14 @@ const EntryTypeData EntryType = 7
 const EntryTypeJunk EntryType = 6
 const EntryTypeConfigurationChange = 5
 
-func openSegment(filename string, maxSize int64, startOffset Offset) (*Segment, error) {
-	file, err := os.OpenFile(filename, os.O_RDWR, 0666)
+func openSegment(path string) (*Segment, error) {
+	return openTailSegment(path, -1, 0)
+}
+
+func openTailSegment(path string, maxSize int64, startOffset Offset) (*Segment, error) {
+	file, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if err != nil {
-		file, err = createSegment(filename, maxSize, startOffset)
+		file, err = createTailSegment(path, maxSize, startOffset)
 		if err != nil {
 			return nil, err
 		}
@@ -55,7 +60,7 @@ func openSegment(filename string, maxSize int64, startOffset Offset) (*Segment, 
 	})
 	writeMMap, err := mmap.Map(file, mmap.RDWR, 0)
 	if err != nil {
-		countlog.Error("event!segment.failed to mmap as RDWR", "err", err, "filename", filename)
+		countlog.Error("event!segment.failed to mmap as RDWR", "err", err, "path", path)
 		return nil, err
 	}
 	segment.resources = append(segment.resources, func() error {
@@ -73,7 +78,7 @@ func openSegment(filename string, maxSize int64, startOffset Offset) (*Segment, 
 	segment.SegmentHeader = *segmentHeader
 	readMMap, err := mmap.Map(file, mmap.RDONLY, 0)
 	if err != nil {
-		countlog.Error("event!segment.failed to mmap as COPY", "err", err, "filename", filename)
+		countlog.Error("event!segment.failed to mmap as COPY", "err", err, "path", path)
 		return nil, err
 	}
 	segment.resources = append(segment.resources, func() error {
@@ -86,10 +91,12 @@ func openSegment(filename string, maxSize int64, startOffset Offset) (*Segment, 
 	}
 	segment.SegmentHeader = *segmentHeader
 	segment.readBuf = iter.Buffer()
+	segment.Path = path
+	segment.Tail = startOffset
 	return segment, nil
 }
 
-func createSegment(filename string, maxSize int64, startOffset Offset) (*os.File, error) {
+func createTailSegment(filename string, maxSize int64, startOffset Offset) (*os.File, error) {
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err

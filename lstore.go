@@ -7,6 +7,8 @@ import (
 	"context"
 	"github.com/v2pro/plz/countlog"
 	"path"
+	"fmt"
+	"os"
 )
 
 const TailSegmentFileName = "tail.segment"
@@ -15,6 +17,10 @@ type Config struct {
 	Directory          string
 	CommandQueueSize   int
 	TailSegmentMaxSize int64
+}
+
+func (conf *Config) TailSegmentPath() string {
+	return path.Join(conf.Directory, TailSegmentFileName)
 }
 
 type Store struct {
@@ -54,11 +60,11 @@ func (store *Store) Start() error {
 }
 
 func (store *Store) loadData() (*StoreVersion, error) {
-	segment, err := openSegment(path.Join(store.Directory, TailSegmentFileName), store.TailSegmentMaxSize, 0)
+	segment, err := openTailSegment(path.Join(store.Directory, TailSegmentFileName), store.TailSegmentMaxSize, 0)
 	if err != nil {
 		return nil, err
 	}
-	return &StoreVersion{referenceCounter: 1, tail: segment}, nil
+	return &StoreVersion{config: store.Config, referenceCounter: 1, tail: segment}, nil
 }
 
 func (store *Store) startCommandQueue(initialVersion *StoreVersion) {
@@ -80,12 +86,12 @@ func (store *Store) startCommandQueue(initialVersion *StoreVersion) {
 			}
 			newVersion := handleCommand(command, currentVersion)
 			if newVersion != nil {
+				atomic.StorePointer(&store.currentVersion, unsafe.Pointer(newVersion))
 				err := currentVersion.Close()
 				if err != nil {
 					countlog.Error("event!store.failed to close", "err", err)
 				}
 				currentVersion = newVersion
-				atomic.StorePointer(&store.currentVersion, unsafe.Pointer(currentVersion))
 			}
 		}
 	})
@@ -156,13 +162,30 @@ func (version *StoreVersion) decreaseReference() bool {
 	}
 }
 
-func (version *StoreVersion) AddSegment() *StoreVersion {
-	newVersion := *version
+func (version *StoreVersion) AddSegment() (*StoreVersion, error) {
+	oldVersion := version
+	newVersion := *oldVersion
 	newVersion.referenceCounter = 1
-	newVersion.segments = make([]*Segment, len(version.segments)+1)
+	newVersion.segments = make([]*Segment, len(oldVersion.segments)+1)
 	i := 0
-	for ; i < len(version.segments); i++ {
-		newVersion.segments[i] = version.segments[i]
+	var err error
+	for ; i < len(oldVersion.segments); i++ {
+		oldSegment := oldVersion.segments[i]
+		newVersion.segments[i], err = openSegment(oldSegment.Path)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return &newVersion
+	conf := oldVersion.config
+	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.segment", oldVersion.tail.StartOffset))
+	if err = os.Rename(oldVersion.tail.Path, rotatedTo); err != nil {
+		return nil, err
+	}
+	newVersion.segments[i], err = openSegment(rotatedTo)
+	newVersion.tail, err = openTailSegment(conf.TailSegmentPath(), conf.TailSegmentMaxSize, oldVersion.tail.Tail)
+	if err != nil {
+		return nil, err
+	}
+	countlog.Info("event!store.rotated", "tail", oldVersion.tail.Tail)
+	return &newVersion, nil
 }

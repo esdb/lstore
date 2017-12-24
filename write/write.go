@@ -16,8 +16,9 @@ type Result struct {
 
 func AsyncExecute(ctx context.Context, store *lstore.Store, entry *lstore.Entry, resultChan chan<- Result) {
 	store.AsyncExecute(ctx, func(store *lstore.StoreVersion) *lstore.StoreVersion {
-		resultChan <- writeToTail(store, entry)
-		return nil
+		rotatedStore, result := writeOrRotate(store, entry)
+		resultChan <- result
+		return rotatedStore
 	})
 }
 
@@ -32,7 +33,20 @@ func Execute(ctx context.Context, store *lstore.Store, entry *lstore.Entry) (lst
 	}
 }
 
-func writeToTail(store *lstore.StoreVersion, entry *lstore.Entry) Result {
+func writeOrRotate(store *lstore.StoreVersion, entry *lstore.Entry) (*lstore.StoreVersion, Result) {
+	result := tryWrite(store, entry)
+	if result.Error == SegmentOverflowError {
+		rotatedStore, err := store.AddSegment()
+		if err != nil {
+			return nil, Result{0, err}
+		}
+		result = tryWrite(rotatedStore, entry)
+		return rotatedStore, result
+	}
+	return nil, result
+}
+
+func tryWrite(store *lstore.StoreVersion, entry *lstore.Entry) Result {
 	segment := store.Tail()
 	buf := segment.WriteBuffer()
 	if segment.Tail >= lstore.Offset(len(buf)) {
@@ -44,9 +58,10 @@ func writeToTail(store *lstore.StoreVersion, entry *lstore.Entry) Result {
 	if stream.Error != nil {
 		return Result{0, stream.Error}
 	}
-	segment.Tail = offset + lstore.Offset(size)
-	if segment.Tail >= lstore.Offset(len(buf)) {
+	tail := offset + lstore.Offset(size)
+	if tail >= segment.StartOffset + lstore.Offset(len(buf)) {
 		return Result{0, SegmentOverflowError}
 	}
+	segment.Tail = tail
 	return Result{offset, nil}
 }

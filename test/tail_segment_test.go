@@ -91,8 +91,8 @@ func Test_write_rotation(t *testing.T) {
 	should := require.New(t)
 	store := &lstore.Store{}
 	store.Directory = "/tmp"
-	store.TailSegmentMaxSize = 0x58
-	os.Remove(path.Join(store.Directory, lstore.TailSegmentFileName))
+	store.TailSegmentMaxSize = 140
+	os.Remove(store.TailSegmentPath())
 	err := store.Start()
 	should.Nil(err)
 	offset, err := write.Execute(context.Background(), store, intEntry(1))
