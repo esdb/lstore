@@ -2,26 +2,25 @@ package lstore
 
 import (
 	"context"
-	"github.com/esdb/lstore"
 	"io"
 )
 
-type Request struct {
-	StartOffset   lstore.Offset
+type SearchRequest struct {
+	StartOffset   Offset
 	BatchSizeHint int
 	LimitSize     int
-	Filters       []lstore.Filter
+	Filters       []Filter
 }
 
-type blockIterator func() (lstore.Block, error)
-type RowIterator func() ([]lstore.Row, error)
+type blockIterator func() (Block, error)
+type RowIterator func() ([]Row, error)
 
 // t1Search speed up by tree of bloomfilter (for int,blob) and min max (for int)
-func t1Search(reader *lstore.Reader, filters []lstore.Filter) blockIterator {
-	store := reader.CurrentVersion()
-	rawSegments := store.RawSegments()
+func t1Search(reader *Reader, filters []Filter) blockIterator {
+	store := reader.currentVersion
+	rawSegments := store.rawSegments
 	currentRawSegmentIndex := 0
-	return func() (lstore.Block, error) {
+	return func() (Block, error) {
 		if currentRawSegmentIndex < len(rawSegments) {
 			block := rawSegments[currentRawSegmentIndex].AsBlock
 			currentRawSegmentIndex++
@@ -29,7 +28,7 @@ func t1Search(reader *lstore.Reader, filters []lstore.Filter) blockIterator {
 		}
 		if currentRawSegmentIndex == len(rawSegments) {
 			currentRawSegmentIndex++
-			return reader.TailBlock(), nil
+			return reader.tailBlock, nil
 		}
 		return nil, io.EOF
 	}
@@ -37,9 +36,8 @@ func t1Search(reader *lstore.Reader, filters []lstore.Filter) blockIterator {
 
 // t2Search speed up by column based disk layout (for compacted segments)
 // and in memory cache (for raw segments and tail segment)
-func t2Search(reader *lstore.Reader, blkIter blockIterator, req Request) ([]lstore.Row, error) {
-
-	var batch []lstore.Row
+func t2Search(reader *Reader, blkIter blockIterator, req SearchRequest) ([]Row, error) {
+	var batch []Row
 	for {
 		blk, err := blkIter()
 		if err != nil {
@@ -58,13 +56,13 @@ func t2Search(reader *lstore.Reader, blkIter blockIterator, req Request) ([]lsto
 	}
 }
 
-func Execute(ctx context.Context, reader *lstore.Reader, req Request) RowIterator {
+func (reader *Reader) Search(ctx context.Context, req SearchRequest) RowIterator {
 	if req.BatchSizeHint == 0 {
 		req.BatchSizeHint = 64
 	}
 	blkIter := t1Search(reader, req.Filters)
 	remaining := req.LimitSize
-	return func() ([]lstore.Row, error) {
+	return func() ([]Row, error) {
 		batch, err := t2Search(reader, blkIter, req)
 		if err != nil {
 			return nil, err

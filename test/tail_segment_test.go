@@ -6,8 +6,6 @@ import (
 	"os"
 	"github.com/esdb/lstore"
 	"context"
-	"github.com/esdb/lstore/write"
-	"github.com/esdb/lstore/search"
 	"path"
 )
 
@@ -38,13 +36,13 @@ func Test_write_read_one_entry(t *testing.T) {
 	should := require.New(t)
 	store := testStore()
 	defer store.Stop(context.Background())
-	offset, err := write.Execute(context.Background(), store, intEntry(1))
+	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), offset)
 	reader, err := store.NewReader()
 	should.Nil(err)
 	defer reader.Close()
-	iter := search.Execute(context.Background(), reader, search.Request{
+	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		LimitSize: 2,
 	})
 	rows, err := iter()
@@ -57,16 +55,16 @@ func Test_write_two_entries(t *testing.T) {
 	should := require.New(t)
 	store := testStore()
 	defer store.Stop(context.Background())
-	offset, err := write.Execute(context.Background(), store, intEntry(1))
+	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), offset)
-	offset, err = write.Execute(context.Background(), store, intEntry(2))
+	offset, err = store.Write(context.Background(), intEntry(2))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0x58), offset)
 	reader, err := store.NewReader()
 	should.Nil(err)
 	defer reader.Close()
-	iter := search.Execute(context.Background(), reader, search.Request{
+	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		StartOffset: offset,
 		LimitSize: 2,
 	})
@@ -79,7 +77,7 @@ func Test_write_two_entries(t *testing.T) {
 func Test_reopen_tail_segment(t *testing.T) {
 	should := require.New(t)
 	store := testStore()
-	offset, err := write.Execute(context.Background(), store, intEntry(1))
+	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), offset)
 
@@ -92,7 +90,7 @@ func Test_reopen_tail_segment(t *testing.T) {
 	reader, err := store.NewReader()
 	should.Nil(err)
 	defer reader.Close()
-	iter := search.Execute(context.Background(), reader, search.Request{
+	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		LimitSize: 2,
 	})
 	rows, err := iter()
@@ -111,13 +109,13 @@ func Test_write_rotation(t *testing.T) {
 	os.Remove(store.TailSegmentPath())
 	err := store.Start()
 	should.Nil(err)
-	offset, err := write.Execute(context.Background(), store, intEntry(1))
+	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), offset)
-	offset, err = write.Execute(context.Background(), store, intEntry(2))
+	offset, err = store.Write(context.Background(), intEntry(2))
 	should.Nil(err)
 	should.Equal(lstore.Offset(88), offset)
-	offset, err = write.Execute(context.Background(), store, intEntry(3))
+	offset, err = store.Write(context.Background(), intEntry(3))
 	should.Nil(err)
 	should.Equal(lstore.Offset(176), offset)
 }

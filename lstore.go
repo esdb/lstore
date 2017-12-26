@@ -20,13 +20,16 @@ func (conf *Config) TailSegmentPath() string {
 	return path.Join(conf.Directory, TailSegmentFileName)
 }
 
+// Store is physically a directory, containing multiple files on disk
+// it represents the history by a log of entries
 type Store struct {
 	Config
-	*Writer
+	*writer
 	currentVersion unsafe.Pointer
 	executor       *concurrent.UnboundedExecutor // owns writer and compacter
 }
 
+// StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
 	config           Config
 	referenceCounter uint32
@@ -44,14 +47,12 @@ func (store *Store) Start() error {
 	if store.TailSegmentMaxSize == 0 {
 		store.TailSegmentMaxSize = 200 * 1024 * 1024
 	}
-	initialVersion, err := store.loadData()
+	store.executor = concurrent.NewUnboundedExecutor()
+	writer, err := loadWriter(store)
 	if err != nil {
 		return err
 	}
-	atomic.StorePointer(&store.currentVersion, unsafe.Pointer(initialVersion))
-	store.executor = concurrent.NewUnboundedExecutor()
-	store.Writer = &Writer{make(chan Command, store.CommandQueueSize)}
-	store.Writer.start(store, initialVersion)
+	store.writer = writer
 	return nil
 }
 
@@ -59,7 +60,7 @@ func (store *Store) Stop(ctx context.Context) {
 	store.executor.StopAndWait(ctx)
 }
 
-func (store *Store) Latest() *StoreVersion {
+func (store *Store) latest() *StoreVersion {
 	for {
 		store := (*StoreVersion)(atomic.LoadPointer(&store.currentVersion))
 		if store == nil {

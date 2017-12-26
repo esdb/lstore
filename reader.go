@@ -19,7 +19,7 @@ func (store *Store) NewReader() (*Reader, error) {
 		store: store,
 		tailBlock: &rowBasedBlock{rows: nil},
 		gocIter: gocodec.NewIterator(nil),
-		currentVersion: store.Latest(),
+		currentVersion: store.latest(),
 	}
 	if err := reader.Refresh(); err != nil {
 		return nil, err
@@ -28,8 +28,8 @@ func (store *Store) NewReader() (*Reader, error) {
 }
 
 func (reader *Reader) Refresh() error {
-	latestVersion := reader.store.Latest()
-	if latestVersion.tailSegment != reader.currentVersion.TailSegment() {
+	latestVersion := reader.store.latest()
+	if latestVersion.tailSegment != reader.currentVersion.tailSegment {
 		reader.tailRows = make([]Row, 0, 4)
 		reader.tailOffset = latestVersion.tailSegment.StartOffset
 		reader.tailBlock = nil
@@ -41,14 +41,6 @@ func (reader *Reader) Refresh() error {
 		reader.currentVersion = latestVersion
 	}
 	return reader.currentVersion.tailSegment.read(reader)
-}
-
-func (reader *Reader) CurrentVersion() *StoreVersion {
-	return reader.currentVersion
-}
-
-func (reader *Reader) TailBlock() Block {
-	return reader.tailBlock
 }
 
 func (reader *Reader) Close() error {

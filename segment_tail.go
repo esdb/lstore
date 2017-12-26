@@ -11,12 +11,14 @@ import (
 )
 
 var SegmentOverflowError = errors.New("please rotate to new segment")
+
 type TailSegment struct {
 	SegmentHeader
-	Path      string
-	readBuf   []byte
-	resources []func() error
-	tail      uint64 // writer use atomic to notify readers
+	Path     string
+	readBuf  []byte
+	file     *os.File
+	readMMap mmap.MMap
+	tail     uint64 // writer use atomic to notify readers
 }
 
 func openTailSegment(path string, maxSize int64, startOffset Offset) (*TailSegment, error) {
@@ -28,44 +30,21 @@ func openTailSegment(path string, maxSize int64, startOffset Offset) (*TailSegme
 		}
 	}
 	segment := &TailSegment{}
-	segment.resources = append(segment.resources, func() error {
-		return file.Close()
-	})
-	writeMMap, err := mmap.Map(file, mmap.RDWR, 0)
-	if err != nil {
-		countlog.Error("event!segment.failed to mmap as RDWR", "err", err, "path", path)
-		return nil, err
-	}
-	segment.resources = append(segment.resources, func() error {
-		return writeMMap.Unmap()
-	})
-	segment.writeMMap = writeMMap
-	iter := gocodec.NewIterator(writeMMap)
-	headerBytes := append([]byte(nil), iter.Skip()...)
-	segment.writeBuf = iter.Buffer()
-	iter.Reset(headerBytes)
-	segmentHeader, _ := iter.Unmarshal((*SegmentHeader)(nil)).(*SegmentHeader)
-	if iter.Error != nil {
-		return nil, iter.Error
-	}
-	segment.SegmentHeader = *segmentHeader
+	segment.file = file
 	readMMap, err := mmap.Map(file, mmap.RDONLY, 0)
 	if err != nil {
 		countlog.Error("event!segment.failed to mmap as RDONLY", "err", err, "path", path)
 		return nil, err
 	}
-	segment.resources = append(segment.resources, func() error {
-		return readMMap.Unmap()
-	})
-	iter.Reset(readMMap)
-	iter.Skip()
+	segment.readMMap = readMMap
+	iter := gocodec.NewIterator(readMMap)
+	segmentHeader, _ := iter.Copy((*SegmentHeader)(nil)).(*SegmentHeader)
 	if iter.Error != nil {
 		return nil, iter.Error
 	}
 	segment.SegmentHeader = *segmentHeader
 	segment.readBuf = iter.Buffer()
 	segment.Path = path
-	segment.tail = uint64(startOffset)
 	return segment, nil
 }
 
@@ -96,11 +75,22 @@ func createTailSegment(filename string, maxSize int64, startOffset Offset) (*os.
 
 func (segment *TailSegment) Close() error {
 	failed := false
-	for _, resource := range segment.resources {
-		err := resource()
+	if segment.readMMap != nil {
+		err := segment.readMMap.Unmap()
 		if err != nil {
-			countlog.Error("event!segment.failed to close resource", "err", err)
+			countlog.Error("event!segment_tail.failed to unmap read", "err", err)
 			failed = true
+		} else {
+			segment.readMMap = nil
+		}
+	}
+	if segment.file != nil {
+		err := segment.file.Close()
+		if err != nil {
+			countlog.Error("event!segment_tail.failed to close file", "err", err)
+			failed = true
+		} else {
+			segment.file = nil
 		}
 	}
 	if failed {
@@ -125,7 +115,7 @@ func (segment *TailSegment) read(reader *Reader) error {
 		// tail not moved
 		return nil
 	}
-	buf := segment.readBuf[startOffset:]
+	buf := segment.readBuf[startOffset - segment.StartOffset:]
 	bufSize := Offset(len(buf))
 	iter.Reset(buf)
 	for {

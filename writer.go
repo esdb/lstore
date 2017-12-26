@@ -14,25 +14,85 @@ import (
 )
 
 type command func(ctx context.Context, store *StoreVersion) *StoreVersion
-type Writer struct {
-	commandQueue chan command
-	tailSegment  *TailSegment
-	writeBuf     []byte
-	writeMMap    mmap.MMap
+
+type writer struct {
+	commandQueue   chan command
+	currentVersion *StoreVersion
+	tailRows       []Row
+	writeBuf       []byte
+	writeMMap      mmap.MMap
 }
 
-func (writer *Writer) asyncExecute(ctx context.Context, cmd command) {
-	select {
-	case writer.commandQueue <- cmd:
-	case <-ctx.Done():
+type WriteResult struct {
+	Offset Offset
+	Error  error
+}
+
+func loadWriter(store *Store) (*writer, error) {
+	config := store.Config
+	initialVersion, err := loadInitialVersion(config)
+	if err != nil {
+		return nil, err
 	}
+	atomic.StorePointer(&store.currentVersion, unsafe.Pointer(initialVersion))
+	writer := &writer{
+		commandQueue: make(chan command, config.CommandQueueSize),
+		currentVersion: initialVersion,
+	}
+	tailSegment := initialVersion.tailSegment
+	writeMMap, err := mmap.Map(tailSegment.file, mmap.RDWR, 0)
+	if err != nil {
+		countlog.Error("event!segment.failed to mmap as RDWR", "err", err, "path", tailSegment.Path)
+		return nil, err
+	}
+	writer.writeMMap = writeMMap
+	iter := gocodec.NewIterator(writeMMap)
+	iter.Skip()
+	writer.writeBuf = iter.Buffer()
+	reader, err := store.NewReader()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	writer.tailRows = reader.tailRows
+	tailSegment.updateTail(reader.tailOffset)
+	writer.start(store)
+	return writer, nil
 }
 
-func (writer *Writer) start(store *Store, initialVersion *StoreVersion) {
+func loadInitialVersion(config Config) (*StoreVersion, error) {
+	tailSegment, err := openTailSegment(config.TailSegmentPath(), config.TailSegmentMaxSize, 0)
+	if err != nil {
+		return nil, err
+	}
+	var reversedRawSegments []*RawSegment
+	startOffset := tailSegment.StartOffset
+	for startOffset != 0 {
+		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startOffset))
+		rawSegment, err := openRawSegment(prev, startOffset)
+		if err != nil {
+			return nil, err
+		}
+		reversedRawSegments = append(reversedRawSegments, rawSegment)
+		startOffset = rawSegment.StartOffset
+	}
+	rawSegments := make([]*RawSegment, len(reversedRawSegments))
+	for i := 0; i < len(reversedRawSegments); i++ {
+		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
+	}
+	initialVersion := &StoreVersion{
+		referenceCounter: 1,
+		config:           config,
+		rawSegments:      rawSegments,
+		tailSegment:      tailSegment,
+	}
+	return initialVersion, nil
+}
+
+func (writer *writer) start(store *Store) {
 	store.executor.Go(func(ctx context.Context) {
-		currentVersion := initialVersion
 		defer func() {
-			err := currentVersion.Close()
+			err := writer.currentVersion.Close()
 			if err != nil {
 				countlog.Error("event!store.failed to close", "err", err)
 			}
@@ -46,45 +106,24 @@ func (writer *Writer) start(store *Store, initialVersion *StoreVersion) {
 				return
 			case cmd = <-writer.commandQueue:
 			}
-			newVersion := handleCommand(ctx, cmd, currentVersion)
+			newVersion := handleCommand(ctx, cmd, writer.currentVersion)
 			if newVersion != nil {
 				atomic.StorePointer(&store.currentVersion, unsafe.Pointer(newVersion))
-				err := currentVersion.Close()
+				err := writer.currentVersion.Close()
 				if err != nil {
 					countlog.Error("event!store.failed to close", "err", err)
 				}
-				currentVersion = newVersion
+				writer.currentVersion = newVersion
 			}
 		}
 	})
 }
 
-func (store *Store) loadData() (*StoreVersion, error) {
-	tailSegment, err := openTailSegment(store.TailSegmentPath(), store.TailSegmentMaxSize, 0)
-	if err != nil {
-		return nil, err
+func (writer *writer) asyncExecute(ctx context.Context, cmd command) {
+	select {
+	case writer.commandQueue <- cmd:
+	case <-ctx.Done():
 	}
-	var reversedRawSegments []*RawSegment
-	startOffset := tailSegment.StartOffset
-	for startOffset != 0 {
-		prev := path.Join(store.Directory, fmt.Sprintf("%d.segment", startOffset))
-		rawSegment, err := openRawSegment(prev, startOffset)
-		if err != nil {
-			return nil, err
-		}
-		reversedRawSegments = append(reversedRawSegments, rawSegment)
-		startOffset = rawSegment.StartOffset
-	}
-	rawSegments := make([]*RawSegment, len(reversedRawSegments))
-	for i := 0; i < len(reversedRawSegments); i++ {
-		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
-	}
-	return &StoreVersion{
-		referenceCounter: 1,
-		config:           store.Config,
-		rawSegments:      rawSegments,
-		tailSegment:      tailSegment,
-	}, nil
 }
 
 func handleCommand(ctx context.Context, cmd command, currentVersion *StoreVersion) *StoreVersion {
@@ -99,21 +138,16 @@ func handleCommand(ctx context.Context, cmd command, currentVersion *StoreVersio
 	return cmd(ctx, currentVersion)
 }
 
-type WriteResult struct {
-	Offset Offset
-	Error  error
-}
-
-func (store *Store) AsyncWrite(ctx context.Context, entry *Entry, resultChan chan<- WriteResult) {
-	store.asyncExecute(ctx, func(ctx context.Context, currentVersion *StoreVersion) *StoreVersion {
-		offset, err := store.Write(ctx, entry)
+func (writer *writer) AsyncWrite(ctx context.Context, entry *Entry, resultChan chan<- WriteResult) {
+	writer.asyncExecute(ctx, func(ctx context.Context, currentVersion *StoreVersion) *StoreVersion {
+		offset, err := writer.tryWrite(ctx, entry)
 		if err == SegmentOverflowError {
-			newVersion, err := store.addSegment(currentVersion)
+			newVersion, err := writer.addSegment(currentVersion)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
 				return nil
 			}
-			offset, err = store.Write(ctx, entry)
+			offset, err = writer.tryWrite(ctx, entry)
 			resultChan <- WriteResult{offset, nil}
 			return newVersion
 		}
@@ -122,9 +156,9 @@ func (store *Store) AsyncWrite(ctx context.Context, entry *Entry, resultChan cha
 	})
 }
 
-func (store *Store) Write(ctx context.Context, entry *Entry) (Offset, error) {
+func (writer *writer) Write(ctx context.Context, entry *Entry) (Offset, error) {
 	resultChan := make(chan WriteResult)
-	store.AsyncWrite(ctx, entry, resultChan)
+	writer.AsyncWrite(ctx, entry, resultChan)
 	select {
 	case result := <-resultChan:
 		return result.Offset, result.Error
@@ -133,9 +167,9 @@ func (store *Store) Write(ctx context.Context, entry *Entry) (Offset, error) {
 	}
 }
 
-func (writer *Writer) write(ctx context.Context, entry *Entry) (Offset, error) {
+func (writer *writer) tryWrite(ctx context.Context, entry *Entry) (Offset, error) {
 	buf := writer.writeBuf
-	segment := writer.tailSegment
+	segment := writer.currentVersion.tailSegment
 	maxTail := segment.StartOffset + Offset(len(buf))
 	offset := Offset(segment.tail)
 	if offset >= maxTail {
@@ -151,11 +185,12 @@ func (writer *Writer) write(ctx context.Context, entry *Entry) (Offset, error) {
 	if tail >= maxTail {
 		return 0, SegmentOverflowError
 	}
+	// reader will know if read the tail using atomic
 	segment.updateTail(tail)
 	return offset, nil
 }
 
-func (writer *Writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error) {
+func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error) {
 	newVersion := *oldVersion
 	newVersion.referenceCounter = 1
 	newVersion.rawSegments = make([]*RawSegment, len(oldVersion.rawSegments)+1)
