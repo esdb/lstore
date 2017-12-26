@@ -11,7 +11,12 @@ import (
 
 func Test_raw_segment(t *testing.T) {
 	should := require.New(t)
-	store := testStore()
+	store := &lstore.Store{}
+	store.Directory = "/tmp"
+	store.TailSegmentMaxSize = 140
+	os.Remove(store.TailSegmentPath())
+	err := store.Start()
+	should.Nil(err)
 	defer store.Stop(context.Background())
 	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)

@@ -190,6 +190,7 @@ func (writer *writer) tryWrite(ctx context.Context, tailSegment *TailSegment, en
 	if tail >= maxTail {
 		return 0, SegmentOverflowError
 	}
+	writer.tailRows = append(writer.tailRows, Row{Offset: offset, Entry: entry})
 	// reader will know if read the tail using atomic
 	tailSegment.updateTail(tail)
 	return offset, nil
@@ -218,6 +219,7 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 	if err = os.Rename(oldVersion.tailSegment.Path, rotatedTo); err != nil {
 		return nil, err
 	}
+	// use writer.tailRows to build a raw segment without loading from file
 	newVersion.rawSegments[i] = &RawSegment{
 		SegmentHeader: oldVersion.tailSegment.SegmentHeader,
 		Path:          rotatedTo,
