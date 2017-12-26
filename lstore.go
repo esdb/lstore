@@ -6,6 +6,7 @@ import (
 	"github.com/v2pro/plz/concurrent"
 	"context"
 	"path"
+	"github.com/esdb/lstore/ref"
 )
 
 const TailSegmentFileName = "tail.segment"
@@ -31,10 +32,10 @@ type Store struct {
 
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
-	config           Config
-	referenceCounter uint32
-	rawSegments      []*RawSegment
-	tailSegment      *TailSegment
+	config      Config
+	refCnt      *ref.ReferenceCounted
+	rawSegments []*RawSegment
+	tailSegment *TailSegment
 }
 
 func (store *Store) Start() error {
@@ -66,34 +67,12 @@ func (store *Store) latest() *StoreVersion {
 		if store == nil {
 			return nil
 		}
-		counter := atomic.LoadUint32(&store.referenceCounter)
-		if counter == 0 {
-			// retry
-			continue
+		if store.refCnt.Acquire() {
+			return store
 		}
-		if !atomic.CompareAndSwapUint32(&store.referenceCounter, counter, counter+1) {
-			// retry
-			continue
-		}
-		return store
 	}
 }
 
 func (version *StoreVersion) Close() error {
-	if !version.decreaseReference() {
-		return nil // still in use
-	}
-	return version.tailSegment.Close()
-}
-
-func (version *StoreVersion) decreaseReference() bool {
-	for {
-		counter := atomic.LoadUint32(&version.referenceCounter)
-		if counter == 0 {
-			return true
-		}
-		if atomic.CompareAndSwapUint32(&version.referenceCounter, counter, counter-1) {
-			return counter == 1 // last one should close the currentVersion
-		}
-	}
+	return version.refCnt.Close()
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/esdb/gocodec"
 	"github.com/edsrzf/mmap-go"
 	"math"
+	"github.com/esdb/lstore/ref"
 )
 
 type command func(ctx context.Context, store *StoreVersion) *StoreVersion
@@ -37,7 +38,7 @@ func loadWriter(store *Store) (*writer, error) {
 	}
 	atomic.StorePointer(&store.currentVersion, unsafe.Pointer(initialVersion))
 	writer := &writer{
-		commandQueue: make(chan command, config.CommandQueueSize),
+		commandQueue:   make(chan command, config.CommandQueueSize),
 		currentVersion: initialVersion,
 	}
 	tailSegment := initialVersion.tailSegment
@@ -79,10 +80,10 @@ func loadInitialVersion(config Config) (*StoreVersion, error) {
 		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
 	}
 	initialVersion := &StoreVersion{
-		referenceCounter: 1,
-		config:           config,
-		rawSegments:      rawSegments,
-		tailSegment:      tailSegment,
+		refCnt:      ref.NewReferenceCounted("store version", tailSegment),
+		config:      config,
+		rawSegments: rawSegments,
+		tailSegment: tailSegment,
 	}
 	return initialVersion, nil
 }
@@ -111,6 +112,7 @@ func (writer *writer) start(store *Store) {
 				if err != nil {
 					countlog.Error("event!store.failed to close", "err", err)
 				}
+				writer.currentVersion = newVersion
 			}
 		}
 	})
@@ -137,14 +139,14 @@ func handleCommand(ctx context.Context, cmd command, currentVersion *StoreVersio
 
 func (writer *writer) AsyncWrite(ctx context.Context, entry *Entry, resultChan chan<- WriteResult) {
 	writer.asyncExecute(ctx, func(ctx context.Context, currentVersion *StoreVersion) *StoreVersion {
-		offset, err := writer.tryWrite(ctx, entry)
+		offset, err := writer.tryWrite(ctx, writer.currentVersion.tailSegment, entry)
 		if err == SegmentOverflowError {
 			newVersion, err := writer.addSegment(currentVersion)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
 				return newVersion
 			}
-			offset, err = writer.tryWrite(ctx, entry)
+			offset, err = writer.tryWrite(ctx, newVersion.tailSegment, entry)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
 				return newVersion
@@ -168,16 +170,15 @@ func (writer *writer) Write(ctx context.Context, entry *Entry) (Offset, error) {
 	}
 }
 
-func (writer *writer) tryWrite(ctx context.Context, entry *Entry) (Offset, error) {
+func (writer *writer) tryWrite(ctx context.Context, tailSegment *TailSegment, entry *Entry) (Offset, error) {
 	buf := writer.writeBuf
-	segment := writer.currentVersion.tailSegment
-	maxTail := segment.StartOffset + Offset(len(buf))
-	offset := Offset(segment.tail)
+	maxTail := tailSegment.StartOffset + Offset(len(buf))
+	offset := Offset(tailSegment.tail)
 	if offset >= maxTail {
 		return 0, SegmentOverflowError
 	}
 	stream := ctx.Value("stream").(*gocodec.Stream)
-	stream.Reset(buf[offset-segment.StartOffset:offset-segment.StartOffset])
+	stream.Reset(buf[offset-tailSegment.StartOffset:offset-tailSegment.StartOffset])
 	size := stream.Marshal(*entry)
 	if stream.Error != nil {
 		return 0, stream.Error
@@ -187,7 +188,7 @@ func (writer *writer) tryWrite(ctx context.Context, entry *Entry) (Offset, error
 		return 0, SegmentOverflowError
 	}
 	// reader will know if read the tail using atomic
-	segment.updateTail(tail)
+	tailSegment.updateTail(tail)
 	return offset, nil
 }
 
@@ -198,7 +199,6 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 		return nil, err
 	}
 	newVersion := *oldVersion
-	newVersion.referenceCounter = 1
 	newVersion.rawSegments = make([]*RawSegment, len(oldVersion.rawSegments)+1)
 	i := 0
 	for ; i < len(oldVersion.rawSegments); i++ {
@@ -224,7 +224,7 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 		return nil, err
 	}
 	newVersion.tailSegment.updateTail(newVersion.tailSegment.StartOffset)
-	writer.currentVersion = &newVersion
+	newVersion.refCnt = ref.NewReferenceCounted("store version", newVersion.tailSegment)
 	countlog.Info("event!store.rotated", "tail", newVersion.tailSegment.StartOffset)
 	return &newVersion, nil
 }
