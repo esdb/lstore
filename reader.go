@@ -27,6 +27,7 @@ func (store *Store) NewReader() (*Reader, error) {
 	return reader, nil
 }
 
+// Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailSegment.tail
 func (reader *Reader) Refresh() error {
 	latestVersion := reader.store.latest()
 	if latestVersion.tailSegment != reader.currentVersion.tailSegment {
@@ -35,6 +36,7 @@ func (reader *Reader) Refresh() error {
 		reader.tailBlock = nil
 	}
 	if reader.currentVersion != latestVersion {
+		// when reader moves forward, older version has a chance to die
 		if err := reader.currentVersion.Close(); err != nil {
 			return err
 		}

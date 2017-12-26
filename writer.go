@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"github.com/esdb/gocodec"
 	"github.com/edsrzf/mmap-go"
+	"math"
 )
 
 type command func(ctx context.Context, store *StoreVersion) *StoreVersion
@@ -40,15 +41,12 @@ func loadWriter(store *Store) (*writer, error) {
 		currentVersion: initialVersion,
 	}
 	tailSegment := initialVersion.tailSegment
-	writeMMap, err := mmap.Map(tailSegment.file, mmap.RDWR, 0)
+	err = writer.mapFile(tailSegment)
 	if err != nil {
-		countlog.Error("event!segment.failed to mmap as RDWR", "err", err, "path", tailSegment.Path)
 		return nil, err
 	}
-	writer.writeMMap = writeMMap
-	iter := gocodec.NewIterator(writeMMap)
-	iter.Skip()
-	writer.writeBuf = iter.Buffer()
+	// force reader to read all remaining rows
+	tailSegment.updateTail(math.MaxUint64)
 	reader, err := store.NewReader()
 	if err != nil {
 		return nil, err
@@ -113,7 +111,6 @@ func (writer *writer) start(store *Store) {
 				if err != nil {
 					countlog.Error("event!store.failed to close", "err", err)
 				}
-				writer.currentVersion = newVersion
 			}
 		}
 	})
@@ -145,9 +142,13 @@ func (writer *writer) AsyncWrite(ctx context.Context, entry *Entry, resultChan c
 			newVersion, err := writer.addSegment(currentVersion)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
-				return nil
+				return newVersion
 			}
 			offset, err = writer.tryWrite(ctx, entry)
+			if err != nil {
+				resultChan <- WriteResult{0, err}
+				return newVersion
+			}
 			resultChan <- WriteResult{offset, nil}
 			return newVersion
 		}
@@ -191,11 +192,15 @@ func (writer *writer) tryWrite(ctx context.Context, entry *Entry) (Offset, error
 }
 
 func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error) {
+	err := writer.writeMMap.Unmap()
+	if err != nil {
+		countlog.Error("event!writer.failed to unmap write", "err", err)
+		return nil, err
+	}
 	newVersion := *oldVersion
 	newVersion.referenceCounter = 1
 	newVersion.rawSegments = make([]*RawSegment, len(oldVersion.rawSegments)+1)
 	i := 0
-	var err error
 	for ; i < len(oldVersion.rawSegments); i++ {
 		oldSegment := oldVersion.rawSegments[i]
 		newVersion.rawSegments[i] = oldSegment
@@ -214,6 +219,25 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 	if err != nil {
 		return nil, err
 	}
+	err = writer.mapFile(newVersion.tailSegment)
+	if err != nil {
+		return nil, err
+	}
+	newVersion.tailSegment.updateTail(newVersion.tailSegment.StartOffset)
+	writer.currentVersion = &newVersion
 	countlog.Info("event!store.rotated", "tail", newVersion.tailSegment.StartOffset)
 	return &newVersion, nil
+}
+
+func (writer *writer) mapFile(tailSegment *TailSegment) error {
+	writeMMap, err := mmap.Map(tailSegment.file, mmap.RDWR, 0)
+	if err != nil {
+		countlog.Error("event!segment.failed to mmap as RDWR", "err", err, "path", tailSegment.Path)
+		return err
+	}
+	writer.writeMMap = writeMMap
+	iter := gocodec.NewIterator(writeMMap)
+	iter.Skip()
+	writer.writeBuf = iter.Buffer()
+	return nil
 }

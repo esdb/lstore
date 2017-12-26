@@ -109,27 +109,28 @@ func (segment *TailSegment) getTail() Offset {
 
 func (segment *TailSegment) read(reader *Reader) error {
 	iter := reader.gocIter
-	var rows []Row
 	startOffset := reader.tailOffset
 	if startOffset == segment.getTail() {
 		// tail not moved
 		return nil
 	}
-	buf := segment.readBuf[startOffset - segment.StartOffset:]
+	buf := segment.readBuf[startOffset-segment.StartOffset:]
 	bufSize := Offset(len(buf))
 	iter.Reset(buf)
+	newRowsCount := 0
 	for {
 		currentOffset := startOffset + (bufSize - Offset(len(iter.Buffer())))
 		entry, _ := iter.Copy((*Entry)(nil)).(*Entry)
 		if iter.Error == io.EOF {
-			reader.tailRows = rows
 			reader.tailOffset = currentOffset
 			reader.tailBlock = &rowBasedBlock{rows: reader.tailRows}
+			countlog.Trace("event!segment_tail.read", "newRowsCount", newRowsCount)
 			return nil
 		}
 		if iter.Error != nil {
 			return iter.Error
 		}
-		rows = append(rows, Row{Entry: entry, Offset: currentOffset})
+		reader.tailRows = append(reader.tailRows, Row{Entry: entry, Offset: currentOffset})
+		newRowsCount++
 	}
 }

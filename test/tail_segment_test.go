@@ -20,6 +20,17 @@ func testStore() *lstore.Store {
 	return store
 }
 
+func reopenTestStore(store *lstore.Store) *lstore.Store {
+	store.Stop(context.Background())
+	store = &lstore.Store{}
+	store.Directory = "/tmp"
+	err := store.Start()
+	if err != nil {
+		panic(err)
+	}
+	return store
+}
+
 func intEntry(values ...int64) *lstore.Entry {
 	return &lstore.Entry{EntryType: lstore.EntryTypeData, IntValues: values}
 }
@@ -66,7 +77,7 @@ func Test_write_two_entries(t *testing.T) {
 	defer reader.Close()
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		StartOffset: offset,
-		LimitSize: 2,
+		LimitSize:   2,
 	})
 	rows, err := iter()
 	should.Nil(err)
@@ -77,16 +88,14 @@ func Test_write_two_entries(t *testing.T) {
 func Test_reopen_tail_segment(t *testing.T) {
 	should := require.New(t)
 	store := testStore()
+	defer store.Stop(context.Background())
 	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), offset)
 
-	store.Stop(context.Background())
-	store = &lstore.Store{}
-	store.Directory = "/tmp"
-	err = store.Start()
-	should.Nil(err)
+	store = reopenTestStore(store)
 
+	// can read rows from disk
 	reader, err := store.NewReader()
 	should.Nil(err)
 	defer reader.Close()
@@ -97,7 +106,30 @@ func Test_reopen_tail_segment(t *testing.T) {
 	should.Nil(err)
 	should.Equal(1, len(rows))
 	should.Equal([]int64{1}, rows[0].IntValues)
-	store.Stop(context.Background())
+
+	offset, err = store.Write(context.Background(), intEntry(2))
+	should.Nil(err)
+	should.Equal(lstore.Offset(0x58), offset)
+
+	// can not read new rows without refresh
+	iter = reader.Search(context.Background(), lstore.SearchRequest{
+		LimitSize: 2,
+	})
+	rows, err = iter()
+	should.Nil(err)
+	should.Equal(1, len(rows))
+	should.Equal([]int64{1}, rows[0].IntValues)
+
+	// refresh, should read new rows now
+	reader.Refresh()
+	iter = reader.Search(context.Background(), lstore.SearchRequest{
+		LimitSize: 2,
+	})
+	rows, err = iter()
+	should.Nil(err)
+	should.Equal(2, len(rows))
+	should.Equal([]int64{1}, rows[0].IntValues)
+	should.Equal([]int64{2}, rows[1].IntValues)
 }
 
 func Test_write_rotation(t *testing.T) {
