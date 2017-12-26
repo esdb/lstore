@@ -11,8 +11,9 @@ import (
 	"sync/atomic"
 	"github.com/esdb/gocodec"
 	"github.com/edsrzf/mmap-go"
-	"math"
 	"github.com/esdb/lstore/ref"
+	"errors"
+	"io"
 )
 
 type command func(ctx context.Context, store *StoreVersion) *StoreVersion
@@ -47,7 +48,7 @@ func loadWriter(store *Store) (*writer, error) {
 		return nil, err
 	}
 	// force reader to read all remaining rows
-	tailSegment.updateTail(math.MaxUint64)
+	tailSegment.updateTail(tailSegment.StartOffset)
 	reader, err := store.NewReader()
 	if err != nil {
 		return nil, err
@@ -64,15 +65,17 @@ func loadInitialVersion(config Config) (*StoreVersion, error) {
 	if err != nil {
 		return nil, err
 	}
+	resources := []io.Closer{tailSegment}
 	var reversedRawSegments []*RawSegment
 	startOffset := tailSegment.StartOffset
 	for startOffset != 0 {
 		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startOffset))
-		rawSegment, err := openRawSegment(prev, startOffset)
+		rawSegment, err := openRawSegment(prev)
 		if err != nil {
 			return nil, err
 		}
 		reversedRawSegments = append(reversedRawSegments, rawSegment)
+		resources = append(resources, rawSegment)
 		startOffset = rawSegment.StartOffset
 	}
 	rawSegments := make([]*RawSegment, len(reversedRawSegments))
@@ -80,7 +83,7 @@ func loadInitialVersion(config Config) (*StoreVersion, error) {
 		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
 	}
 	initialVersion := &StoreVersion{
-		refCnt:      ref.NewReferenceCounted("store version", tailSegment),
+		refCnt:      ref.NewReferenceCounted("store version", resources...),
 		config:      config,
 		rawSegments: rawSegments,
 		tailSegment: tailSegment,
@@ -198,35 +201,45 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 		countlog.Error("event!writer.failed to unmap write", "err", err)
 		return nil, err
 	}
-	newVersion := *oldVersion
+	newVersion := &StoreVersion{config: oldVersion.config}
 	newVersion.rawSegments = make([]*RawSegment, len(oldVersion.rawSegments)+1)
 	i := 0
+	var resources []io.Closer
 	for ; i < len(oldVersion.rawSegments); i++ {
 		oldSegment := oldVersion.rawSegments[i]
-		newVersion.rawSegments[i] = oldSegment
-		if err != nil {
-			return nil, err
+		if !oldSegment.refCnt.Acquire() {
+			return nil, errors.New("failed to acquire reference to raw segment from old version")
 		}
+		newVersion.rawSegments[i] = oldSegment
+		resources = append(resources, oldSegment)
 	}
 	conf := oldVersion.config
 	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.segment", oldVersion.tailSegment.tail))
 	if err = os.Rename(oldVersion.tailSegment.Path, rotatedTo); err != nil {
 		return nil, err
 	}
-	newVersion.rawSegments[i], err = openRawSegment(rotatedTo, Offset(oldVersion.tailSegment.tail))
+	newVersion.rawSegments[i] = &RawSegment{
+		SegmentHeader: oldVersion.tailSegment.SegmentHeader,
+		Path:          rotatedTo,
+		AsBlock:       &rowBasedBlock{writer.tailRows},
+		refCnt: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
+			oldVersion.tailSegment.SegmentHeader.StartOffset)),
+	}
+	writer.tailRows = nil
 	newVersion.tailSegment, err = openTailSegment(
 		conf.TailSegmentPath(), conf.TailSegmentMaxSize, Offset(oldVersion.tailSegment.tail))
 	if err != nil {
 		return nil, err
 	}
+	resources = append(resources, newVersion.tailSegment)
 	err = writer.mapFile(newVersion.tailSegment)
 	if err != nil {
 		return nil, err
 	}
 	newVersion.tailSegment.updateTail(newVersion.tailSegment.StartOffset)
-	newVersion.refCnt = ref.NewReferenceCounted("store version", newVersion.tailSegment)
+	newVersion.refCnt = ref.NewReferenceCounted("store version", resources...)
 	countlog.Info("event!store.rotated", "tail", newVersion.tailSegment.StartOffset)
-	return &newVersion, nil
+	return newVersion, nil
 }
 
 func (writer *writer) mapFile(tailSegment *TailSegment) error {

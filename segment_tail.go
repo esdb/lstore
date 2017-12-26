@@ -8,6 +8,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"io"
+	"fmt"
 )
 
 var SegmentOverflowError = errors.New("please rotate to new segment")
@@ -114,6 +115,7 @@ func (segment *TailSegment) read(reader *Reader) error {
 		// tail not moved
 		return nil
 	}
+	fmt.Println(startOffset-segment.StartOffset, segment.StartOffset, startOffset)
 	buf := segment.readBuf[startOffset-segment.StartOffset:]
 	bufSize := Offset(len(buf))
 	iter.Reset(buf)
