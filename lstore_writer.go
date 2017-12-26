@@ -12,13 +12,13 @@ import (
 	"github.com/esdb/gocodec"
 	"github.com/edsrzf/mmap-go"
 	"github.com/esdb/lstore/ref"
-	"errors"
 	"io"
 )
 
 type command func(ctx context.Context, store *StoreVersion) *StoreVersion
 
 type writer struct {
+	store          *Store
 	commandQueue   chan command
 	currentVersion *StoreVersion
 	tailRows       []Row
@@ -31,33 +31,43 @@ type WriteResult struct {
 	Error  error
 }
 
-func loadWriter(store *Store) (*writer, error) {
+func (store *Store) newWriter() (*writer, error) {
+	writer := &writer{
+		store:        store,
+		commandQueue: make(chan command, store.Config.CommandQueueSize),
+	}
+	if err := writer.load(); err != nil {
+		return nil, err
+	}
+	writer.start()
+	return writer, nil
+}
+
+func (writer *writer) load() error {
+	store := writer.store
 	config := store.Config
 	initialVersion, err := loadInitialVersion(config)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	atomic.StorePointer(&store.currentVersion, unsafe.Pointer(initialVersion))
-	writer := &writer{
-		commandQueue:   make(chan command, config.CommandQueueSize),
-		currentVersion: initialVersion,
-	}
+	writer.currentVersion = initialVersion
 	tailSegment := initialVersion.tailSegment
 	err = writer.mapFile(tailSegment)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	// force reader to read all remaining rows
 	tailSegment.updateTail(tailSegment.StartOffset)
 	reader, err := store.NewReader()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer reader.Close()
 	writer.tailRows = reader.tailRows
 	tailSegment.updateTail(reader.tailOffset)
-	writer.start(store)
-	return writer, nil
+	writer.start()
+	return nil
 }
 
 func loadInitialVersion(config Config) (*StoreVersion, error) {
@@ -83,16 +93,16 @@ func loadInitialVersion(config Config) (*StoreVersion, error) {
 		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
 	}
 	initialVersion := &StoreVersion{
-		refCnt:      ref.NewReferenceCounted("store version", resources...),
-		config:      config,
-		rawSegments: rawSegments,
-		tailSegment: tailSegment,
+		ReferenceCounted: ref.NewReferenceCounted("store version", resources...),
+		config:           config,
+		rawSegments:      rawSegments,
+		tailSegment:      tailSegment,
 	}
 	return initialVersion, nil
 }
 
-func (writer *writer) start(store *Store) {
-	store.executor.Go(func(ctx context.Context) {
+func (writer *writer) start() {
+	writer.store.executor.Go(func(ctx context.Context) {
 		defer func() {
 			err := writer.currentVersion.Close()
 			if err != nil {
@@ -110,7 +120,7 @@ func (writer *writer) start(store *Store) {
 			}
 			newVersion := handleCommand(ctx, cmd, writer.currentVersion)
 			if newVersion != nil {
-				atomic.StorePointer(&store.currentVersion, unsafe.Pointer(newVersion))
+				atomic.StorePointer(&writer.store.currentVersion, unsafe.Pointer(newVersion))
 				err := writer.currentVersion.Close()
 				if err != nil {
 					countlog.Error("event!store.failed to close", "err", err)
@@ -208,9 +218,7 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 	var resources []io.Closer
 	for ; i < len(oldVersion.rawSegments); i++ {
 		oldSegment := oldVersion.rawSegments[i]
-		if !oldSegment.refCnt.Acquire() {
-			return nil, errors.New("failed to acquire reference to raw segment from old version")
-		}
+		oldSegment.Acquire()
 		newVersion.rawSegments[i] = oldSegment
 		resources = append(resources, oldSegment)
 	}
@@ -224,7 +232,7 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 		SegmentHeader: oldVersion.tailSegment.SegmentHeader,
 		Path:          rotatedTo,
 		AsBlock:       &rowBasedBlock{writer.tailRows},
-		refCnt: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
+		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
 			oldVersion.tailSegment.SegmentHeader.StartOffset)),
 	}
 	writer.tailRows = nil
@@ -239,7 +247,7 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 		return nil, err
 	}
 	newVersion.tailSegment.updateTail(newVersion.tailSegment.StartOffset)
-	newVersion.refCnt = ref.NewReferenceCounted("store version", resources...)
+	newVersion.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
 	countlog.Info("event!store.rotated", "tail", newVersion.tailSegment.StartOffset)
 	return newVersion, nil
 }

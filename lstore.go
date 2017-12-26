@@ -12,9 +12,10 @@ import (
 const TailSegmentFileName = "tail.segment"
 
 type Config struct {
-	Directory          string
-	CommandQueueSize   int
-	TailSegmentMaxSize int64
+	Directory           string
+	CommandQueueSize    int
+	TailSegmentMaxSize  int64
+	CompactAfterStartup bool
 }
 
 func (conf *Config) TailSegmentPath() string {
@@ -26,6 +27,7 @@ func (conf *Config) TailSegmentPath() string {
 type Store struct {
 	Config
 	*writer
+	compacter      *compacter
 	currentVersion unsafe.Pointer
 	executor       *concurrent.UnboundedExecutor // owns writer and compacter
 }
@@ -33,7 +35,7 @@ type Store struct {
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
 	config      Config
-	refCnt      *ref.ReferenceCounted
+	*ref.ReferenceCounted
 	rawSegments []*RawSegment
 	tailSegment *TailSegment
 }
@@ -49,11 +51,12 @@ func (store *Store) Start() error {
 		store.TailSegmentMaxSize = 200 * 1024 * 1024
 	}
 	store.executor = concurrent.NewUnboundedExecutor()
-	writer, err := loadWriter(store)
+	writer, err := store.newWriter()
 	if err != nil {
 		return err
 	}
 	store.writer = writer
+	store.compacter = store.newCompacter()
 	return nil
 }
 
@@ -63,16 +66,17 @@ func (store *Store) Stop(ctx context.Context) {
 
 func (store *Store) latest() *StoreVersion {
 	for {
-		store := (*StoreVersion)(atomic.LoadPointer(&store.currentVersion))
-		if store == nil {
+		version := (*StoreVersion)(atomic.LoadPointer(&store.currentVersion))
+		if version == nil {
 			return nil
 		}
-		if store.refCnt.Acquire() {
-			return store
+		if version.Acquire() {
+			return version
 		}
 	}
 }
 
-func (version *StoreVersion) Close() error {
-	return version.refCnt.Close()
+func (store *Store) isLatest(version *StoreVersion) bool {
+	latestVersion := (*StoreVersion)(atomic.LoadPointer(&store.currentVersion))
+	return latestVersion == version
 }

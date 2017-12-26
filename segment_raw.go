@@ -12,7 +12,7 @@ import (
 
 type RawSegment struct {
 	SegmentHeader
-	refCnt  *ref.ReferenceCounted
+	*ref.ReferenceCounted
 	AsBlock Block
 	Path    string
 }
@@ -44,7 +44,7 @@ func openRawSegment(path string) (*RawSegment, error) {
 	if err != nil {
 		return nil, err
 	}
-	segment.refCnt = ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d", segment.StartOffset), resources...)
+	segment.ReferenceCounted = ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d", segment.StartOffset), resources...)
 	return segment, nil
 }
 
@@ -63,8 +63,4 @@ func (segment *RawSegment) loadBlock(iter *gocodec.Iterator) (*rowBasedBlock, er
 		offset := startOffset + (totalSize - Offset(len(iter.Buffer())))
 		rows = append(rows, Row{Entry: entry, Offset: offset})
 	}
-}
-
-func (segment *RawSegment) Close() error {
-	return segment.refCnt.Close()
 }

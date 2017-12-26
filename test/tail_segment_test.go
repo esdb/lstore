@@ -3,49 +3,13 @@ package test
 import (
 	"testing"
 	"github.com/stretchr/testify/require"
-	"os"
 	"github.com/esdb/lstore"
 	"context"
-	"path"
 )
-
-func testStore() *lstore.Store {
-	store := &lstore.Store{}
-	store.Directory = "/tmp"
-	os.Remove(path.Join(store.Directory, lstore.TailSegmentFileName))
-	err := store.Start()
-	if err != nil {
-		panic(err)
-	}
-	return store
-}
-
-func reopenTestStore(store *lstore.Store) *lstore.Store {
-	store.Stop(context.Background())
-	store = &lstore.Store{}
-	store.Directory = "/tmp"
-	err := store.Start()
-	if err != nil {
-		panic(err)
-	}
-	return store
-}
-
-func intEntry(values ...int64) *lstore.Entry {
-	return &lstore.Entry{EntryType: lstore.EntryTypeData, IntValues: values}
-}
-
-func blobEntry(values ...lstore.Blob) *lstore.Entry {
-	return &lstore.Entry{EntryType: lstore.EntryTypeData, BlobValues: values}
-}
-
-func intBlobEntry(intValue int64, blobValue lstore.Blob) *lstore.Entry {
-	return &lstore.Entry{EntryType: lstore.EntryTypeData, IntValues: []int64{intValue}, BlobValues: []lstore.Blob{blobValue}}
-}
 
 func Test_write_read_one_entry(t *testing.T) {
 	should := require.New(t)
-	store := testStore()
+	store := bigTestStore()
 	defer store.Stop(context.Background())
 	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
@@ -64,7 +28,7 @@ func Test_write_read_one_entry(t *testing.T) {
 
 func Test_write_two_entries(t *testing.T) {
 	should := require.New(t)
-	store := testStore()
+	store := bigTestStore()
 	defer store.Stop(context.Background())
 	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
@@ -87,7 +51,7 @@ func Test_write_two_entries(t *testing.T) {
 
 func Test_reopen_tail_segment(t *testing.T) {
 	should := require.New(t)
-	store := testStore()
+	store := bigTestStore()
 	defer store.Stop(context.Background())
 	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
@@ -134,13 +98,8 @@ func Test_reopen_tail_segment(t *testing.T) {
 
 func Test_write_rotation(t *testing.T) {
 	should := require.New(t)
-	store := &lstore.Store{}
+	store := tinyTestStore()
 	defer store.Stop(context.Background())
-	store.Directory = "/tmp"
-	store.TailSegmentMaxSize = 140
-	os.Remove(store.TailSegmentPath())
-	err := store.Start()
-	should.Nil(err)
 	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), offset)

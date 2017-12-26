@@ -29,6 +29,7 @@ func (store *Store) NewReader() (*Reader, error) {
 // Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailSegment.tail
 func (reader *Reader) Refresh() error {
 	latestVersion := reader.store.latest()
+	defer latestVersion.Close()
 	if reader.currentVersion == nil || latestVersion.tailSegment != reader.currentVersion.tailSegment {
 		reader.tailRows = make([]Row, 0, 4)
 		reader.tailOffset = latestVersion.tailSegment.StartOffset
@@ -41,6 +42,7 @@ func (reader *Reader) Refresh() error {
 				return err
 			}
 		}
+		latestVersion.Acquire()
 		reader.currentVersion = latestVersion
 	}
 	return reader.currentVersion.tailSegment.read(reader)

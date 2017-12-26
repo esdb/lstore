@@ -5,18 +5,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/esdb/lstore"
 	"context"
-	"os"
 	"io"
 )
 
 func Test_raw_segment(t *testing.T) {
 	should := require.New(t)
-	store := &lstore.Store{}
-	store.Directory = "/tmp"
-	store.TailSegmentMaxSize = 140
-	os.Remove(store.TailSegmentPath())
-	err := store.Start()
-	should.Nil(err)
+	store := tinyTestStore()
 	defer store.Stop(context.Background())
 	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
@@ -40,12 +34,8 @@ func Test_raw_segment(t *testing.T) {
 
 func Test_reopen_raw_segment(t *testing.T) {
 	should := require.New(t)
-	store := &lstore.Store{}
-	store.Directory = "/tmp"
-	store.TailSegmentMaxSize = 140
-	os.Remove(store.TailSegmentPath())
-	err := store.Start()
-	should.Nil(err)
+	store := tinyTestStore()
+	defer store.Stop(context.Background())
 	offset, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), offset)
