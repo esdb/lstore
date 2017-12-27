@@ -1,11 +1,11 @@
 package lstore
 
-type rowBasedBlock struct {
+type rowsSegment struct {
 	rows []Row
 }
 
-func (blk *rowBasedBlock) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
-	for _, row := range blk.rows  {
+func (segment *rowsSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
+	for _, row := range segment.rows  {
 		if row.Seq < startSeq {
 			continue
 		}

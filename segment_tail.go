@@ -123,14 +123,17 @@ func (segment *TailSegment) read(reader *Reader) error {
 		entry, _ := iter.Copy((*Entry)(nil)).(*Entry)
 		if iter.Error == io.EOF {
 			reader.tailSeq = currentSeq
-			reader.tailBlock = &rowBasedBlock{rows: reader.tailRows}
 			countlog.Trace("event!segment_tail.read", "newRowsCount", newRowsCount)
 			return nil
 		}
 		if iter.Error != nil {
 			return iter.Error
 		}
-		reader.tailRows = append(reader.tailRows, Row{Entry: entry, Seq: currentSeq})
+		reader.tailRows.rows = append(reader.tailRows.rows, Row{Entry: entry, Seq: currentSeq})
 		newRowsCount++
 	}
+}
+
+func (segment *TailSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
+	panic("tail segment is shared and not searchable")
 }

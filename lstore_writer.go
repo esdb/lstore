@@ -13,6 +13,7 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"github.com/esdb/lstore/ref"
 	"io"
+	"math"
 )
 
 type command func(ctx context.Context, store *StoreVersion) *StoreVersion
@@ -58,13 +59,13 @@ func (writer *writer) load() error {
 		return err
 	}
 	// force reader to read all remaining rows
-	tailSegment.updateTail(tailSegment.StartSeq)
+	tailSegment.updateTail(math.MaxUint64)
 	reader, err := store.NewReader()
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
-	writer.tailRows = reader.tailRows
+	writer.tailRows = reader.tailRows.rows
 	tailSegment.updateTail(reader.tailSeq)
 	writer.start()
 	return nil
@@ -231,7 +232,7 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 	newVersion.rawSegments[i] = &RawSegment{
 		SegmentHeader: oldVersion.tailSegment.SegmentHeader,
 		Path:          rotatedTo,
-		AsBlock:       &rowBasedBlock{writer.tailRows},
+		rows:       &rowsSegment{writer.tailRows},
 		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
 			oldVersion.tailSegment.SegmentHeader.StartSeq)),
 	}

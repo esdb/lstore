@@ -13,8 +13,8 @@ import (
 type RawSegment struct {
 	SegmentHeader
 	*ref.ReferenceCounted
-	AsBlock block
-	Path    string
+	rows segment
+	Path string
 }
 
 func openRawSegment(path string) (*RawSegment, error) {
@@ -40,7 +40,7 @@ func openRawSegment(path string) (*RawSegment, error) {
 	}
 	segment.SegmentHeader = *segmentHeader
 	segment.Path = path
-	segment.AsBlock, err = segment.loadBlock(iter)
+	segment.rows, err = segment.loadRows(iter)
 	if err != nil {
 		return nil, err
 	}
@@ -48,14 +48,14 @@ func openRawSegment(path string) (*RawSegment, error) {
 	return segment, nil
 }
 
-func (segment *RawSegment) loadBlock(iter *gocodec.Iterator) (*rowBasedBlock, error) {
+func (segment *RawSegment) loadRows(iter *gocodec.Iterator) (*rowsSegment, error) {
 	var rows []Row
 	startSeq := segment.StartSeq
 	totalSize := RowSeq(len(iter.Buffer()))
 	for {
 		entry, _ := iter.Unmarshal((*Entry)(nil)).(*Entry)
 		if iter.Error == io.EOF {
-			return &rowBasedBlock{rows}, nil
+			return &rowsSegment{rows}, nil
 		}
 		if iter.Error != nil {
 			return nil, iter.Error
@@ -63,4 +63,8 @@ func (segment *RawSegment) loadBlock(iter *gocodec.Iterator) (*rowBasedBlock, er
 		seq := startSeq + (totalSize - RowSeq(len(iter.Buffer())))
 		rows = append(rows, Row{Entry: entry, Seq: seq})
 	}
+}
+
+func (segment *RawSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
+	return segment.rows.search(reader, startSeq, filters, collector)
 }

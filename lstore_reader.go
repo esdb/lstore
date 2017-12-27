@@ -8,17 +8,16 @@ import (
 type Reader struct {
 	store          *Store
 	currentVersion *StoreVersion
-	tailRows       []Row  // cache of tail segment
-	tailSeq     RowSeq // seq to start next cache fill
-	tailBlock      block  // expose search api for tail segment
+	tailSeq        RowSeq       // seq to start next cache fill
+	tailRows       *rowsSegment // rows cache
 	gocIter        *gocodec.Iterator
 }
 
 func (store *Store) NewReader() (*Reader, error) {
 	reader := &Reader{
-		store: store,
-		tailBlock: &rowBasedBlock{rows: nil},
-		gocIter: gocodec.NewIterator(nil),
+		store:       store,
+		tailRows: &rowsSegment{rows: nil},
+		gocIter:     gocodec.NewIterator(nil),
 	}
 	if err := reader.Refresh(); err != nil {
 		return nil, err
@@ -31,9 +30,8 @@ func (reader *Reader) Refresh() error {
 	latestVersion := reader.store.latest()
 	defer latestVersion.Close()
 	if reader.currentVersion == nil || latestVersion.tailSegment != reader.currentVersion.tailSegment {
-		reader.tailRows = make([]Row, 0, 4)
 		reader.tailSeq = latestVersion.tailSegment.StartSeq
-		reader.tailBlock = &rowBasedBlock{}
+		reader.tailRows = &rowsSegment{rows: make([]Row, 0, 4)}
 	}
 	if reader.currentVersion != latestVersion {
 		// when reader moves forward, older version has a chance to die

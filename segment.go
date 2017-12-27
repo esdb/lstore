@@ -22,3 +22,12 @@ const SegmentTypeColumnBased SegmentType = 2
 const EntryTypeData EntryType = 7
 const EntryTypeJunk EntryType = 6
 const EntryTypeConfigurationChange = 5
+
+type Row struct {
+	*Entry
+	Seq RowSeq
+}
+
+type segment interface {
+	search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error)
+}
