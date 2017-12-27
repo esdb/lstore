@@ -4,40 +4,46 @@ type intColumn []int64
 type blobColumn []Blob
 type blobHashColumn []uint64
 
-type compactSegment struct {
-	SegmentHeader
-	seqColumn    []RowSeq
+type block struct {
+	seqColumn       []RowSeq
 	intColumns      []intColumn
 	blobHashColumns []blobHashColumn
 	blobColumns     []blobColumn
 }
 
+type compactSegment struct {
+	SegmentHeader
+	blockSeq BlockSeq
+	block    *block // the in memory cache load on demand
+}
+
 func (segment *compactSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
-	mask := make([]bool, len(segment.seqColumn))
-	for i, seq := range segment.seqColumn {
+	blk := segment.block
+	mask := make([]bool, len(blk.seqColumn))
+	for i, seq := range blk.seqColumn {
 		if seq >= startSeq {
 			mask[i] = true
 		}
 	}
 	for _, filter := range filters {
-		filter.updateMask(segment, mask)
+		filter.updateMask(blk, mask)
 	}
 	var rows []Row
 	for i, matches := range mask {
 		if !matches {
 			continue
 		}
-		intColumnsCount := len(segment.intColumns)
+		intColumnsCount := len(blk.intColumns)
 		intValues := make([]int64, intColumnsCount)
 		for j := 0; j < intColumnsCount; j++ {
-			intValues[j] = segment.intColumns[j][i]
+			intValues[j] = blk.intColumns[j][i]
 		}
-		blobColumnsCount := len(segment.blobColumns)
+		blobColumnsCount := len(blk.blobColumns)
 		blobValues := make([]Blob, blobColumnsCount)
 		for j := 0; j < blobColumnsCount; j++ {
-			blobValues[j] = segment.blobColumns[j][i]
+			blobValues[j] = blk.blobColumns[j][i]
 		}
-		rows = append(rows, Row{Seq: segment.seqColumn[i], Entry: &Entry{
+		rows = append(rows, Row{Seq: blk.seqColumn[i], Entry: &Entry{
 			EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues}})
 	}
 	return rows, nil

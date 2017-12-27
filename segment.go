@@ -3,7 +3,11 @@ package lstore
 type Blob []byte
 type EntryType uint8
 type SegmentType uint8
+// the sequence number for entries
 type RowSeq uint64
+// the sequence number for compressed block
+// the block reference in memory is called CompactSegment
+type BlockSeq uint64
 
 type Entry struct {
 	Reserved   uint8
