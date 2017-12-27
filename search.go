@@ -12,7 +12,7 @@ type SearchRequest struct {
 	Filters       []Filter
 }
 
-type blockIterator func() (Block, error)
+type blockIterator func() (block, error)
 type RowIterator func() ([]Row, error)
 
 // t1Search speed up by tree of bloomfilter (for int,blob) and min max (for int)
@@ -20,7 +20,7 @@ func t1Search(reader *Reader, filters []Filter) blockIterator {
 	store := reader.currentVersion
 	rawSegments := store.rawSegments
 	currentRawSegmentIndex := 0
-	return func() (Block, error) {
+	return func() (block, error) {
 		if currentRawSegmentIndex < len(rawSegments) {
 			block := rawSegments[currentRawSegmentIndex].AsBlock
 			currentRawSegmentIndex++
@@ -46,7 +46,7 @@ func t2Search(reader *Reader, blkIter blockIterator, req SearchRequest) ([]Row, 
 			}
 			return nil, err
 		}
-		batch, err = blk.Search(reader, req.StartOffset, req.Filters, batch)
+		batch, err = blk.search(reader, req.StartOffset, req.Filters, batch)
 		if err != nil {
 			return nil, err
 		}

@@ -13,7 +13,7 @@ import (
 type RawSegment struct {
 	SegmentHeader
 	*ref.ReferenceCounted
-	AsBlock Block
+	AsBlock block
 	Path    string
 }
 

@@ -27,7 +27,7 @@ func (conf *Config) TailSegmentPath() string {
 type Store struct {
 	Config
 	*writer
-	compacter      *compacter
+	*compacter
 	currentVersion unsafe.Pointer
 	executor       *concurrent.UnboundedExecutor // owns writer and compacter
 }

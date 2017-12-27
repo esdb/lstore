@@ -5,6 +5,6 @@ type Row struct {
 	Offset Offset
 }
 
-type Block interface {
-	Search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error)
+type block interface {
+	search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error)
 }

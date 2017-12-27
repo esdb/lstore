@@ -8,10 +8,10 @@ import (
 type Reader struct {
 	store          *Store
 	currentVersion *StoreVersion
-	tailRows       []Row // cache of tail segment
+	tailRows       []Row  // cache of tail segment
 	tailOffset     Offset // offset to start next cache fill
-	tailBlock      Block // expose search api for tail segment
-	gocIter		   *gocodec.Iterator
+	tailBlock      block  // expose search api for tail segment
+	gocIter        *gocodec.Iterator
 }
 
 func (store *Store) NewReader() (*Reader, error) {

@@ -4,7 +4,7 @@ type rowBasedBlock struct {
 	rows []Row
 }
 
-func (blk *rowBasedBlock) Search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error) {
+func (blk *rowBasedBlock) search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error) {
 	for _, row := range blk.rows  {
 		if row.Offset < startOffset {
 			continue

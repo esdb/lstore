@@ -31,6 +31,18 @@ func tinyTestStore() *lstore.Store {
 	return store
 }
 
+func smallTestStore() *lstore.Store {
+	store := &lstore.Store{}
+	store.Directory = "/tmp"
+	store.TailSegmentMaxSize = 280
+	os.Remove(path.Join(store.Directory, lstore.TailSegmentFileName))
+	err := store.Start()
+	if err != nil {
+		panic(err)
+	}
+	return store
+}
+
 func reopenTestStore(store *lstore.Store) *lstore.Store {
 	store.Stop(context.Background())
 	store = &lstore.Store{}

@@ -4,17 +4,39 @@ import (
 	"context"
 	"github.com/v2pro/plz/countlog"
 	"time"
+	"errors"
 )
 
+type compactionRequest chan error
+
+func (req compactionRequest) Completed(err error) {
+	req <- err
+}
+
 type compacter struct {
-	store *Store
-	currentVersion *StoreVersion
+	store                 *Store
+	compactionRequestChan chan compactionRequest
+	currentVersion        *StoreVersion
 }
 
 func (store *Store) newCompacter() *compacter {
-	compacter := &compacter{store: store, currentVersion: store.latest()}
+	compacter := &compacter{
+		store:                 store,
+		currentVersion:        store.latest(),
+		compactionRequestChan: make(chan compactionRequest, 1),
+	}
 	compacter.start()
 	return compacter
+}
+
+func (compacter *compacter) Compact() error {
+	request := make(compactionRequest)
+	select {
+	case compacter.compactionRequestChan <- request:
+	default:
+		return errors.New("too many compaction request")
+	}
+	return <-request
 }
 
 func (compacter *compacter) start() {
@@ -28,14 +50,16 @@ func (compacter *compacter) start() {
 			}
 		}()
 		if store.CompactAfterStartup {
-			compacter.compact()
+			compacter.compact(nil)
 		}
 		for {
 			timer := time.NewTimer(time.Second * 10)
+			var compactionReq compactionRequest
 			select {
-			case<-ctx.Done():
+			case <-ctx.Done():
 				return
 			case <-timer.C:
+			case compactionReq = <-compacter.compactionRequestChan:
 			}
 			if store.isLatest(compacter.currentVersion) {
 				// nothing to compact
@@ -45,11 +69,17 @@ func (compacter *compacter) start() {
 				countlog.Error("event!compacter.failed to close version", "err", err)
 			}
 			compacter.currentVersion = store.latest()
-			compacter.compact()
+			compacter.compact(compactionReq)
 		}
 	})
 }
 
-func (compacter *compacter) compact() {
+func (compacter *compacter) compact(compactionReq compactionRequest) {
+	// version will not change during compaction
+	store := compacter.currentVersion
 	countlog.Trace("event!compacter.run")
+	if len(store.rawSegments) == 0 {
+		return
+	}
+	compactionReq.Completed(nil)
 }
