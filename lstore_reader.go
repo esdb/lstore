@@ -19,14 +19,14 @@ func (store *Store) NewReader() (*Reader, error) {
 		tailRows: &rowsSegment{rows: nil},
 		gocIter:     gocodec.NewIterator(nil),
 	}
-	if err := reader.Refresh(); err != nil {
+	if _, err := reader.Refresh(); err != nil {
 		return nil, err
 	}
 	return reader, nil
 }
 
 // Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailSegment.tail
-func (reader *Reader) Refresh() error {
+func (reader *Reader) Refresh() (bool, error) {
 	latestVersion := reader.store.latest()
 	defer latestVersion.Close()
 	if reader.currentVersion == nil || latestVersion.tailSegment != reader.currentVersion.tailSegment {
@@ -37,7 +37,7 @@ func (reader *Reader) Refresh() error {
 		// when reader moves forward, older version has a chance to die
 		if reader.currentVersion != nil {
 			if err := reader.currentVersion.Close(); err != nil {
-				return err
+				return false, err
 			}
 		}
 		latestVersion.Acquire()

@@ -46,7 +46,6 @@ func Test_a_lot_raw_segment(t *testing.T) {
 	defer reader.Close()
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		BatchSizeHint: 256,
-		LimitSize: 256,
 	})
 	rows, err := iter()
 	should.Nil(err)

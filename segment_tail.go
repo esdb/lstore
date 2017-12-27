@@ -107,12 +107,12 @@ func (segment *TailSegment) getTail() RowSeq {
 	return RowSeq(atomic.LoadUint64(&segment.tail))
 }
 
-func (segment *TailSegment) read(reader *Reader) error {
+func (segment *TailSegment) read(reader *Reader) (bool, error) {
 	iter := reader.gocIter
 	startSeq := reader.tailSeq
 	if startSeq == segment.getTail() {
 		// tail not moved
-		return nil
+		return false, nil
 	}
 	buf := segment.readBuf[startSeq-segment.StartSeq:]
 	bufSize := RowSeq(len(buf))
@@ -124,10 +124,10 @@ func (segment *TailSegment) read(reader *Reader) error {
 		if iter.Error == io.EOF {
 			reader.tailSeq = currentSeq
 			countlog.Trace("event!segment_tail.read", "newRowsCount", newRowsCount)
-			return nil
+			return true, nil
 		}
 		if iter.Error != nil {
-			return iter.Error
+			return false, iter.Error
 		}
 		reader.tailRows.rows = append(reader.tailRows.rows, Row{Entry: entry, Seq: currentSeq})
 		newRowsCount++
