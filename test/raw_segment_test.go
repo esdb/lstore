@@ -32,6 +32,30 @@ func Test_raw_segment(t *testing.T) {
 	should.Equal(io.EOF, err)
 }
 
+func Test_a_lot_raw_segment(t *testing.T) {
+	should := require.New(t)
+	store := tinyTestStore()
+	defer store.Stop(context.Background())
+	for i := 0; i < 256; i++ {
+		seq, err := store.Write(context.Background(), intEntry(int64(i)))
+		should.Nil(err)
+		should.Equal(lstore.RowSeq(88 * i), seq)
+	}
+	reader, err := store.NewReader()
+	should.Nil(err)
+	defer reader.Close()
+	iter := reader.Search(context.Background(), lstore.SearchRequest{
+		BatchSizeHint: 256,
+		LimitSize: 256,
+	})
+	rows, err := iter()
+	should.Nil(err)
+	should.Equal(256, len(rows))
+	should.Equal([]int64{0}, rows[0].IntValues)
+	rows, err = iter()
+	should.Equal(io.EOF, err)
+}
+
 func Test_reopen_raw_segment(t *testing.T) {
 	should := require.New(t)
 	store := tinyTestStore()

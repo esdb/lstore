@@ -67,7 +67,6 @@ func (writer *writer) load() error {
 	defer reader.Close()
 	writer.tailRows = reader.tailRows.rows
 	tailSegment.updateTail(reader.tailSeq)
-	writer.start()
 	return nil
 }
 
