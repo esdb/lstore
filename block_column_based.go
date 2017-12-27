@@ -5,16 +5,16 @@ type blobColumn []Blob
 type blobHashColumn []uint64
 
 type columnBasedBlock struct {
-	offsetColumn    []Offset
+	seqColumn    []RowSeq
 	intColumns      []intColumn
 	blobHashColumns []blobHashColumn
 	blobColumns     []blobColumn
 }
 
-func (blk *columnBasedBlock) search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error) {
-	mask := make([]bool, len(blk.offsetColumn))
-	for i, offset := range blk.offsetColumn {
-		if offset >= startOffset {
+func (blk *columnBasedBlock) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
+	mask := make([]bool, len(blk.seqColumn))
+	for i, seq := range blk.seqColumn {
+		if seq >= startSeq {
 			mask[i] = true
 		}
 	}
@@ -36,7 +36,7 @@ func (blk *columnBasedBlock) search(reader *Reader, startOffset Offset, filters 
 		for j := 0; j < blobColumnsCount; j++ {
 			blobValues[j] = blk.blobColumns[j][i]
 		}
-		rows = append(rows, Row{Offset: blk.offsetColumn[i], Entry: &Entry{
+		rows = append(rows, Row{Seq: blk.seqColumn[i], Entry: &Entry{
 			EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues}})
 	}
 	return rows, nil

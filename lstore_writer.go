@@ -27,8 +27,8 @@ type writer struct {
 }
 
 type WriteResult struct {
-	Offset Offset
-	Error  error
+	Seq   RowSeq
+	Error error
 }
 
 func (store *Store) newWriter() (*writer, error) {
@@ -58,14 +58,14 @@ func (writer *writer) load() error {
 		return err
 	}
 	// force reader to read all remaining rows
-	tailSegment.updateTail(tailSegment.StartOffset)
+	tailSegment.updateTail(tailSegment.StartSeq)
 	reader, err := store.NewReader()
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
 	writer.tailRows = reader.tailRows
-	tailSegment.updateTail(reader.tailOffset)
+	tailSegment.updateTail(reader.tailSeq)
 	writer.start()
 	return nil
 }
@@ -77,16 +77,16 @@ func loadInitialVersion(config Config) (*StoreVersion, error) {
 	}
 	resources := []io.Closer{tailSegment}
 	var reversedRawSegments []*RawSegment
-	startOffset := tailSegment.StartOffset
-	for startOffset != 0 {
-		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startOffset))
+	startSeq := tailSegment.StartSeq
+	for startSeq != 0 {
+		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startSeq))
 		rawSegment, err := openRawSegment(prev)
 		if err != nil {
 			return nil, err
 		}
 		reversedRawSegments = append(reversedRawSegments, rawSegment)
 		resources = append(resources, rawSegment)
-		startOffset = rawSegment.StartOffset
+		startSeq = rawSegment.StartSeq
 	}
 	rawSegments := make([]*RawSegment, len(reversedRawSegments))
 	for i := 0; i < len(reversedRawSegments); i++ {
@@ -152,58 +152,58 @@ func handleCommand(ctx context.Context, cmd command, currentVersion *StoreVersio
 
 func (writer *writer) AsyncWrite(ctx context.Context, entry *Entry, resultChan chan<- WriteResult) {
 	writer.asyncExecute(ctx, func(ctx context.Context, currentVersion *StoreVersion) *StoreVersion {
-		offset, err := writer.tryWrite(ctx, writer.currentVersion.tailSegment, entry)
+		seq, err := writer.tryWrite(ctx, writer.currentVersion.tailSegment, entry)
 		if err == SegmentOverflowError {
 			newVersion, err := writer.addSegment(currentVersion)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
 				return newVersion
 			}
-			offset, err = writer.tryWrite(ctx, newVersion.tailSegment, entry)
+			seq, err = writer.tryWrite(ctx, newVersion.tailSegment, entry)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
 				return newVersion
 			}
-			resultChan <- WriteResult{offset, nil}
+			resultChan <- WriteResult{seq, nil}
 			return newVersion
 		}
-		resultChan <- WriteResult{offset, nil}
+		resultChan <- WriteResult{seq, nil}
 		return nil
 	})
 }
 
-func (writer *writer) Write(ctx context.Context, entry *Entry) (Offset, error) {
+func (writer *writer) Write(ctx context.Context, entry *Entry) (RowSeq, error) {
 	resultChan := make(chan WriteResult)
 	writer.AsyncWrite(ctx, entry, resultChan)
 	select {
 	case result := <-resultChan:
-		return result.Offset, result.Error
+		return result.Seq, result.Error
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	}
 }
 
-func (writer *writer) tryWrite(ctx context.Context, tailSegment *TailSegment, entry *Entry) (Offset, error) {
+func (writer *writer) tryWrite(ctx context.Context, tailSegment *TailSegment, entry *Entry) (RowSeq, error) {
 	buf := writer.writeBuf
-	maxTail := tailSegment.StartOffset + Offset(len(buf))
-	offset := Offset(tailSegment.tail)
-	if offset >= maxTail {
+	maxTail := tailSegment.StartSeq + RowSeq(len(buf))
+	seq := RowSeq(tailSegment.tail)
+	if seq >= maxTail {
 		return 0, SegmentOverflowError
 	}
 	stream := ctx.Value("stream").(*gocodec.Stream)
-	stream.Reset(buf[offset-tailSegment.StartOffset:offset-tailSegment.StartOffset])
+	stream.Reset(buf[seq-tailSegment.StartSeq:seq-tailSegment.StartSeq])
 	size := stream.Marshal(*entry)
 	if stream.Error != nil {
 		return 0, stream.Error
 	}
-	tail := offset + Offset(size)
+	tail := seq + RowSeq(size)
 	if tail >= maxTail {
 		return 0, SegmentOverflowError
 	}
-	writer.tailRows = append(writer.tailRows, Row{Offset: offset, Entry: entry})
+	writer.tailRows = append(writer.tailRows, Row{Seq: seq, Entry: entry})
 	// reader will know if read the tail using atomic
 	tailSegment.updateTail(tail)
-	return offset, nil
+	return seq, nil
 }
 
 func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error) {
@@ -233,11 +233,11 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 		Path:          rotatedTo,
 		AsBlock:       &rowBasedBlock{writer.tailRows},
 		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
-			oldVersion.tailSegment.SegmentHeader.StartOffset)),
+			oldVersion.tailSegment.SegmentHeader.StartSeq)),
 	}
 	writer.tailRows = nil
 	newVersion.tailSegment, err = openTailSegment(
-		conf.TailSegmentPath(), conf.TailSegmentMaxSize, Offset(oldVersion.tailSegment.tail))
+		conf.TailSegmentPath(), conf.TailSegmentMaxSize, RowSeq(oldVersion.tailSegment.tail))
 	if err != nil {
 		return nil, err
 	}
@@ -246,9 +246,9 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 	if err != nil {
 		return nil, err
 	}
-	newVersion.tailSegment.updateTail(newVersion.tailSegment.StartOffset)
+	newVersion.tailSegment.updateTail(newVersion.tailSegment.StartSeq)
 	newVersion.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
-	countlog.Info("event!store.rotated", "tail", newVersion.tailSegment.StartOffset)
+	countlog.Info("event!store.rotated", "tail", newVersion.tailSegment.StartSeq)
 	return newVersion, nil
 }
 

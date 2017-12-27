@@ -10,7 +10,7 @@ func Benchmark_column_based_block_scan(b *testing.B) {
 	}
 	columnSize := 256
 	blk := &columnBasedBlock{
-		offsetColumn: make([]Offset, columnSize),
+		seqColumn: make([]RowSeq, columnSize),
 		intColumns: []intColumn{make(intColumn, columnSize)},
 		blobHashColumns: []blobHashColumn{make(blobHashColumn, columnSize)},
 		blobColumns: []blobColumn{make(blobColumn, columnSize)},

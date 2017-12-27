@@ -44,14 +44,14 @@ func openRawSegment(path string) (*RawSegment, error) {
 	if err != nil {
 		return nil, err
 	}
-	segment.ReferenceCounted = ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d", segment.StartOffset), resources...)
+	segment.ReferenceCounted = ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d", segment.StartSeq), resources...)
 	return segment, nil
 }
 
 func (segment *RawSegment) loadBlock(iter *gocodec.Iterator) (*rowBasedBlock, error) {
 	var rows []Row
-	startOffset := segment.StartOffset
-	totalSize := Offset(len(iter.Buffer()))
+	startSeq := segment.StartSeq
+	totalSize := RowSeq(len(iter.Buffer()))
 	for {
 		entry, _ := iter.Unmarshal((*Entry)(nil)).(*Entry)
 		if iter.Error == io.EOF {
@@ -60,7 +60,7 @@ func (segment *RawSegment) loadBlock(iter *gocodec.Iterator) (*rowBasedBlock, er
 		if iter.Error != nil {
 			return nil, iter.Error
 		}
-		offset := startOffset + (totalSize - Offset(len(iter.Buffer())))
-		rows = append(rows, Row{Entry: entry, Offset: offset})
+		seq := startSeq + (totalSize - RowSeq(len(iter.Buffer())))
+		rows = append(rows, Row{Entry: entry, Seq: seq})
 	}
 }

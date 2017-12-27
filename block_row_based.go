@@ -4,9 +4,9 @@ type rowBasedBlock struct {
 	rows []Row
 }
 
-func (blk *rowBasedBlock) search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error) {
+func (blk *rowBasedBlock) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
 	for _, row := range blk.rows  {
-		if row.Offset < startOffset {
+		if row.Seq < startSeq {
 			continue
 		}
 		if rowMatches(row.Entry, filters) {

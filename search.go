@@ -6,7 +6,7 @@ import (
 )
 
 type SearchRequest struct {
-	StartOffset   Offset
+	StartSeq   RowSeq
 	BatchSizeHint int
 	LimitSize     int
 	Filters       []Filter
@@ -46,7 +46,7 @@ func t2Search(reader *Reader, blkIter blockIterator, req SearchRequest) ([]Row, 
 			}
 			return nil, err
 		}
-		batch, err = blk.search(reader, req.StartOffset, req.Filters, batch)
+		batch, err = blk.search(reader, req.StartSeq, req.Filters, batch)
 		if err != nil {
 			return nil, err
 		}

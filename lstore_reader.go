@@ -9,7 +9,7 @@ type Reader struct {
 	store          *Store
 	currentVersion *StoreVersion
 	tailRows       []Row  // cache of tail segment
-	tailOffset     Offset // offset to start next cache fill
+	tailSeq     RowSeq // seq to start next cache fill
 	tailBlock      block  // expose search api for tail segment
 	gocIter        *gocodec.Iterator
 }
@@ -32,7 +32,7 @@ func (reader *Reader) Refresh() error {
 	defer latestVersion.Close()
 	if reader.currentVersion == nil || latestVersion.tailSegment != reader.currentVersion.tailSegment {
 		reader.tailRows = make([]Row, 0, 4)
-		reader.tailOffset = latestVersion.tailSegment.StartOffset
+		reader.tailSeq = latestVersion.tailSegment.StartSeq
 		reader.tailBlock = &rowBasedBlock{}
 	}
 	if reader.currentVersion != latestVersion {

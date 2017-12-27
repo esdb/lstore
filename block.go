@@ -2,9 +2,9 @@ package lstore
 
 type Row struct {
 	*Entry
-	Offset Offset
+	Seq RowSeq
 }
 
 type block interface {
-	search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error)
+	search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error)
 }

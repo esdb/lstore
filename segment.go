@@ -3,7 +3,7 @@ package lstore
 type Blob []byte
 type EntryType uint8
 type SegmentType uint8
-type Offset uint64
+type RowSeq uint64
 
 type Entry struct {
 	Reserved   uint8
@@ -13,7 +13,7 @@ type Entry struct {
 }
 type SegmentHeader struct {
 	SegmentType SegmentType
-	StartOffset Offset
+	StartSeq RowSeq
 }
 
 const SegmentTypeRowBased SegmentType = 1

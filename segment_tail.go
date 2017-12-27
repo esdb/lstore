@@ -21,10 +21,10 @@ type TailSegment struct {
 	tail     uint64 // writer use atomic to notify readers
 }
 
-func openTailSegment(path string, maxSize int64, startOffset Offset) (*TailSegment, error) {
+func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if err != nil {
-		file, err = createTailSegment(path, maxSize, startOffset)
+		file, err = createTailSegment(path, maxSize, startSeq)
 		if err != nil {
 			return nil, err
 		}
@@ -48,7 +48,7 @@ func openTailSegment(path string, maxSize int64, startOffset Offset) (*TailSegme
 	return segment, nil
 }
 
-func createTailSegment(filename string, maxSize int64, startOffset Offset) (*os.File, error) {
+func createTailSegment(filename string, maxSize int64, startSeq RowSeq) (*os.File, error) {
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func createTailSegment(filename string, maxSize int64, startOffset Offset) (*os.
 		return nil, err
 	}
 	stream := gocodec.NewStream(nil)
-	stream.Marshal(SegmentHeader{SegmentType: SegmentTypeRowBased, StartOffset: startOffset})
+	stream.Marshal(SegmentHeader{SegmentType: SegmentTypeRowBased, StartSeq: startSeq})
 	if stream.Error != nil {
 		return nil, stream.Error
 	}
@@ -99,30 +99,30 @@ func (segment *TailSegment) Close() error {
 	return nil
 }
 
-func (segment *TailSegment) updateTail(tail Offset) {
+func (segment *TailSegment) updateTail(tail RowSeq) {
 	atomic.StoreUint64(&segment.tail, uint64(tail))
 }
 
-func (segment *TailSegment) getTail() Offset {
-	return Offset(atomic.LoadUint64(&segment.tail))
+func (segment *TailSegment) getTail() RowSeq {
+	return RowSeq(atomic.LoadUint64(&segment.tail))
 }
 
 func (segment *TailSegment) read(reader *Reader) error {
 	iter := reader.gocIter
-	startOffset := reader.tailOffset
-	if startOffset == segment.getTail() {
+	startSeq := reader.tailSeq
+	if startSeq == segment.getTail() {
 		// tail not moved
 		return nil
 	}
-	buf := segment.readBuf[startOffset-segment.StartOffset:]
-	bufSize := Offset(len(buf))
+	buf := segment.readBuf[startSeq-segment.StartSeq:]
+	bufSize := RowSeq(len(buf))
 	iter.Reset(buf)
 	newRowsCount := 0
 	for {
-		currentOffset := startOffset + (bufSize - Offset(len(iter.Buffer())))
+		currentSeq := startSeq + (bufSize - RowSeq(len(iter.Buffer())))
 		entry, _ := iter.Copy((*Entry)(nil)).(*Entry)
 		if iter.Error == io.EOF {
-			reader.tailOffset = currentOffset
+			reader.tailSeq = currentSeq
 			reader.tailBlock = &rowBasedBlock{rows: reader.tailRows}
 			countlog.Trace("event!segment_tail.read", "newRowsCount", newRowsCount)
 			return nil
@@ -130,7 +130,7 @@ func (segment *TailSegment) read(reader *Reader) error {
 		if iter.Error != nil {
 			return iter.Error
 		}
-		reader.tailRows = append(reader.tailRows, Row{Entry: entry, Offset: currentOffset})
+		reader.tailRows = append(reader.tailRows, Row{Entry: entry, Seq: currentSeq})
 		newRowsCount++
 	}
 }
