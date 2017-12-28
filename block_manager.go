@@ -23,6 +23,7 @@ type compressedBlockHeader struct {
 	originalSize   uint32
 	compressedSize uint32
 }
+
 var compressedBlockHeaderSize = calcCompressedBlockHeaderSize()
 
 func calcCompressedBlockHeaderSize() uint32 {
@@ -146,6 +147,10 @@ func (mgr *blockManager) writeBuf(blockSeq BlockSeq, buf []byte) error {
 }
 
 func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
+	blkObj, found := mgr.blockCache.Get(blockSeq)
+	if found {
+		return blkObj.(*block), nil
+	}
 	headerBuf, err := mgr.readBuf(blockSeq, compressedBlockHeaderSize)
 	if err != nil {
 		return nil, err
@@ -157,7 +162,7 @@ func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
 	}
 	decompressed := make([]byte, compressedBlockHeader.originalSize)
 	compressedBuf, err := mgr.readBuf(
-		blockSeq + BlockSeq(compressedBlockHeaderSize),
+		blockSeq+BlockSeq(compressedBlockHeaderSize),
 		compressedBlockHeader.compressedSize)
 	if err != nil {
 		return nil, err
@@ -168,6 +173,7 @@ func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
 	if iter.Error != nil {
 		return nil, iter.Error
 	}
+	mgr.blockCache.Add(blockSeq, blk)
 	return blk, nil
 }
 
@@ -181,7 +187,7 @@ func (mgr *blockManager) readBuf(blockSeq BlockSeq, remainingSize uint32) ([]byt
 	buf := readMMap[relativeOffset:]
 	if uint32(len(buf)) < remainingSize {
 		remainingSize -= uint32(len(buf))
-		moreBuf, err := mgr.readBuf(blockSeq + BlockSeq(len(buf)), remainingSize)
+		moreBuf, err := mgr.readBuf(blockSeq+BlockSeq(len(buf)), remainingSize)
 		if err != nil {
 			return nil, err
 		}
