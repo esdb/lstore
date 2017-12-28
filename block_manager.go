@@ -12,12 +12,17 @@ import (
 	"fmt"
 	"github.com/edsrzf/mmap-go"
 	"github.com/esdb/gocodec"
+	"github.com/esdb/lstore/lz4"
 )
 
 type intColumn []int64
 type blobColumn []Blob
 type blobHashColumn []uint32
 
+type compressedBlockHeader struct {
+	originalSize   uint32
+	compressedSize uint32
+}
 type block struct {
 	seqColumn       []RowSeq
 	intColumns      []intColumn
@@ -33,7 +38,9 @@ type blockManager struct {
 	blockDirectory            string
 	blockFileSizeInPowerOfTwo uint8 // 2 ^ x
 	blockCache                *lru.ARCCache
-	// only lock the modification of blockFiles
+	// tmp assume there is single writer
+	tmp []byte
+	// only lock the modification of following maps
 	// does not cover reading or writing
 	mapMutex   *sync.Mutex
 	files      map[BlockSeq]*os.File
@@ -82,22 +89,40 @@ func (mgr *blockManager) Close() error {
 	return ref.NewMultiError(errs)
 }
 
-// TODO: add lz4
 // TODO: handle wrap around
 func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (uint64, error) {
 	fileBlockSeq := blockSeq >> mgr.blockFileSizeInPowerOfTwo
-	relativeOffset := fileBlockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo)
+	relativeOffset := int(fileBlockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo))
 	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
 	if err != nil {
 		return 0, err
 	}
 	stream := gocodec.NewStream(nil)
-	size := stream.Marshal(*block)
+	stream.Marshal(*block)
+	if stream.Error != nil {
+		return 0, stream.Error
+	}
+	buf := stream.Buffer()
+	compressBound := lz4.CompressBound(len(buf))
+	if compressBound > len(mgr.tmp) {
+		mgr.tmp = make([]byte, compressBound)
+	}
+	compressedSize := lz4.CompressDefault(buf, mgr.tmp)
+	stream.Reset(nil)
+	blkSize := stream.Marshal(compressedBlockHeader{
+		originalSize:  uint32(len(buf)),
+		compressedSize: uint32(compressedSize),
+	})
 	if stream.Error != nil {
 		return 0, stream.Error
 	}
 	copy(writeMMap[relativeOffset:], stream.Buffer())
-	return size, nil
+	copy(writeMMap[relativeOffset+len(stream.Buffer()):], mgr.tmp[:compressedSize])
+	err = writeMMap.Flush()
+	if err != nil {
+		return 0, err
+	}
+	return blkSize, nil
 }
 
 func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
@@ -108,6 +133,14 @@ func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
 		return nil, err
 	}
 	iter := gocodec.NewIterator(readMMap[relativeOffset:])
+	compressedBlockHeader, _ := iter.Unmarshal((*compressedBlockHeader)(nil)).(*compressedBlockHeader)
+	if iter.Error != nil {
+		return nil, iter.Error
+	}
+	decompressed := make([]byte, compressedBlockHeader.originalSize)
+	compressed := iter.Buffer()[:compressedBlockHeader.compressedSize]
+	lz4.DecompressSafe(compressed, decompressed)
+	iter.Reset(decompressed)
 	blk, _ := iter.Unmarshal((*block)(nil)).(*block)
 	if iter.Error != nil {
 		return nil, iter.Error
@@ -184,12 +217,12 @@ func newBlock(rows []Row) *block {
 		blobColumns[i] = make(blobColumn, rowsCount)
 		blobHashColumns[i] = make(blobHashColumn, rowsCount)
 	}
+	hasher := murmur3.New32()
 	for i, row := range rows {
 		seqColumn[i] = row.Seq
 		for j, intValue := range row.IntValues {
 			intColumns[j][i] = intValue
 		}
-		hasher := murmur3.New32()
 		for j, blobValue := range row.BlobValues {
 			blobColumns[j][i] = blobValue
 			asSlice := *(*[]byte)(unsafe.Pointer(&blobValue))

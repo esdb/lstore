@@ -3,11 +3,14 @@ package lstore
 import (
 	"testing"
 	"github.com/stretchr/testify/require"
+	"os"
 )
 
 func Test_write_block_to_file_head(t *testing.T) {
 	should := require.New(t)
-	mgr := newBlockManager("/tmp", 30)
+	os.RemoveAll("/tmp/bock")
+	os.Mkdir("/tmp/block", 0777)
+	mgr := newBlockManager("/tmp/block", 30)
 	defer mgr.Close()
 	size, err := mgr.writeBlock(0, &block{seqColumn: []RowSeq{1}})
 	should.Nil(err)
