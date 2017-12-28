@@ -1,9 +1,5 @@
 package lstore
 
-import (
-	"bytes"
-)
-
 type Filter interface {
 	matches(entry *Entry) bool
 	updateMask(blk *block, mask []bool)
@@ -58,7 +54,7 @@ type BlobValueFilter struct {
 }
 
 func (filter *BlobValueFilter) matches(entry *Entry) bool {
-	return bytes.Equal(entry.BlobValues[filter.Index], filter.Value)
+	return entry.BlobValues[filter.Index] == filter.Value
 }
 
 func (filter *BlobValueFilter) updateMask(blk *block, mask []bool) {
@@ -69,7 +65,7 @@ func (filter *BlobValueFilter) updateMask(blk *block, mask []bool) {
 			mask[i] = false
 			continue
 		}
-		if !bytes.Equal(column[i], filter.Value) {
+		if column[i] != filter.Value {
 			mask[i] = false
 		}
 	}

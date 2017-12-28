@@ -1,6 +1,6 @@
 package lstore
 
-type Blob []byte
+type Blob string
 type EntryType uint8
 type SegmentType uint8
 // the sequence number for entries
