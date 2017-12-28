@@ -40,3 +40,7 @@ func Test_create_block(t *testing.T) {
 	should.Equal(blobColumn{"hello", "world"}, blk.blobColumns[0])
 	should.Equal(blobHashColumn{0x248bfa47, 0xfb963cfb}, blk.blobHashColumns[0])
 }
+
+func Test_write_block(t *testing.T) {
+
+}
