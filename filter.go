@@ -49,7 +49,7 @@ func (filter *IntValueFilter) updateMask(blk *block, mask []bool) {
 // BlobValueFilter == Value
 type BlobValueFilter struct {
 	Index     int
-	ValueHash uint64
+	ValueHash uint32
 	Value     Blob
 }
 

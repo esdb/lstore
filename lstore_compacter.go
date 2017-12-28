@@ -83,5 +83,8 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 	if len(store.rawSegments) == 0 {
 		return
 	}
+	for _, rawSegment := range store.rawSegments {
+		newBlock(rawSegment.rows.(*rowsSegment).rows)
+	}
 	compactionReq.Completed(nil)
 }

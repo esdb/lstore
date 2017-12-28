@@ -21,7 +21,9 @@ type SegmentHeader struct {
 }
 
 const SegmentTypeRowBased SegmentType = 1
-const SegmentTypeColumnBased SegmentType = 2
+const SegmentTypeCompacting SegmentType = 2
+const SegmentTypeCompactingFragment SegmentType = 3
+const SegmentTypeCompacted SegmentType = 4
 
 const EntryTypeData EntryType = 7
 const EntryTypeJunk EntryType = 6

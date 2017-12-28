@@ -10,6 +10,7 @@ import (
 )
 
 const TailSegmentFileName = "tail.segment"
+const CompactingSegmentFileName = "compacting.segment"
 
 type Config struct {
 	Directory           string
@@ -20,6 +21,10 @@ type Config struct {
 
 func (conf *Config) TailSegmentPath() string {
 	return path.Join(conf.Directory, TailSegmentFileName)
+}
+
+func (conf *Config) CompactingSegmentPath() string {
+	return path.Join(conf.Directory, CompactingSegmentFileName)
 }
 
 // Store is physically a directory, containing multiple files on disk
@@ -34,10 +39,11 @@ type Store struct {
 
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
-	config      Config
+	config            Config
 	*ref.ReferenceCounted
-	rawSegments []*RawSegment
-	tailSegment *TailSegment
+	compactingSegment *compactingSegment
+	rawSegments       []*RawSegment
+	tailSegment       *TailSegment
 }
 
 func (store *Store) Start() error {

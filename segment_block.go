@@ -1,8 +1,13 @@
 package lstore
 
+import (
+	"github.com/spaolacci/murmur3"
+	"unsafe"
+)
+
 type intColumn []int64
 type blobColumn []Blob
-type blobHashColumn []uint64
+type blobHashColumn []uint32
 
 type block struct {
 	seqColumn       []RowSeq
@@ -15,6 +20,43 @@ type blockSegment struct {
 	SegmentHeader
 	blockSeq BlockSeq
 	block    *block // the in memory cache load on demand
+}
+
+func newBlock(rows []Row) block {
+	rowsCount := len(rows)
+	seqColumn := make([]RowSeq, rowsCount)
+	intColumnsCount := len(rows[0].IntValues)
+	intColumns := make([]intColumn, intColumnsCount)
+	blobColumnsCount := len(rows[0].BlobValues)
+	blobColumns := make([]blobColumn, blobColumnsCount)
+	blobHashColumns := make([]blobHashColumn, blobColumnsCount)
+	for i := 0; i < intColumnsCount; i++ {
+		intColumns[i] = make(intColumn, rowsCount)
+	}
+	for i := 0; i < blobColumnsCount; i++ {
+		blobColumns[i] = make(blobColumn, rowsCount)
+		blobHashColumns[i] = make(blobHashColumn, rowsCount)
+	}
+	for i, row := range rows {
+		seqColumn[i] = row.Seq
+		for j, intValue := range row.IntValues {
+			intColumns[j][i] = intValue
+		}
+		hasher := murmur3.New32()
+		for j, blobValue := range row.BlobValues {
+			blobColumns[j][i] = blobValue
+			asSlice := *(*[]byte)(unsafe.Pointer(&blobValue))
+			hasher.Reset()
+			hasher.Write(asSlice)
+			blobHashColumns[j][i] = hasher.Sum32()
+		}
+	}
+	return block{
+		seqColumn:       seqColumn,
+		intColumns:      intColumns,
+		blobColumns:     blobColumns,
+		blobHashColumns: blobHashColumns,
+	}
 }
 
 func (segment *blockSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {

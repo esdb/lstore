@@ -71,34 +71,61 @@ func (writer *writer) load() error {
 }
 
 func loadInitialVersion(config Config) (*StoreVersion, error) {
-	tailSegment, err := openTailSegment(config.TailSegmentPath(), config.TailSegmentMaxSize, 0)
-	if err != nil {
+	version := &StoreVersion{
+		config: config,
+	}
+	if err := loadTailAndRawSegments(config, version); err != nil {
 		return nil, err
 	}
-	resources := []io.Closer{tailSegment}
+	if err := loadCompactingAndCompactedSegments(config, version); err != nil {
+		return nil, err
+	}
+	resources := []io.Closer{version}
+	for _, rawSegment := range version.rawSegments {
+		resources = append(resources, rawSegment)
+	}
+	if version.compactingSegment != nil {
+		resources = append(resources, version.compactingSegment)
+	}
+	version.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
+	return version, nil
+}
+
+func loadTailAndRawSegments(config Config, version *StoreVersion) error {
+	tailSegment, err := openTailSegment(config.TailSegmentPath(), config.TailSegmentMaxSize, 0)
+	if err != nil {
+		return err
+	}
 	var reversedRawSegments []*RawSegment
 	startSeq := tailSegment.StartSeq
 	for startSeq != 0 {
 		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startSeq))
 		rawSegment, err := openRawSegment(prev)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		reversedRawSegments = append(reversedRawSegments, rawSegment)
-		resources = append(resources, rawSegment)
 		startSeq = rawSegment.StartSeq
 	}
 	rawSegments := make([]*RawSegment, len(reversedRawSegments))
 	for i := 0; i < len(reversedRawSegments); i++ {
 		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
 	}
-	initialVersion := &StoreVersion{
-		ReferenceCounted: ref.NewReferenceCounted("store version", resources...),
-		config:           config,
-		rawSegments:      rawSegments,
-		tailSegment:      tailSegment,
+	version.tailSegment = tailSegment
+	version.rawSegments = rawSegments
+	return nil
+}
+
+func loadCompactingAndCompactedSegments(config Config, version *StoreVersion) error {
+	segmentPath := config.CompactingSegmentPath()
+	compactingSegment, err := openCompactingSegment(segmentPath)
+	if os.IsNotExist(err) {
+		compactingSegment = nil
+	} else if err != nil {
+		return err
 	}
-	return initialVersion, nil
+	version.compactingSegment = compactingSegment
+	return nil
 }
 
 func (writer *writer) start() {
@@ -156,7 +183,7 @@ func (writer *writer) AsyncWrite(ctx context.Context, entry *Entry, resultChan c
 	writer.asyncExecute(ctx, func(ctx context.Context, currentVersion *StoreVersion) *StoreVersion {
 		seq, err := writer.tryWrite(ctx, writer.currentVersion.tailSegment, entry)
 		if err == SegmentOverflowError {
-			newVersion, err := writer.addSegment(currentVersion)
+			newVersion, err := writer.rotate(currentVersion)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
 				return newVersion
@@ -208,7 +235,7 @@ func (writer *writer) tryWrite(ctx context.Context, tailSegment *TailSegment, en
 	return seq, nil
 }
 
-func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error) {
+func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 	err := writer.writeMMap.Unmap()
 	if err != nil {
 		countlog.Error("event!writer.failed to unmap write", "err", err)
@@ -233,7 +260,7 @@ func (writer *writer) addSegment(oldVersion *StoreVersion) (*StoreVersion, error
 	newVersion.rawSegments[i] = &RawSegment{
 		SegmentHeader: oldVersion.tailSegment.SegmentHeader,
 		Path:          rotatedTo,
-		rows:       &rowsSegment{writer.tailRows},
+		rows:          &rowsSegment{writer.tailRows},
 		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
 			oldVersion.tailSegment.SegmentHeader.StartSeq)),
 	}

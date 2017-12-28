@@ -23,16 +23,19 @@ type TailSegment struct {
 
 func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0666)
-	if err != nil {
+	if os.IsNotExist(err) {
 		file, err = createTailSegment(path, maxSize, startSeq)
 		if err != nil {
 			return nil, err
 		}
+	} else if err != nil {
+		return nil, err
 	}
 	segment := &TailSegment{}
 	segment.file = file
 	readMMap, err := mmap.Map(file, mmap.RDONLY, 0)
 	if err != nil {
+		file.Close()
 		countlog.Error("event!segment.failed to mmap as RDONLY", "err", err, "path", path)
 		return nil, err
 	}
@@ -40,6 +43,8 @@ func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment,
 	iter := gocodec.NewIterator(readMMap)
 	segmentHeader, _ := iter.Copy((*SegmentHeader)(nil)).(*SegmentHeader)
 	if iter.Error != nil {
+		readMMap.Unmap()
+		file.Close()
 		return nil, iter.Error
 	}
 	segment.SegmentHeader = *segmentHeader
@@ -53,6 +58,7 @@ func createTailSegment(filename string, maxSize int64, startSeq RowSeq) (*os.Fil
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
 	err = file.Truncate(maxSize)
 	if err != nil {
 		return nil, err
@@ -63,10 +69,6 @@ func createTailSegment(filename string, maxSize int64, startSeq RowSeq) (*os.Fil
 		return nil, stream.Error
 	}
 	_, err = file.Write(stream.Buffer())
-	if err != nil {
-		return nil, err
-	}
-	err = file.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -135,5 +137,5 @@ func (segment *TailSegment) read(reader *Reader) (bool, error) {
 }
 
 func (segment *TailSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
-	panic("tail segment is shared and not searchable")
+	panic("tail segment is shared and not searchable without reader")
 }
