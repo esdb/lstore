@@ -92,7 +92,7 @@ func (mgr *blockManager) Close() error {
 // TODO: handle wrap around
 func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (uint64, error) {
 	fileBlockSeq := blockSeq >> mgr.blockFileSizeInPowerOfTwo
-	relativeOffset := int(fileBlockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo))
+	relativeOffset := int(blockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo))
 	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
 	if err != nil {
 		return 0, err
@@ -127,7 +127,7 @@ func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (uint64, er
 
 func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
 	fileBlockSeq := blockSeq >> mgr.blockFileSizeInPowerOfTwo
-	relativeOffset := fileBlockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo)
+	relativeOffset := blockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo)
 	readMMap, err := mgr.openReadMMap(fileBlockSeq)
 	if err != nil {
 		return nil, err
