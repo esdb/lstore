@@ -100,6 +100,36 @@ func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (uint64, er
 	return size, nil
 }
 
+func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
+	fileBlockSeq := blockSeq >> mgr.blockFileSizeInPowerOfTwo
+	relativeOffset := fileBlockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo)
+	readMMap, err := mgr.openReadMMap(fileBlockSeq)
+	if err != nil {
+		return nil, err
+	}
+	iter := gocodec.NewIterator(readMMap[relativeOffset:])
+	blk, _ := iter.Unmarshal((*block)(nil)).(*block)
+	if iter.Error != nil {
+		return nil, iter.Error
+	}
+	return blk, nil
+}
+
+func (mgr *blockManager) openReadMMap(fileBlockSeq BlockSeq) (mmap.MMap, error) {
+	mgr.mapMutex.Lock()
+	defer mgr.mapMutex.Unlock()
+	file, err := mgr.openFile(fileBlockSeq)
+	if err != nil {
+		return nil, err
+	}
+	readMMap, err := mmap.Map(file, mmap.COPY, 0)
+	if err != nil {
+		return nil, err
+	}
+	mgr.readMMaps[fileBlockSeq] = readMMap
+	return readMMap, nil
+}
+
 func (mgr *blockManager) openWriteMMap(fileBlockSeq BlockSeq) (mmap.MMap, error) {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
@@ -137,10 +167,6 @@ func (mgr *blockManager) openFile(fileBlockSeq BlockSeq) (*os.File, error) {
 	}
 	mgr.files[fileBlockSeq] = file
 	return file, nil
-}
-
-func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
-	return nil, nil
 }
 
 func newBlock(rows []Row) *block {

@@ -8,7 +8,11 @@ import (
 func Test_write_block_to_file_head(t *testing.T) {
 	should := require.New(t)
 	mgr := newBlockManager("/tmp", 30)
-	size, err := mgr.writeBlock(0, &block{})
+	defer mgr.Close()
+	size, err := mgr.writeBlock(0, &block{seqColumn: []RowSeq{1}})
 	should.Nil(err)
 	should.True(size > 0)
+	blk, err := mgr.readBlock(0)
+	should.Nil(err)
+	should.Equal([]RowSeq{1}, blk.seqColumn)
 }
