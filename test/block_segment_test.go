@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_compacted_segment(t *testing.T) {
+func Test_block_segment(t *testing.T) {
 	should := require.New(t)
 	store := smallTestStore()
 	defer store.Stop(context.Background())

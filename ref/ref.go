@@ -48,7 +48,7 @@ func (refCnt *ReferenceCounted) Close() error {
 	if !refCnt.decreaseReference() {
 		return nil // still in use
 	}
-	countlog.Info("event!ref.close reference counted resource", "resourceName", refCnt.resourceName)
+	countlog.Trace("event!ref.close reference counted resource", "resourceName", refCnt.resourceName)
 	var errs []error
 	for _, res := range refCnt.resources {
 		if err := res.Close(); err != nil {

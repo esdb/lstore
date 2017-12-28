@@ -11,13 +11,13 @@ type block struct {
 	blobColumns     []blobColumn
 }
 
-type compactSegment struct {
+type blockSegment struct {
 	SegmentHeader
 	blockSeq BlockSeq
 	block    *block // the in memory cache load on demand
 }
 
-func (segment *compactSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
+func (segment *blockSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
 	blk := segment.block
 	mask := make([]bool, len(blk.seqColumn))
 	for i, seq := range blk.seqColumn {

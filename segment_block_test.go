@@ -15,7 +15,7 @@ func Benchmark_column_based_block_scan(b *testing.B) {
 		blobHashColumns: []blobHashColumn{make(blobHashColumn, columnSize)},
 		blobColumns: []blobColumn{make(blobColumn, columnSize)},
 	}
-	segment := &compactSegment{block: blk}
+	segment := &blockSegment{block: blk}
 	for i := 0; i < b.N; i++ {
 		segment.search(nil, 0, filters, nil)
 	}

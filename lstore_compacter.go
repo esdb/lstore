@@ -44,11 +44,13 @@ func (compacter *compacter) start() {
 	compacter.currentVersion = store.latest()
 	store.executor.Go(func(ctx context.Context) {
 		defer func() {
+			countlog.Info("event!compacter.stop")
 			err := compacter.currentVersion.Close()
 			if err != nil {
 				countlog.Error("event!store.failed to close", "err", err)
 			}
 		}()
+		countlog.Info("event!compacter.start")
 		if store.CompactAfterStartup {
 			compacter.compact(nil)
 		}

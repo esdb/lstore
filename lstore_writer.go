@@ -104,11 +104,13 @@ func loadInitialVersion(config Config) (*StoreVersion, error) {
 func (writer *writer) start() {
 	writer.store.executor.Go(func(ctx context.Context) {
 		defer func() {
+			countlog.Info("event!writer.stop")
 			err := writer.currentVersion.Close()
 			if err != nil {
 				countlog.Error("event!store.failed to close", "err", err)
 			}
 		}()
+		countlog.Info("event!writer.start")
 		stream := gocodec.NewStream(nil)
 		ctx = context.WithValue(ctx, "stream", stream)
 		for {
