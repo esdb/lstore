@@ -23,6 +23,13 @@ type compressedBlockHeader struct {
 	originalSize   uint32
 	compressedSize uint32
 }
+var compressedBlockHeaderSize = calcCompressedBlockHeaderSize()
+
+func calcCompressedBlockHeaderSize() uint32 {
+	stream := gocodec.NewStream(nil)
+	return uint32(stream.Marshal(compressedBlockHeader{}))
+}
+
 type block struct {
 	seqColumn       []RowSeq
 	intColumns      []intColumn
@@ -37,6 +44,7 @@ type block struct {
 type blockManager struct {
 	blockDirectory            string
 	blockFileSizeInPowerOfTwo uint8 // 2 ^ x
+	blockFileSize             uint64
 	blockCache                *lru.ARCCache
 	// tmp assume there is single writer
 	tmp []byte
@@ -53,6 +61,7 @@ func newBlockManager(blockDirectory string, blockFileSizeInPowerOfTwo uint8) *bl
 	return &blockManager{
 		blockDirectory:            blockDirectory,
 		blockFileSizeInPowerOfTwo: blockFileSizeInPowerOfTwo,
+		blockFileSize:             2 << blockFileSizeInPowerOfTwo,
 		blockCache:                blockCache,
 		mapMutex:                  &sync.Mutex{},
 		files:                     map[BlockSeq]*os.File{},
@@ -89,14 +98,7 @@ func (mgr *blockManager) Close() error {
 	return ref.NewMultiError(errs)
 }
 
-// TODO: handle wrap around
 func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (uint64, error) {
-	fileBlockSeq := blockSeq >> mgr.blockFileSizeInPowerOfTwo
-	relativeOffset := int(blockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo))
-	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
-	if err != nil {
-		return 0, err
-	}
 	stream := gocodec.NewStream(nil)
 	stream.Marshal(*block)
 	if stream.Error != nil {
@@ -110,42 +112,82 @@ func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (uint64, er
 	compressedSize := lz4.CompressDefault(buf, mgr.tmp)
 	stream.Reset(nil)
 	blkSize := stream.Marshal(compressedBlockHeader{
-		originalSize:  uint32(len(buf)),
+		originalSize:   uint32(len(buf)),
 		compressedSize: uint32(compressedSize),
 	})
 	if stream.Error != nil {
 		return 0, stream.Error
 	}
-	copy(writeMMap[relativeOffset:], stream.Buffer())
-	copy(writeMMap[relativeOffset+len(stream.Buffer()):], mgr.tmp[:compressedSize])
-	err = writeMMap.Flush()
+	err := mgr.writeBuf(blockSeq, stream.Buffer())
+	if err != nil {
+		return 0, err
+	}
+	err = mgr.writeBuf(blockSeq+BlockSeq(len(stream.Buffer())), mgr.tmp[:compressedSize])
 	if err != nil {
 		return 0, err
 	}
 	return blkSize, nil
 }
 
-func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
+func (mgr *blockManager) writeBuf(blockSeq BlockSeq, buf []byte) error {
 	fileBlockSeq := blockSeq >> mgr.blockFileSizeInPowerOfTwo
-	relativeOffset := blockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo)
-	readMMap, err := mgr.openReadMMap(fileBlockSeq)
+	relativeOffset := int(blockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo))
+	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
+	if err != nil {
+		return err
+	}
+	dst := writeMMap[relativeOffset:]
+	copiedBytesCount := copy(dst, buf)
+	buf = buf[copiedBytesCount:]
+	if len(buf) > 0 {
+		return mgr.writeBuf(blockSeq+BlockSeq(copiedBytesCount), buf)
+	}
+	return nil
+}
+
+func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
+	headerBuf, err := mgr.readBuf(blockSeq, compressedBlockHeaderSize)
 	if err != nil {
 		return nil, err
 	}
-	iter := gocodec.NewIterator(readMMap[relativeOffset:])
+	iter := gocodec.NewIterator(headerBuf)
 	compressedBlockHeader, _ := iter.Unmarshal((*compressedBlockHeader)(nil)).(*compressedBlockHeader)
 	if iter.Error != nil {
 		return nil, iter.Error
 	}
 	decompressed := make([]byte, compressedBlockHeader.originalSize)
-	compressed := iter.Buffer()[:compressedBlockHeader.compressedSize]
-	lz4.DecompressSafe(compressed, decompressed)
+	compressedBuf, err := mgr.readBuf(
+		blockSeq + BlockSeq(compressedBlockHeaderSize),
+		compressedBlockHeader.compressedSize)
+	if err != nil {
+		return nil, err
+	}
+	lz4.DecompressSafe(compressedBuf, decompressed)
 	iter.Reset(decompressed)
 	blk, _ := iter.Unmarshal((*block)(nil)).(*block)
 	if iter.Error != nil {
 		return nil, iter.Error
 	}
 	return blk, nil
+}
+
+func (mgr *blockManager) readBuf(blockSeq BlockSeq, remainingSize uint32) ([]byte, error) {
+	fileBlockSeq := blockSeq >> mgr.blockFileSizeInPowerOfTwo
+	relativeOffset := blockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo)
+	readMMap, err := mgr.openReadMMap(fileBlockSeq)
+	if err != nil {
+		return nil, err
+	}
+	buf := readMMap[relativeOffset:]
+	if uint32(len(buf)) < remainingSize {
+		remainingSize -= uint32(len(buf))
+		moreBuf, err := mgr.readBuf(blockSeq + BlockSeq(len(buf)), remainingSize)
+		if err != nil {
+			return nil, err
+		}
+		return append(buf, moreBuf...), nil
+	}
+	return buf[:remainingSize], nil
 }
 
 func (mgr *blockManager) openReadMMap(fileBlockSeq BlockSeq) (mmap.MMap, error) {
@@ -191,7 +233,7 @@ func (mgr *blockManager) openFile(fileBlockSeq BlockSeq) (*os.File, error) {
 		if err != nil {
 			return nil, err
 		}
-		err = file.Truncate(2 << mgr.blockFileSizeInPowerOfTwo)
+		err = file.Truncate(int64(mgr.blockFileSize))
 		if err != nil {
 			return nil, err
 		}
