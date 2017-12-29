@@ -66,11 +66,7 @@ func Test_reopen_raw_segment(t *testing.T) {
 	should.Nil(err)
 	should.Equal(lstore.RowSeq(88), seq)
 
-	store.Stop(context.Background())
-	store = &lstore.Store{}
-	store.Directory = "/tmp"
-	err = store.Start()
-	should.Nil(err)
+	store = reopenTestStore(store)
 
 	reader, err := store.NewReader()
 	should.Nil(err)

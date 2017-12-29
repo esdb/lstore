@@ -12,6 +12,7 @@ import (
 
 type compactingSegmentVersion struct {
 	SegmentHeader
+	tailSeq      RowSeq
 	slotIndex    slotIndex
 	blocks       []BlockSeq // 64 slots
 	tailBlockSeq BlockSeq
@@ -99,6 +100,13 @@ func (segment *compactingSegment) getTailSlot() biter.Slot {
 		return 0
 	}
 	return segment.tailSlot
+}
+
+func (segment *compactingSegment) getTailSeq() RowSeq {
+	if segment == nil {
+		return 0
+	}
+	return segment.tailSeq
 }
 
 func (segment *compactingSegment) nextSlot(

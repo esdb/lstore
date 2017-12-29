@@ -21,7 +21,7 @@ const (
 	iteratingDone       = 4
 )
 
-// t1Search speed up by tree of bloomfilter (for int,blob) and min max (for int)
+// scanForward speed up by tree of bloomfilter (for int,blob) and min max (for int)
 func scanForward(reader *Reader, filters []Filter) chunkIterator {
 	store := reader.currentVersion
 	blockManager := reader.store.blockManager
@@ -35,9 +35,9 @@ func scanForward(reader *Reader, filters []Filter) chunkIterator {
 	return chainChunkIterator(iter1, iter2)
 }
 
-// t2Search speed up by column based disk layout (for compacted segments)
-// and in memory cache (for raw segments and tail chunk)
-func t2Search(reader *Reader, chunkIter chunkIterator, req SearchRequest) ([]Row, error) {
+// searchChunks speed up by column based disk layout (for compacted segments)
+// and in memory cache (for raw segments and tail segment)
+func searchChunks(reader *Reader, chunkIter chunkIterator, req SearchRequest) ([]Row, error) {
 	var batch []Row
 	for {
 		chunk, err := chunkIter()
@@ -64,7 +64,7 @@ func (reader *Reader) Search(ctx context.Context, req SearchRequest) RowIterator
 	chunkIter := scanForward(reader, req.Filters)
 	remaining := req.LimitSize
 	return func() ([]Row, error) {
-		batch, err := t2Search(reader, chunkIter, req)
+		batch, err := searchChunks(reader, chunkIter, req)
 		if err != nil {
 			return nil, err
 		}

@@ -2,16 +2,15 @@ package test
 
 import (
 	"github.com/esdb/lstore"
-	"path"
 	"context"
 	"os"
 )
 
 func bigTestStore() *lstore.Store {
 	store := &lstore.Store{}
-	store.Directory = "/tmp"
+	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 200 * 1024 * 1024
-	os.Remove(path.Join(store.Directory, lstore.TailSegmentFileName))
+	os.RemoveAll(store.Directory)
 	err := store.Start()
 	if err != nil {
 		panic(err)
@@ -21,9 +20,9 @@ func bigTestStore() *lstore.Store {
 
 func tinyTestStore() *lstore.Store {
 	store := &lstore.Store{}
-	store.Directory = "/tmp"
+	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 140
-	os.Remove(path.Join(store.Directory, lstore.TailSegmentFileName))
+	os.RemoveAll(store.Directory)
 	err := store.Start()
 	if err != nil {
 		panic(err)
@@ -33,10 +32,10 @@ func tinyTestStore() *lstore.Store {
 
 func smallTestStore() *lstore.Store {
 	store := &lstore.Store{}
-	store.Directory = "/tmp"
+	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 280
 	store.BloomFilterIndexedBlobColumns = []int{0}
-	os.Remove(path.Join(store.Directory, lstore.TailSegmentFileName))
+	os.RemoveAll(store.Directory)
 	err := store.Start()
 	if err != nil {
 		panic(err)
@@ -46,13 +45,13 @@ func smallTestStore() *lstore.Store {
 
 func reopenTestStore(store *lstore.Store) *lstore.Store {
 	store.Stop(context.Background())
-	store = &lstore.Store{}
-	store.Directory = "/tmp"
-	err := store.Start()
+	newStore := &lstore.Store{}
+	newStore.Config = store.Config
+	err := newStore.Start()
 	if err != nil {
 		panic(err)
 	}
-	return store
+	return newStore
 }
 
 func intEntry(values ...int64) *lstore.Entry {

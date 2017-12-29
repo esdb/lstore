@@ -6,6 +6,7 @@ import (
 	"time"
 	"errors"
 	"github.com/esdb/biter"
+	"os"
 )
 
 type compactionRequest chan error
@@ -87,9 +88,9 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 	if len(store.rawSegments) == 0 {
 		return
 	}
-	firstRow := store.rawSegments[0].rows[0]
-	startSeq := firstRow.Seq
-	compactingSegment := store.compactingSegment.nextSlot(startSeq, indexingStrategy, hashingStrategy)
+	firstRow := firstRowOf(store.rawSegments)
+	compactingSegment := store.compactingSegment.nextSlot(firstRow.Seq, indexingStrategy, hashingStrategy)
+	compactingSegment.tailSeq = store.tailSegment.StartSeq
 	for _, rawSegment := range store.rawSegments {
 		blk := newBlock(rawSegment.rows)
 		blockSeq := compactingSegment.tailBlockSeq
@@ -117,16 +118,27 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 		compactionReq.Completed(err)
 		return
 	}
-	compacter.switchCompactingSegment(newCompactingSegment, compactedRawSegmentsCount)
+	err = compacter.switchCompactingSegment(newCompactingSegment, compactedRawSegmentsCount)
+	if err != nil {
+		countlog.Error("event!compacter.failed to switch compacting segment",
+			"err", err)
+		compactionReq.Completed(err)
+		return
+	}
 	compactionReq.Completed(nil)
 	countlog.Info("event!compacter.compacting more chunk",
 		"compactedRawSegmentsCount", compactedRawSegmentsCount)
 }
 
 func (compacter *compacter) switchCompactingSegment(
-	newCompactingSegment *compactingSegment, compactedRawSegmentsCount int) {
+	newCompactingSegment *compactingSegment, compactedRawSegmentsCount int) error {
 	resultChan := make(chan error)
 	compacter.store.asyncExecute(context.Background(), func(ctx context.Context, oldVersion *StoreVersion) {
+		err := os.Rename(newCompactingSegment.path, compacter.store.CompactingSegmentPath())
+		if err != nil {
+			resultChan <- err
+			return
+		}
 		newVersion := oldVersion.edit()
 		newVersion.rawSegments = oldVersion.rawSegments[compactedRawSegmentsCount:]
 		newVersion.compactingSegment = newCompactingSegment
@@ -134,6 +146,9 @@ func (compacter *compacter) switchCompactingSegment(
 		resultChan <- nil
 		return
 	})
-	<-resultChan
-	return
+	return <-resultChan
+}
+
+func firstRowOf(rawSegments []*RawSegment) Row {
+	return rawSegments[0].rows[0]
 }

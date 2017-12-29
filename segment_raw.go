@@ -44,7 +44,7 @@ func openRawSegment(path string) (*RawSegment, error) {
 	if err != nil {
 		return nil, err
 	}
-	segment.ReferenceCounted = ref.NewReferenceCounted(fmt.Sprintf("raw chunk@%d", segment.StartSeq), resources...)
+	segment.ReferenceCounted = ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d", segment.StartSeq), resources...)
 	return segment, nil
 }
 

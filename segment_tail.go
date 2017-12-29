@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"io"
 	"github.com/esdb/lstore/ref"
+	"path"
 )
 
 var SegmentOverflowError = errors.New("please rotate to new chunk")
@@ -42,7 +43,7 @@ func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment,
 		countlog.Error("event!chunk.failed to mmap as RDONLY", "err", err, "path", path)
 		return nil, err
 	}
-	resources = append(resources, ref.NewResource("tail chunk readMMap", func() error {
+	resources = append(resources, ref.NewResource("tail segment readMMap", func() error {
 		return readMMap.Unmap()
 	}))
 	iter := gocodec.NewIterator(readMMap)
@@ -55,11 +56,12 @@ func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment,
 	segment.SegmentHeader = *segmentHeader
 	segment.readBuf = iter.Buffer()
 	segment.path = path
-	segment.ReferenceCounted = ref.NewReferenceCounted("tail chunk", resources...)
+	segment.ReferenceCounted = ref.NewReferenceCounted("tail segment", resources...)
 	return segment, nil
 }
 
 func createTailSegment(filename string, maxSize int64, startSeq RowSeq) (*os.File, error) {
+	os.MkdirAll(path.Dir(filename), 0777)
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err

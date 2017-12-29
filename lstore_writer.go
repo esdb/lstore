@@ -73,10 +73,10 @@ func loadInitialVersion(config Config) (*StoreVersion, error) {
 	version := StoreVersion{
 		config: config,
 	}.edit()
-	if err := loadTailAndRawSegments(config, version); err != nil {
+	if err := loadCompactingAndCompactedSegments(config, version); err != nil {
 		return nil, err
 	}
-	if err := loadCompactingAndCompactedSegments(config, version); err != nil {
+	if err := loadTailAndRawSegments(config, version); err != nil {
 		return nil, err
 	}
 	return version.seal(), nil
@@ -89,8 +89,8 @@ func loadTailAndRawSegments(config Config, version *EditingStoreVersion) error {
 	}
 	var reversedRawSegments []*RawSegment
 	startSeq := tailSegment.StartSeq
-	for startSeq != 0 {
-		prev := path.Join(config.Directory, fmt.Sprintf("%d.chunk", startSeq))
+	for startSeq != version.compactingSegment.getTailSeq() {
+		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startSeq))
 		rawSegment, err := openRawSegment(prev)
 		if err != nil {
 			return err
@@ -246,16 +246,16 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 		newVersion.rawSegments[i] = oldVersion.rawSegments[i]
 	}
 	conf := oldVersion.config
-	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.chunk", oldVersion.tailSegment.tail))
+	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.segment", oldVersion.tailSegment.tail))
 	if err = os.Rename(oldVersion.tailSegment.path, rotatedTo); err != nil {
 		return nil, err
 	}
-	// use writer.tailRows to build a raw chunk without loading from file
+	// use writer.tailRows to build a raw segment without loading from file
 	newVersion.rawSegments[i] = &RawSegment{
 		SegmentHeader: oldVersion.tailSegment.SegmentHeader,
 		Path:          rotatedTo,
 		rows:          writer.tailRows,
-		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw chunk@%d",
+		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
 			oldVersion.tailSegment.SegmentHeader.StartSeq)),
 	}
 	writer.tailRows = nil
