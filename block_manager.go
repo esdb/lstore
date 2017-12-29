@@ -14,8 +14,10 @@ import (
 )
 
 type compressedBlockHeader struct {
-	originalSize   uint32
-	compressedSize uint32
+	blockOriginalSize            uint32
+	blockCompressedSize          uint32
+	blockHashCacheOriginalSize   uint32
+	blockHashCacheCompressedSize uint32
 }
 
 var compressedBlockHeaderSize = calcCompressedBlockHeaderSize()
@@ -24,6 +26,7 @@ func calcCompressedBlockHeaderSize() uint32 {
 	stream := gocodec.NewStream(nil)
 	return uint32(stream.Marshal(compressedBlockHeader{}))
 }
+
 // blockManager is global per store
 // it manages the read/write to block file
 // compress/decompress block from the mmap
@@ -34,7 +37,8 @@ type blockManager struct {
 	blockFileSize             uint64
 	blockCache                *lru.ARCCache
 	// tmp assume there is single writer
-	tmp []byte
+	blockCompressTmp          []byte
+	blockHashCacheCompressTmp []byte
 	// only lock the modification of following maps
 	// does not cover reading or writing
 	mapMutex   *sync.Mutex
@@ -85,35 +89,67 @@ func (mgr *blockManager) Close() error {
 	return ref.NewMultiError(errs)
 }
 
-func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (uint64, error) {
+func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block, blockHashCache blockHashCache) (BlockSeq, error) {
 	stream := gocodec.NewStream(nil)
-	stream.Marshal(*block)
-	if stream.Error != nil {
-		return 0, stream.Error
-	}
-	buf := stream.Buffer()
-	compressBound := lz4.CompressBound(len(buf))
-	if compressBound > len(mgr.tmp) {
-		mgr.tmp = make([]byte, compressBound)
-	}
-	compressedSize := lz4.CompressDefault(buf, mgr.tmp)
-	stream.Reset(nil)
-	blkSize := stream.Marshal(compressedBlockHeader{
-		originalSize:   uint32(len(buf)),
-		compressedSize: uint32(compressedSize),
+	blockOriginalSize, blockCompressedSize, compressedBlock :=
+		mgr.compressBlock(stream, block)
+	blockHashCacheOriginalSize, blockHashCacheCompressedSize, compressedBlockHashCache :=
+		mgr.compressBlockHashCache(stream, blockHashCache)
+	stream.Marshal(compressedBlockHeader{
+		blockOriginalSize:   blockOriginalSize,
+		blockCompressedSize: blockCompressedSize,
+		blockHashCacheOriginalSize: blockHashCacheOriginalSize,
+		blockHashCacheCompressedSize: blockHashCacheCompressedSize,
 	})
 	if stream.Error != nil {
 		return 0, stream.Error
 	}
-	err := mgr.writeBuf(blockSeq, stream.Buffer())
+	header := stream.Buffer()
+	err := mgr.writeBuf(blockSeq, header)
 	if err != nil {
 		return 0, err
 	}
-	err = mgr.writeBuf(blockSeq+BlockSeq(len(stream.Buffer())), mgr.tmp[:compressedSize])
+	tailBlockSeq := blockSeq + BlockSeq(len(header))
+	err = mgr.writeBuf(tailBlockSeq, compressedBlock)
 	if err != nil {
 		return 0, err
 	}
-	return blkSize, nil
+	tailBlockSeq = tailBlockSeq + BlockSeq(len(compressedBlock))
+	err = mgr.writeBuf(tailBlockSeq, compressedBlockHashCache)
+	if err != nil {
+		return 0, err
+	}
+	return tailBlockSeq, nil
+}
+
+func (mgr *blockManager) compressBlock(stream *gocodec.Stream, block *block) (uint32, uint32, []byte) {
+	stream.Reset(nil)
+	stream.Marshal(*block)
+	if stream.Error != nil {
+		panic(stream.Error)
+	}
+	buf := stream.Buffer()
+	compressBound := lz4.CompressBound(len(buf))
+	if compressBound > len(mgr.blockCompressTmp) {
+		mgr.blockCompressTmp = make([]byte, compressBound)
+	}
+	compressedSize := lz4.CompressDefault(buf, mgr.blockCompressTmp)
+	return uint32(len(buf)), uint32(compressedSize), mgr.blockCompressTmp[:compressedSize]
+}
+
+func (mgr *blockManager) compressBlockHashCache(stream *gocodec.Stream, blockHashCache blockHashCache) (uint32, uint32, []byte) {
+	stream.Reset(nil)
+	stream.Marshal(blockHashCache)
+	if stream.Error != nil {
+		panic(stream.Error)
+	}
+	buf := stream.Buffer()
+	compressBound := lz4.CompressBound(len(buf))
+	if compressBound > len(mgr.blockHashCacheCompressTmp) {
+		mgr.blockHashCacheCompressTmp = make([]byte, compressBound)
+	}
+	compressedSize := lz4.CompressDefault(buf, mgr.blockHashCacheCompressTmp)
+	return uint32(len(buf)), uint32(compressedSize), mgr.blockHashCacheCompressTmp[:compressedSize]
 }
 
 func (mgr *blockManager) writeBuf(blockSeq BlockSeq, buf []byte) error {
@@ -146,10 +182,10 @@ func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
 	if iter.Error != nil {
 		return nil, iter.Error
 	}
-	decompressed := make([]byte, compressedBlockHeader.originalSize)
+	decompressed := make([]byte, compressedBlockHeader.blockOriginalSize)
 	compressedBuf, err := mgr.readBuf(
 		blockSeq+BlockSeq(compressedBlockHeaderSize),
-		compressedBlockHeader.compressedSize)
+		compressedBlockHeader.blockCompressedSize)
 	if err != nil {
 		return nil, err
 	}
