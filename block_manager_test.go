@@ -53,7 +53,7 @@ func Test_block_hash_cache(t *testing.T) {
 	should := require.New(t)
 	mgr := testBlockManager(30)
 	defer mgr.Close()
-	strategy := NewIndexingStrategy(&IndexingStrategyConfig{
+	strategy := newIndexingStrategy(&indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	mgr.indexingStrategy = strategy

@@ -5,6 +5,7 @@ import (
 	"github.com/v2pro/plz/countlog"
 	"time"
 	"errors"
+	"github.com/esdb/biter"
 )
 
 type compactionRequest chan error
@@ -80,37 +81,34 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 	// version will not change during compaction
 	store := compacter.currentVersion
 	blockManager := compacter.store.blockManager
+	indexingStrategy := blockManager.indexingStrategy
+	hashingStrategy := compacter.store.hashingStrategy
 	countlog.Trace("event!compacter.run")
 	if len(store.rawSegments) == 0 {
 		return
 	}
-	tailBlockSeq := BlockSeq(0)
 	firstRow := store.rawSegments[0].rows[0]
-	compactingSegmentStartSeq := firstRow.Seq
-	oldCompactingSegment := store.compactingSegment
-	if oldCompactingSegment != nil {
-		tailBlockSeq = oldCompactingSegment.tailBlockSeq
-		compactingSegmentStartSeq = oldCompactingSegment.StartSeq
-	}
+	startSeq := firstRow.Seq
+	compactingSegment := store.compactingSegment.nextSlot(startSeq, indexingStrategy, hashingStrategy)
 	for _, rawSegment := range store.rawSegments {
 		blk := newBlock(rawSegment.rows)
-		newTailBlockSeq, err := blockManager.writeBlock(tailBlockSeq, blk)
+		newTailBlockSeq, blkHash, err := blockManager.writeBlock(compactingSegment.tailBlockSeq, blk)
 		if err != nil {
 			countlog.Error("event!compacter.failed to write block",
-				"tailBlockSeq", tailBlockSeq, "err", err)
+				"tailBlockSeq", compactingSegment.tailBlockSeq, "err", err)
 			compactionReq.Completed(err)
 			return
 		}
-		tailBlockSeq = newTailBlockSeq
+		for i, pbf := range compactingSegment.slotIndex.pbfs {
+			for _, hashedElement := range blkHash[i] {
+				pbf.Put(biter.SetBits[compactingSegment.tailSlot], hashingStrategy.HashStage2(hashedElement))
+			}
+		}
+		compactingSegment.tailBlockSeq = newTailBlockSeq
 	}
 	compactedRawSegmentsCount := len(store.rawSegments)
-	newCompactingSegment, err := createCompactingSegment(compacter.store.CompactingSegmentTmpPath(), compactingSegmentValue{
-		SegmentHeader: SegmentHeader{
-			SegmentType: SegmentTypeCompacting,
-			StartSeq:    compactingSegmentStartSeq,
-		},
-		tailBlockSeq: tailBlockSeq,
-	})
+	newCompactingSegment, err := createCompactingSegment(
+		compacter.store.CompactingSegmentTmpPath(), compactingSegment)
 	if err != nil {
 		countlog.Error("event!compacter.failed to create new compacting chunk", "err", err)
 		compactionReq.Completed(err)

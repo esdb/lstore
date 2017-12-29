@@ -3,6 +3,7 @@ package lstore
 import (
 	"unsafe"
 	"github.com/esdb/pbloom"
+	"fmt"
 )
 
 // the sequence number for compressed block
@@ -25,46 +26,44 @@ type hashColumn []pbloom.HashedElement
 // to speed up computation of bloom filter
 type blockHash []hashColumn
 
-type IndexingStrategyConfig struct {
-	Hasher                        pbloom.Hasher
+type indexingStrategyConfig struct {
 	BloomFilterIndexedIntColumns  []int
 	BloomFilterIndexedBlobColumns []int
 	MinMaxIndexedColumns          []int
 }
 
-type BloomFilterIndexedColumn [2]int
+type bloomFilterIndexedColumn [2]int
 
-func (col BloomFilterIndexedColumn) IndexedColumn() int {
+func (col bloomFilterIndexedColumn) IndexedColumn() int {
 	return col[0]
 }
 
-func (col BloomFilterIndexedColumn) SourceColumn() int {
+func (col bloomFilterIndexedColumn) SourceColumn() int {
 	return col[1]
 }
 
-type IndexingStrategy struct {
+type indexingStrategy struct {
 	hasher                        pbloom.Hasher
-	bloomFilterIndexedIntColumns  []BloomFilterIndexedColumn
-	bloomFilterIndexedBlobColumns []BloomFilterIndexedColumn
+	bloomFilterIndexedIntColumns  []bloomFilterIndexedColumn
+	bloomFilterIndexedBlobColumns []bloomFilterIndexedColumn
 	minMaxIndexedColumns          []int
 }
 
-func NewIndexingStrategy(config *IndexingStrategyConfig) *IndexingStrategy {
-	hasher := config.Hasher
-	if hasher == nil {
-		hasher = pbloom.HasherFnv
-	}
-	bloomFilterIndexedIntColumns := make([]BloomFilterIndexedColumn, len(config.BloomFilterIndexedIntColumns))
-	for i := 0; i < len(bloomFilterIndexedIntColumns); i++ {
-		bloomFilterIndexedIntColumns[i] = BloomFilterIndexedColumn{i, config.BloomFilterIndexedIntColumns[i]}
-	}
-	bloomFilterIndexedBlobColumns := make([]BloomFilterIndexedColumn, len(config.BloomFilterIndexedBlobColumns))
+func newIndexingStrategy(config *indexingStrategyConfig) *indexingStrategy {
+	hasher := pbloom.HasherFnv
+	bloomFilterIndexedBlobColumns := make([]bloomFilterIndexedColumn, len(config.BloomFilterIndexedBlobColumns))
 	for i := 0; i < len(bloomFilterIndexedBlobColumns); i++ {
-		bloomFilterIndexedBlobColumns[i] = BloomFilterIndexedColumn{
-			len(bloomFilterIndexedIntColumns) + i,
+		bloomFilterIndexedBlobColumns[i] = bloomFilterIndexedColumn{
+			i,
 			config.BloomFilterIndexedBlobColumns[i]}
 	}
-	return &IndexingStrategy{
+	bloomFilterIndexedIntColumns := make([]bloomFilterIndexedColumn, len(config.BloomFilterIndexedIntColumns))
+	for i := 0; i < len(bloomFilterIndexedIntColumns); i++ {
+		bloomFilterIndexedIntColumns[i] = bloomFilterIndexedColumn{
+			len(bloomFilterIndexedBlobColumns) + i,
+			config.BloomFilterIndexedIntColumns[i]}
+	}
+	return &indexingStrategy{
 		hasher:                        hasher,
 		bloomFilterIndexedIntColumns:  bloomFilterIndexedIntColumns,
 		bloomFilterIndexedBlobColumns: bloomFilterIndexedBlobColumns,
@@ -72,8 +71,26 @@ func NewIndexingStrategy(config *IndexingStrategyConfig) *IndexingStrategy {
 	}
 }
 
-func (strategy *IndexingStrategy) BloomFilterIndexedColumnsCount() int {
+func (strategy *indexingStrategy) bloomFilterIndexedColumnsCount() int {
 	return len(strategy.bloomFilterIndexedIntColumns) + len(strategy.bloomFilterIndexedBlobColumns)
+}
+
+func (strategy *indexingStrategy) lookupBlobColumn(sourceColumn int) int {
+	for _, c := range strategy.bloomFilterIndexedBlobColumns {
+		if c.SourceColumn() == sourceColumn {
+			return c.IndexedColumn()
+		}
+	}
+	panic(fmt.Sprintf("blob column not indexed: %d", sourceColumn))
+}
+
+func (strategy *indexingStrategy) lookupIntColumn(sourceColumn int) int {
+	for _, c := range strategy.bloomFilterIndexedIntColumns {
+		if c.SourceColumn() == sourceColumn {
+			return c.IndexedColumn()
+		}
+	}
+	panic(fmt.Sprintf("int column not indexed: %d", sourceColumn))
 }
 
 func newBlock(rows []Row) *block {
@@ -99,15 +116,15 @@ func newBlock(rows []Row) *block {
 		}
 	}
 	return &block{
-		seqColumn:       seqColumn,
-		intColumns:      intColumns,
-		blobColumns:     blobColumns,
+		seqColumn:   seqColumn,
+		intColumns:  intColumns,
+		blobColumns: blobColumns,
 	}
 }
 
-func (blk *block) Hash(strategy *IndexingStrategy) blockHash {
+func (blk *block) Hash(strategy *indexingStrategy) blockHash {
 	rowsCount := len(blk.seqColumn)
-	blockHash := make(blockHash, strategy.BloomFilterIndexedColumnsCount())
+	blockHash := make(blockHash, strategy.bloomFilterIndexedColumnsCount())
 	for i := 0; i < len(blockHash); i++ {
 		blockHash[i] = make(hashColumn, rowsCount)
 	}
@@ -145,7 +162,7 @@ func (blk *block) search(reader *Reader, startSeq RowSeq, filters []Filter, coll
 		}
 	}
 	for _, filter := range filters {
-		filter.updateMask(blk, mask)
+		filter.searchBlock(blk, mask)
 	}
 	var rows []Row
 	for i, matches := range mask {

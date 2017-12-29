@@ -8,6 +8,7 @@ import (
 	"path"
 	"github.com/esdb/lstore/ref"
 	"io"
+	"github.com/esdb/pbloom"
 )
 
 const TailSegmentFileName = "tail.chunk"
@@ -45,9 +46,10 @@ type Store struct {
 	Config
 	*writer
 	*compacter
-	blockManager *blockManager
-	currentVersion unsafe.Pointer
-	executor       *concurrent.UnboundedExecutor // owns writer and compacter
+	hashingStrategy *pbloom.HashingStrategy
+	blockManager    *blockManager
+	currentVersion  unsafe.Pointer
+	executor        *concurrent.UnboundedExecutor // owns writer and compacter
 }
 
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
@@ -62,10 +64,10 @@ type StoreVersion struct {
 func (version StoreVersion) edit() *EditingStoreVersion {
 	return &EditingStoreVersion{
 		StoreVersion{
-			config: version.config,
+			config:            version.config,
 			compactingSegment: version.compactingSegment,
-			rawSegments: version.rawSegments,
-			tailSegment: version.tailSegment,
+			rawSegments:       version.rawSegments,
+			tailSegment:       version.tailSegment,
 		},
 	}
 }
@@ -74,7 +76,7 @@ type EditingStoreVersion struct {
 	StoreVersion
 }
 
-func(edt EditingStoreVersion) seal() *StoreVersion {
+func (edt EditingStoreVersion) seal() *StoreVersion {
 	version := &edt.StoreVersion
 	if !version.tailSegment.Acquire() {
 		panic("acquire reference counter should not fail during version rotation")
@@ -110,6 +112,7 @@ func (store *Store) Start() error {
 		store.BlockDirectory = store.Directory + "/block"
 	}
 	store.blockManager = newBlockManager(&store.BlockManagerConfig)
+	store.hashingStrategy = pbloom.NewHashingStrategy(pbloom.HasherFnv, 2454, 7)
 	store.executor = concurrent.NewUnboundedExecutor()
 	writer, err := store.newWriter()
 	if err != nil {

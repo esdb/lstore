@@ -26,7 +26,7 @@ func calcCompressedBlockHeaderSize() uint32 {
 }
 
 type BlockManagerConfig struct {
-	IndexingStrategyConfig
+	indexingStrategyConfig
 	BlockDirectory            string
 	BlockFileSizeInPowerOfTwo uint8
 	BlockCacheSize            int
@@ -37,7 +37,7 @@ type BlockManagerConfig struct {
 // compress/decompress block from the mmap
 // retain lru block cache
 type blockManager struct {
-	indexingStrategy          *IndexingStrategy
+	indexingStrategy          *indexingStrategy
 	blockDirectory            string
 	blockFileSizeInPowerOfTwo uint8 // 2 ^ x
 	blockFileSize             uint64
@@ -62,7 +62,7 @@ func newBlockManager(config *BlockManagerConfig) *blockManager {
 	}
 	blockCache, _ := lru.NewARC(config.BlockCacheSize)
 	blockHashCache, _ := lru.NewARC(64)
-	indexingStrategy := NewIndexingStrategy(&config.IndexingStrategyConfig)
+	indexingStrategy := newIndexingStrategy(&config.indexingStrategyConfig)
 	return &blockManager{
 		indexingStrategy:          indexingStrategy,
 		blockDirectory:            config.BlockDirectory,
@@ -105,8 +105,9 @@ func (mgr *blockManager) Close() error {
 	return ref.NewMultiError(errs)
 }
 
-func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (BlockSeq, error) {
-	mgr.blockHashCache.Add(blockSeq, block.Hash(mgr.indexingStrategy))
+func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (BlockSeq, blockHash, error) {
+	blkHash := block.Hash(mgr.indexingStrategy)
+	mgr.blockHashCache.Add(blockSeq, blkHash)
 	mgr.blockCache.Add(blockSeq, block)
 	stream := gocodec.NewStream(nil)
 	blockOriginalSize, blockCompressedSize, compressedBlock :=
@@ -117,20 +118,20 @@ func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (BlockSeq, 
 		blockCompressedSize: blockCompressedSize,
 	})
 	if stream.Error != nil {
-		return 0, stream.Error
+		return 0, nil, stream.Error
 	}
 	header := stream.Buffer()
 	err := mgr.writeBuf(blockSeq, header)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	tailBlockSeq := blockSeq + BlockSeq(len(header))
 	err = mgr.writeBuf(tailBlockSeq, compressedBlock)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	tailBlockSeq += BlockSeq(len(compressedBlock))
-	return tailBlockSeq, nil
+	return tailBlockSeq, blkHash, nil
 }
 
 func (mgr *blockManager) compressBlock(stream *gocodec.Stream, block *block) (uint32, uint32, []byte) {

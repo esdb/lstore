@@ -35,6 +35,7 @@ func smallTestStore() *lstore.Store {
 	store := &lstore.Store{}
 	store.Directory = "/tmp"
 	store.TailSegmentMaxSize = 280
+	store.BloomFilterIndexedBlobColumns = []int{0}
 	os.Remove(path.Join(store.Directory, lstore.TailSegmentFileName))
 	err := store.Start()
 	if err != nil {
