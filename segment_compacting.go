@@ -8,14 +8,15 @@ import (
 	"github.com/esdb/gocodec"
 )
 
-type compactingSegmentStorage struct {
+type compactingSegmentValue struct {
 	SegmentHeader
 	tailBlockSeq BlockSeq
 }
 
 type compactingSegment struct {
-	compactingSegmentStorage
+	compactingSegmentValue
 	*ref.ReferenceCounted
+	path string
 }
 
 func openCompactingSegment(path string) (*compactingSegment, error) {
@@ -34,18 +35,19 @@ func openCompactingSegment(path string) (*compactingSegment, error) {
 		return readMMap.Unmap()
 	}))
 	iter := gocodec.NewIterator(readMMap)
-	storage, _ := iter.Unmarshal((*compactingSegmentStorage)(nil)).(*compactingSegmentStorage)
+	storage, _ := iter.Unmarshal((*compactingSegmentValue)(nil)).(*compactingSegmentValue)
 	if iter.Error != nil {
 		readMMap.Unmap()
 		file.Close()
 		return nil, iter.Error
 	}
-	segment.compactingSegmentStorage = *storage
+	segment.path = path
+	segment.compactingSegmentValue = *storage
 	segment.ReferenceCounted = ref.NewReferenceCounted("compacting segment", resources...)
 	return segment, nil
 }
 
-func createCompactingSegment(path string, segment compactingSegmentStorage) (*compactingSegment, error) {
+func createCompactingSegment(path string, segment compactingSegmentValue) (*compactingSegment, error) {
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err
@@ -61,7 +63,8 @@ func createCompactingSegment(path string, segment compactingSegmentStorage) (*co
 		return nil, err
 	}
 	return &compactingSegment{
-		compactingSegmentStorage: segment,
-		ReferenceCounted: ref.NewReferenceCounted("compacting segment"),
+		path: path,
+		compactingSegmentValue: segment,
+		ReferenceCounted:       ref.NewReferenceCounted("compacting segment"),
 	}, nil
 }

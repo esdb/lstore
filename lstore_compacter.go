@@ -79,12 +79,56 @@ func (compacter *compacter) start() {
 func (compacter *compacter) compact(compactionReq compactionRequest) {
 	// version will not change during compaction
 	store := compacter.currentVersion
+	blockManager := compacter.store.blockManager
 	countlog.Trace("event!compacter.run")
 	if len(store.rawSegments) == 0 {
 		return
 	}
-	for _, rawSegment := range store.rawSegments {
-		newBlock(rawSegment.rows.(*rowsSegment).rows)
+	tailBlockSeq := BlockSeq(0)
+	firstRow := store.rawSegments[0].rows.(*rowsSegment).rows[0]
+	compactingSegmentStartSeq := firstRow.Seq
+	oldCompactingSegment := store.compactingSegment
+	if oldCompactingSegment != nil {
+		tailBlockSeq = oldCompactingSegment.tailBlockSeq
+		compactingSegmentStartSeq = oldCompactingSegment.StartSeq
 	}
+	for _, rawSegment := range store.rawSegments {
+		blk, _ := newBlock(nil, rawSegment.rows.(*rowsSegment).rows)
+		size, err := blockManager.writeBlock(tailBlockSeq, blk)
+		if err != nil {
+			countlog.Error("event!compacter.failed to write block",
+				"tailBlockSeq", tailBlockSeq, "err", err)
+			compactionReq.Completed(err)
+			return
+		}
+		tailBlockSeq += BlockSeq(size)
+	}
+	compactedRawSegmentsCount := len(store.rawSegments)
+	newCompactingSegment, err := createCompactingSegment(compacter.store.CompactingSegmentTmpPath(), compactingSegmentValue{
+		SegmentHeader: SegmentHeader{
+			SegmentType: SegmentTypeCompacting,
+			StartSeq:    compactingSegmentStartSeq,
+		},
+		tailBlockSeq: tailBlockSeq,
+	})
+	if err != nil {
+		countlog.Error("event!compacter.failed to create new compacting segment", "err", err)
+		compactionReq.Completed(err)
+		return
+	}
+	compacter.switchCompactingSegment(newCompactingSegment, compactedRawSegmentsCount)
 	compactionReq.Completed(nil)
+}
+
+func (compacter *compacter) switchCompactingSegment(
+	newCompactingSegment *compactingSegment, compactedRawSegmentsCount int) error {
+	resultChan := make(chan error)
+	compacter.store.asyncExecute(context.Background(), func(ctx context.Context, oldVersion *StoreVersion) *StoreVersion {
+		newVersion := oldVersion.edit()
+		newVersion.rawSegments = oldVersion.rawSegments[compactedRawSegmentsCount:]
+		newVersion.compactingSegment = newCompactingSegment
+		resultChan <- nil
+		return newVersion.seal()
+	})
+	return <-resultChan
 }

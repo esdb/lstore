@@ -8,13 +8,15 @@ import (
 	"errors"
 	"sync/atomic"
 	"io"
+	"github.com/esdb/lstore/ref"
 )
 
 var SegmentOverflowError = errors.New("please rotate to new segment")
 
 type TailSegment struct {
 	SegmentHeader
-	Path     string
+	*ref.ReferenceCounted
+	path     string
 	readBuf  []byte
 	file     *os.File
 	readMMap mmap.MMap
@@ -31,6 +33,7 @@ func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment,
 	} else if err != nil {
 		return nil, err
 	}
+	resources := []io.Closer{file}
 	segment := &TailSegment{}
 	segment.file = file
 	readMMap, err := mmap.Map(file, mmap.RDONLY, 0)
@@ -39,7 +42,9 @@ func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment,
 		countlog.Error("event!segment.failed to mmap as RDONLY", "err", err, "path", path)
 		return nil, err
 	}
-	segment.readMMap = readMMap
+	resources = append(resources, ref.NewResource("tail segment readMMap", func() error {
+		return readMMap.Unmap()
+	}))
 	iter := gocodec.NewIterator(readMMap)
 	segmentHeader, _ := iter.Copy((*SegmentHeader)(nil)).(*SegmentHeader)
 	if iter.Error != nil {
@@ -49,7 +54,7 @@ func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment,
 	}
 	segment.SegmentHeader = *segmentHeader
 	segment.readBuf = iter.Buffer()
-	segment.Path = path
+	segment.path = path
 	return segment, nil
 }
 
@@ -73,32 +78,6 @@ func createTailSegment(filename string, maxSize int64, startSeq RowSeq) (*os.Fil
 		return nil, err
 	}
 	return os.OpenFile(filename, os.O_RDWR, 0666)
-}
-
-func (segment *TailSegment) Close() error {
-	failed := false
-	if segment.readMMap != nil {
-		err := segment.readMMap.Unmap()
-		if err != nil {
-			countlog.Error("event!segment_tail.failed to unmap read", "err", err)
-			failed = true
-		} else {
-			segment.readMMap = nil
-		}
-	}
-	if segment.file != nil {
-		err := segment.file.Close()
-		if err != nil {
-			countlog.Error("event!segment_tail.failed to close file", "err", err)
-			failed = true
-		} else {
-			segment.file = nil
-		}
-	}
-	if failed {
-		return errors.New("not all resources closed properly")
-	}
-	return nil
 }
 
 func (segment *TailSegment) updateTail(tail RowSeq) {

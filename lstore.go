@@ -7,10 +7,13 @@ import (
 	"context"
 	"path"
 	"github.com/esdb/lstore/ref"
+	"io"
 )
 
 const TailSegmentFileName = "tail.segment"
+const TailSegmentTmpFileName = "tail.segment.tmp"
 const CompactingSegmentFileName = "compacting.segment"
+const CompactingSegmentTmpFileName = "compacting.segment.tmp"
 
 type Config struct {
 	Directory           string
@@ -23,8 +26,16 @@ func (conf *Config) TailSegmentPath() string {
 	return path.Join(conf.Directory, TailSegmentFileName)
 }
 
+func (conf *Config) TailSegmentTmpPath() string {
+	return path.Join(conf.Directory, TailSegmentTmpFileName)
+}
+
 func (conf *Config) CompactingSegmentPath() string {
 	return path.Join(conf.Directory, CompactingSegmentFileName)
+}
+
+func (conf *Config) CompactingSegmentTmpPath() string {
+	return path.Join(conf.Directory, CompactingSegmentTmpFileName)
 }
 
 // Store is physically a directory, containing multiple files on disk
@@ -33,6 +44,7 @@ type Store struct {
 	Config
 	*writer
 	*compacter
+	blockManager *blockManager
 	currentVersion unsafe.Pointer
 	executor       *concurrent.UnboundedExecutor // owns writer and compacter
 }
@@ -46,6 +58,43 @@ type StoreVersion struct {
 	tailSegment       *TailSegment
 }
 
+func (version StoreVersion) edit() *EditingStoreVersion {
+	return &EditingStoreVersion{
+		StoreVersion{
+			config: version.config,
+			compactingSegment: version.compactingSegment,
+			rawSegments: version.rawSegments,
+			tailSegment: version.tailSegment,
+		},
+	}
+}
+
+type EditingStoreVersion struct {
+	StoreVersion
+}
+
+func(edt EditingStoreVersion) seal() *StoreVersion {
+	version := &edt.StoreVersion
+	if !version.tailSegment.Acquire() {
+		panic("acquire reference counter should not fail during version rotation")
+	}
+	resources := []io.Closer{version.tailSegment}
+	for _, rawSegment := range version.rawSegments {
+		if !rawSegment.Acquire() {
+			panic("acquire reference counter should not fail during version rotation")
+		}
+		resources = append(resources, rawSegment)
+	}
+	if version.compactingSegment != nil {
+		if !version.compactingSegment.Acquire() {
+			panic("acquire reference counter should not fail during version rotation")
+		}
+		resources = append(resources, version.compactingSegment)
+	}
+	version.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
+	return version
+}
+
 func (store *Store) Start() error {
 	if store.CommandQueueSize == 0 {
 		store.CommandQueueSize = 1024
@@ -56,6 +105,7 @@ func (store *Store) Start() error {
 	if store.TailSegmentMaxSize == 0 {
 		store.TailSegmentMaxSize = 200 * 1024 * 1024
 	}
+	store.blockManager = newBlockManager(store.Directory + "/block", 30)
 	store.executor = concurrent.NewUnboundedExecutor()
 	writer, err := store.newWriter()
 	if err != nil {

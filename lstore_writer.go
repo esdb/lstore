@@ -12,7 +12,6 @@ import (
 	"github.com/esdb/gocodec"
 	"github.com/edsrzf/mmap-go"
 	"github.com/esdb/lstore/ref"
-	"io"
 	"math"
 )
 
@@ -71,27 +70,19 @@ func (writer *writer) load() error {
 }
 
 func loadInitialVersion(config Config) (*StoreVersion, error) {
-	version := &StoreVersion{
+	version := StoreVersion{
 		config: config,
-	}
+	}.edit()
 	if err := loadTailAndRawSegments(config, version); err != nil {
 		return nil, err
 	}
 	if err := loadCompactingAndCompactedSegments(config, version); err != nil {
 		return nil, err
 	}
-	resources := []io.Closer{version}
-	for _, rawSegment := range version.rawSegments {
-		resources = append(resources, rawSegment)
-	}
-	if version.compactingSegment != nil {
-		resources = append(resources, version.compactingSegment)
-	}
-	version.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
-	return version, nil
+	return version.seal(), nil
 }
 
-func loadTailAndRawSegments(config Config, version *StoreVersion) error {
+func loadTailAndRawSegments(config Config, version *EditingStoreVersion) error {
 	tailSegment, err := openTailSegment(config.TailSegmentPath(), config.TailSegmentMaxSize, 0)
 	if err != nil {
 		return err
@@ -116,7 +107,7 @@ func loadTailAndRawSegments(config Config, version *StoreVersion) error {
 	return nil
 }
 
-func loadCompactingAndCompactedSegments(config Config, version *StoreVersion) error {
+func loadCompactingAndCompactedSegments(config Config, version *EditingStoreVersion) error {
 	segmentPath := config.CompactingSegmentPath()
 	compactingSegment, err := openCompactingSegment(segmentPath)
 	if os.IsNotExist(err) {
@@ -241,19 +232,15 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 		countlog.Error("event!writer.failed to unmap write", "err", err)
 		return nil, err
 	}
-	newVersion := &StoreVersion{config: oldVersion.config}
+	newVersion := oldVersion.edit()
 	newVersion.rawSegments = make([]*RawSegment, len(oldVersion.rawSegments)+1)
 	i := 0
-	var resources []io.Closer
 	for ; i < len(oldVersion.rawSegments); i++ {
-		oldSegment := oldVersion.rawSegments[i]
-		oldSegment.Acquire()
-		newVersion.rawSegments[i] = oldSegment
-		resources = append(resources, oldSegment)
+		newVersion.rawSegments[i] = oldVersion.rawSegments[i]
 	}
 	conf := oldVersion.config
 	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.segment", oldVersion.tailSegment.tail))
-	if err = os.Rename(oldVersion.tailSegment.Path, rotatedTo); err != nil {
+	if err = os.Rename(oldVersion.tailSegment.path, rotatedTo); err != nil {
 		return nil, err
 	}
 	// use writer.tailRows to build a raw segment without loading from file
@@ -270,21 +257,19 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 	if err != nil {
 		return nil, err
 	}
-	resources = append(resources, newVersion.tailSegment)
 	err = writer.mapFile(newVersion.tailSegment)
 	if err != nil {
 		return nil, err
 	}
 	newVersion.tailSegment.updateTail(newVersion.tailSegment.StartSeq)
-	newVersion.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
 	countlog.Info("event!store.rotated", "tail", newVersion.tailSegment.StartSeq)
-	return newVersion, nil
+	return newVersion.seal(), nil
 }
 
 func (writer *writer) mapFile(tailSegment *TailSegment) error {
 	writeMMap, err := mmap.Map(tailSegment.file, mmap.RDWR, 0)
 	if err != nil {
-		countlog.Error("event!segment.failed to mmap as RDWR", "err", err, "path", tailSegment.Path)
+		countlog.Error("event!segment.failed to mmap as RDWR", "err", err, "path", tailSegment.path)
 		return err
 	}
 	writer.writeMMap = writeMMap

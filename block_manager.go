@@ -1,8 +1,6 @@
 package lstore
 
 import (
-	"github.com/spaolacci/murmur3"
-	"unsafe"
 	"github.com/hashicorp/golang-lru"
 	"os"
 	"sync"
@@ -15,10 +13,6 @@ import (
 	"github.com/esdb/lstore/lz4"
 )
 
-type intColumn []int64
-type blobColumn []Blob
-type blobHashColumn []uint32
-
 type compressedBlockHeader struct {
 	originalSize   uint32
 	compressedSize uint32
@@ -30,14 +24,6 @@ func calcCompressedBlockHeaderSize() uint32 {
 	stream := gocodec.NewStream(nil)
 	return uint32(stream.Marshal(compressedBlockHeader{}))
 }
-
-type block struct {
-	seqColumn       []RowSeq
-	intColumns      []intColumn
-	blobHashColumns []blobHashColumn
-	blobColumns     []blobColumn
-}
-
 // blockManager is global per store
 // it manages the read/write to block file
 // compress/decompress block from the mmap
@@ -248,41 +234,4 @@ func (mgr *blockManager) openFile(fileBlockSeq BlockSeq) (*os.File, error) {
 	}
 	mgr.files[fileBlockSeq] = file
 	return file, nil
-}
-
-func newBlock(rows []Row) *block {
-	rowsCount := len(rows)
-	seqColumn := make([]RowSeq, rowsCount)
-	intColumnsCount := len(rows[0].IntValues)
-	intColumns := make([]intColumn, intColumnsCount)
-	blobColumnsCount := len(rows[0].BlobValues)
-	blobColumns := make([]blobColumn, blobColumnsCount)
-	blobHashColumns := make([]blobHashColumn, blobColumnsCount)
-	for i := 0; i < intColumnsCount; i++ {
-		intColumns[i] = make(intColumn, rowsCount)
-	}
-	for i := 0; i < blobColumnsCount; i++ {
-		blobColumns[i] = make(blobColumn, rowsCount)
-		blobHashColumns[i] = make(blobHashColumn, rowsCount)
-	}
-	hasher := murmur3.New32()
-	for i, row := range rows {
-		seqColumn[i] = row.Seq
-		for j, intValue := range row.IntValues {
-			intColumns[j][i] = intValue
-		}
-		for j, blobValue := range row.BlobValues {
-			blobColumns[j][i] = blobValue
-			asSlice := *(*[]byte)(unsafe.Pointer(&blobValue))
-			hasher.Reset()
-			hasher.Write(asSlice)
-			blobHashColumns[j][i] = hasher.Sum32()
-		}
-	}
-	return &block{
-		seqColumn:       seqColumn,
-		intColumns:      intColumns,
-		blobColumns:     blobColumns,
-		blobHashColumns: blobHashColumns,
-	}
 }
