@@ -89,7 +89,7 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 		return
 	}
 	firstRow := firstRowOf(store.rawSegments)
-	compactingSegment := store.compactingSegment.nextSlot(firstRow.Seq, indexingStrategy, hashingStrategy)
+	compactingSegment := store.indexedSegment.nextSlot(firstRow.Seq, indexingStrategy, hashingStrategy)
 	compactingSegment.tailSeq = store.tailSegment.StartSeq
 	for _, rawSegment := range store.rawSegments {
 		blk := newBlock(rawSegment.rows)
@@ -111,7 +111,7 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 		compactingSegment.tailSlot++
 	}
 	compactedRawSegmentsCount := len(store.rawSegments)
-	newCompactingSegment, err := createCompactingSegment(
+	newCompactingSegment, err := createIndexedSegment(
 		compacter.store.CompactingSegmentTmpPath(), compactingSegment)
 	if err != nil {
 		countlog.Error("event!compacter.failed to create new compacting chunk", "err", err)
@@ -131,7 +131,7 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 }
 
 func (compacter *compacter) switchCompactingSegment(
-	newCompactingSegment *compactingSegment, compactedRawSegmentsCount int) error {
+	newCompactingSegment *indexedSegment, compactedRawSegmentsCount int) error {
 	resultChan := make(chan error)
 	compacter.store.asyncExecute(context.Background(), func(ctx context.Context, oldVersion *StoreVersion) {
 		err := os.Rename(newCompactingSegment.path, compacter.store.CompactingSegmentPath())
@@ -141,7 +141,7 @@ func (compacter *compacter) switchCompactingSegment(
 		}
 		newVersion := oldVersion.edit()
 		newVersion.rawSegments = oldVersion.rawSegments[compactedRawSegmentsCount:]
-		newVersion.compactingSegment = newCompactingSegment
+		newVersion.indexedSegment = newCompactingSegment
 		compacter.store.updateCurrentVersion(newVersion.seal())
 		resultChan <- nil
 		return

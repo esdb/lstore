@@ -25,7 +25,7 @@ const (
 func scanForward(reader *Reader, filters []Filter) chunkIterator {
 	store := reader.currentVersion
 	blockManager := reader.store.blockManager
-	iter1 := store.compactingSegment.scanForward(blockManager, filters)
+	iter1 := store.indexedSegment.scanForward(blockManager, filters)
 	var chunks []chunk
 	for _, rawSegment := range store.rawSegments {
 		chunks = append(chunks, rawSegment.rows)

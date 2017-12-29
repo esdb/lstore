@@ -10,7 +10,7 @@ import (
 	"github.com/esdb/biter"
 )
 
-type compactingSegmentVersion struct {
+type indexedSegmentVersion struct {
 	SegmentHeader
 	tailSeq      RowSeq
 	slotIndex    slotIndex
@@ -19,19 +19,19 @@ type compactingSegmentVersion struct {
 	tailSlot     biter.Slot
 }
 
-type compactingSegment struct {
-	compactingSegmentVersion
+type indexedSegment struct {
+	indexedSegmentVersion
 	*ref.ReferenceCounted
 	path string
 }
 
-func openCompactingSegment(path string) (*compactingSegment, error) {
+func openIndexedSegment(path string) (*indexedSegment, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if err != nil {
 		return nil, err
 	}
 	resources := []io.Closer{file}
-	segment := &compactingSegment{}
+	segment := &indexedSegment{}
 	readMMap, err := mmap.Map(file, mmap.COPY, 0)
 	if err != nil {
 		file.Close()
@@ -41,19 +41,19 @@ func openCompactingSegment(path string) (*compactingSegment, error) {
 		return readMMap.Unmap()
 	}))
 	iter := gocodec.NewIterator(readMMap)
-	storage, _ := iter.Unmarshal((*compactingSegmentVersion)(nil)).(*compactingSegmentVersion)
+	storage, _ := iter.Unmarshal((*indexedSegmentVersion)(nil)).(*indexedSegmentVersion)
 	if iter.Error != nil {
 		readMMap.Unmap()
 		file.Close()
 		return nil, iter.Error
 	}
 	segment.path = path
-	segment.compactingSegmentVersion = *storage
-	segment.ReferenceCounted = ref.NewReferenceCounted("compacting chunk", resources...)
+	segment.indexedSegmentVersion = *storage
+	segment.ReferenceCounted = ref.NewReferenceCounted("indexed segment", resources...)
 	return segment, nil
 }
 
-func createCompactingSegment(path string, segment compactingSegmentVersion) (*compactingSegment, error) {
+func createIndexedSegment(path string, segment indexedSegmentVersion) (*indexedSegment, error) {
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err
@@ -68,14 +68,14 @@ func createCompactingSegment(path string, segment compactingSegmentVersion) (*co
 	if err != nil {
 		return nil, err
 	}
-	return &compactingSegment{
-		path:                     path,
-		compactingSegmentVersion: segment,
-		ReferenceCounted:         ref.NewReferenceCounted("compacting chunk"),
+	return &indexedSegment{
+		path:                  path,
+		indexedSegmentVersion: segment,
+		ReferenceCounted:      ref.NewReferenceCounted("indexed segment"),
 	}, nil
 }
 
-func (segment *compactingSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
+func (segment *indexedSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
 	if segment == nil {
 		return iterateChunks(nil)
 	}
@@ -95,33 +95,33 @@ func (segment *compactingSegment) scanForward(blockManager *blockManager, filter
 	}
 }
 
-func (segment *compactingSegment) getTailSlot() biter.Slot {
+func (segment *indexedSegment) getTailSlot() biter.Slot {
 	if segment == nil {
 		return 0
 	}
 	return segment.tailSlot
 }
 
-func (segment *compactingSegment) getTailSeq() RowSeq {
+func (segment *indexedSegment) getTailSeq() RowSeq {
 	if segment == nil {
 		return 0
 	}
 	return segment.tailSeq
 }
 
-func (segment *compactingSegment) nextSlot(
+func (segment *indexedSegment) nextSlot(
 	startSeq RowSeq, indexingStrategy *indexingStrategy,
-	hashingStrategy *pbloom.HashingStrategy) compactingSegmentVersion {
+	hashingStrategy *pbloom.HashingStrategy) indexedSegmentVersion {
 	if segment == nil {
-		return newCompactingSegmentVersion(startSeq, indexingStrategy, hashingStrategy)
+		return newIndexedSegmentVersion(startSeq, indexingStrategy, hashingStrategy)
 	}
-	return segment.compactingSegmentVersion.nextSlot()
+	return segment.indexedSegmentVersion.nextSlot()
 }
 
-func newCompactingSegmentVersion(
+func newIndexedSegmentVersion(
 	startSeq RowSeq, indexingStrategy *indexingStrategy,
-	hashingStrategy *pbloom.HashingStrategy) compactingSegmentVersion {
-	return compactingSegmentVersion{
+	hashingStrategy *pbloom.HashingStrategy) indexedSegmentVersion {
+	return indexedSegmentVersion{
 		SegmentHeader: SegmentHeader{
 			SegmentType: SegmentTypeCompacting,
 			StartSeq:    startSeq,
@@ -133,13 +133,13 @@ func newCompactingSegmentVersion(
 	}
 }
 
-func (version *compactingSegmentVersion) nextSlot() (compactingSegmentVersion) {
+func (version *indexedSegmentVersion) nextSlot() (indexedSegmentVersion) {
 	if version == nil {
 	}
 	if version.tailSlot == 63 {
-		panic("compacting segment can only hold 64 slots")
+		panic("indexed segment can only hold 64 slots")
 	}
-	newVersion := compactingSegmentVersion{}
+	newVersion := indexedSegmentVersion{}
 	newVersion.SegmentHeader = version.SegmentHeader
 	newVersion.tailBlockSeq = version.tailBlockSeq
 	newVersion.tailSlot = version.tailSlot + 1

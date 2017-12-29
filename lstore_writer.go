@@ -73,7 +73,7 @@ func loadInitialVersion(config Config) (*StoreVersion, error) {
 	version := StoreVersion{
 		config: config,
 	}.edit()
-	if err := loadCompactingAndCompactedSegments(config, version); err != nil {
+	if err := loadIndexedSegments(config, version); err != nil {
 		return nil, err
 	}
 	if err := loadTailAndRawSegments(config, version); err != nil {
@@ -89,7 +89,7 @@ func loadTailAndRawSegments(config Config, version *EditingStoreVersion) error {
 	}
 	var reversedRawSegments []*RawSegment
 	startSeq := tailSegment.StartSeq
-	for startSeq != version.compactingSegment.getTailSeq() {
+	for startSeq != version.indexedSegment.getTailSeq() {
 		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startSeq))
 		rawSegment, err := openRawSegment(prev)
 		if err != nil {
@@ -107,15 +107,15 @@ func loadTailAndRawSegments(config Config, version *EditingStoreVersion) error {
 	return nil
 }
 
-func loadCompactingAndCompactedSegments(config Config, version *EditingStoreVersion) error {
+func loadIndexedSegments(config Config, version *EditingStoreVersion) error {
 	segmentPath := config.CompactingSegmentPath()
-	compactingSegment, err := openCompactingSegment(segmentPath)
+	indexedSegment, err := openIndexedSegment(segmentPath)
 	if os.IsNotExist(err) {
-		compactingSegment = nil
+		indexedSegment = nil
 	} else if err != nil {
 		return err
 	}
-	version.compactingSegment = compactingSegment
+	version.indexedSegment = indexedSegment
 	return nil
 }
 

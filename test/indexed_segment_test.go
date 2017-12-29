@@ -7,7 +7,7 @@ import (
 	"github.com/esdb/lstore"
 )
 
-func Test_compacting_segment(t *testing.T) {
+func Test_indexed_segment(t *testing.T) {
 	should := require.New(t)
 	store := smallTestStore()
 	defer store.Stop(context.Background())

@@ -54,20 +54,20 @@ type Store struct {
 
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
-	config            Config
+	config         Config
 	*ref.ReferenceCounted
-	compactingSegment *compactingSegment
-	rawSegments       []*RawSegment
-	tailSegment       *TailSegment
+	indexedSegment *indexedSegment
+	rawSegments    []*RawSegment
+	tailSegment    *TailSegment
 }
 
 func (version StoreVersion) edit() *EditingStoreVersion {
 	return &EditingStoreVersion{
 		StoreVersion{
-			config:            version.config,
-			compactingSegment: version.compactingSegment,
-			rawSegments:       version.rawSegments,
-			tailSegment:       version.tailSegment,
+			config:         version.config,
+			indexedSegment: version.indexedSegment,
+			rawSegments:    version.rawSegments,
+			tailSegment:    version.tailSegment,
 		},
 	}
 }
@@ -88,11 +88,11 @@ func (edt EditingStoreVersion) seal() *StoreVersion {
 		}
 		resources = append(resources, rawSegment)
 	}
-	if version.compactingSegment != nil {
-		if !version.compactingSegment.Acquire() {
+	if version.indexedSegment != nil {
+		if !version.indexedSegment.Acquire() {
 			panic("acquire reference counter should not fail during version rotation")
 		}
-		resources = append(resources, version.compactingSegment)
+		resources = append(resources, version.indexedSegment)
 	}
 	version.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
 	return version
