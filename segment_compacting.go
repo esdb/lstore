@@ -7,6 +7,7 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"github.com/esdb/gocodec"
 	"github.com/esdb/pbloom"
+	"github.com/esdb/biter"
 )
 
 type compactingSegmentVersion struct {
@@ -14,7 +15,7 @@ type compactingSegmentVersion struct {
 	slotIndex    slotIndex
 	blocks       []BlockSeq // 64 slots
 	tailBlockSeq BlockSeq
-	tailSlot     Slot
+	tailSlot     biter.Slot
 }
 
 type compactingSegment struct {
@@ -73,7 +74,27 @@ func createCompactingSegment(path string, segment compactingSegmentVersion) (*co
 	}, nil
 }
 
-func (segment *compactingSegment) getTailSlot() Slot {
+func (segment *compactingSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
+	if segment == nil {
+		return iterateChunks(nil)
+	}
+	result := segment.slotIndex.search(filters)
+	iter := result.ScanForward()
+	return func() (chunk, error) {
+		slot := iter()
+		if slot == biter.NotFound {
+			return nil, io.EOF
+		}
+		blockSeq := segment.blocks[slot]
+		block, err := blockManager.readBlock(blockSeq)
+		if err != nil {
+			return nil, err
+		}
+		return block, nil
+	}
+}
+
+func (segment *compactingSegment) getTailSlot() biter.Slot {
 	if segment == nil {
 		return 0
 	}

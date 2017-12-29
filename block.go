@@ -164,7 +164,6 @@ func (blk *block) search(reader *Reader, startSeq RowSeq, filters []Filter, coll
 	for _, filter := range filters {
 		filter.searchBlock(blk, mask)
 	}
-	var rows []Row
 	for i, matches := range mask {
 		if !matches {
 			continue
@@ -179,8 +178,8 @@ func (blk *block) search(reader *Reader, startSeq RowSeq, filters []Filter, coll
 		for j := 0; j < blobColumnsCount; j++ {
 			blobValues[j] = blk.blobColumns[j][i]
 		}
-		rows = append(rows, Row{Seq: blk.seqColumn[i], Entry: &Entry{
+		collector = append(collector, Row{Seq: blk.seqColumn[i], Entry: &Entry{
 			EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues}})
 	}
-	return rows, nil
+	return collector, nil
 }

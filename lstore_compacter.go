@@ -92,7 +92,8 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 	compactingSegment := store.compactingSegment.nextSlot(startSeq, indexingStrategy, hashingStrategy)
 	for _, rawSegment := range store.rawSegments {
 		blk := newBlock(rawSegment.rows)
-		newTailBlockSeq, blkHash, err := blockManager.writeBlock(compactingSegment.tailBlockSeq, blk)
+		blockSeq := compactingSegment.tailBlockSeq
+		newTailBlockSeq, blkHash, err := blockManager.writeBlock(blockSeq, blk)
 		if err != nil {
 			countlog.Error("event!compacter.failed to write block",
 				"tailBlockSeq", compactingSegment.tailBlockSeq, "err", err)
@@ -104,7 +105,9 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 				pbf.Put(biter.SetBits[compactingSegment.tailSlot], hashingStrategy.HashStage2(hashedElement))
 			}
 		}
+		compactingSegment.blocks[compactingSegment.tailSlot] = blockSeq
 		compactingSegment.tailBlockSeq = newTailBlockSeq
+		compactingSegment.tailSlot++
 	}
 	compactedRawSegmentsCount := len(store.rawSegments)
 	newCompactingSegment, err := createCompactingSegment(

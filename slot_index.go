@@ -1,8 +1,10 @@
 package lstore
 
-import "github.com/esdb/pbloom"
+import (
+	"github.com/esdb/pbloom"
+	"github.com/esdb/biter"
+)
 
-type Slot int
 type slotIndex struct {
 	pbfs         []pbloom.ParallelBloomFilter // 64 slots
 }
@@ -16,11 +18,19 @@ func newSlotIndex(indexingStrategy *indexingStrategy,
 	return slotIndex{pbfs}
 }
 
-func (idx *slotIndex) copy() slotIndex {
+func (idx slotIndex) copy() slotIndex {
 	newVersion := slotIndex{}
 	newVersion.pbfs = make([]pbloom.ParallelBloomFilter, len(idx.pbfs))
 	for i := 0; i < len(newVersion.pbfs); i++ {
 		newVersion.pbfs[i] = append(pbloom.ParallelBloomFilter(nil), idx.pbfs[i]...)
 	}
 	return newVersion
+}
+
+func (idx slotIndex) search(filters []Filter) biter.Bits {
+	result := biter.SetAllBits
+	for _, filter := range filters {
+		result &= filter.searchIndex(idx)
+	}
+	return result
 }

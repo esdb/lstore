@@ -12,7 +12,6 @@ type SearchRequest struct {
 	Filters       []Filter
 }
 
-type blockIterator func() (chunk, error)
 type RowIterator func() ([]Row, error)
 
 const (
@@ -23,55 +22,32 @@ const (
 )
 
 // t1Search speed up by tree of bloomfilter (for int,blob) and min max (for int)
-func t1Search(reader *Reader, filters []Filter) blockIterator {
+func scanForward(reader *Reader, filters []Filter) chunkIterator {
 	store := reader.currentVersion
-	rawSegments := store.rawSegments
-	currentRawSegmentIndex := 0
-	state := iteratingCompacting
-	return func() (chunk, error) {
-		switch state {
-		case iteratingCompacting:
-			goto iteratingCompacting
-		case iteratingRaw:
-			goto iteratingRaw
-		case iteratingTail:
-			goto iteratingTail
-		case iteratingDone:
-			return nil, io.EOF
-		}
-	iteratingCompacting:
-		if store.compactingSegment != nil {
-			state = iteratingRaw
-			blk, _ := reader.store.blockManager.readBlock(0)
-			return blk, nil
-		}
-		state = iteratingRaw
-	iteratingRaw:
-		if currentRawSegmentIndex < len(rawSegments) {
-			segment := rawSegments[currentRawSegmentIndex].rows
-			currentRawSegmentIndex++
-			return segment, nil
-		}
-		state = iteratingTail
-	iteratingTail:
-		state = iteratingDone
-		return reader.tailRows, nil
+	blockManager := reader.store.blockManager
+	iter1 := store.compactingSegment.scanForward(blockManager, filters)
+	var chunks []chunk
+	for _, rawSegment := range store.rawSegments {
+		chunks = append(chunks, rawSegment.rows)
 	}
+	chunks = append(chunks, reader.tailRows)
+	iter2 := iterateChunks(chunks)
+	return chainChunkIterator(iter1, iter2)
 }
 
 // t2Search speed up by column based disk layout (for compacted segments)
 // and in memory cache (for raw segments and tail chunk)
-func t2Search(reader *Reader, blkIter blockIterator, req SearchRequest) ([]Row, error) {
+func t2Search(reader *Reader, chunkIter chunkIterator, req SearchRequest) ([]Row, error) {
 	var batch []Row
 	for {
-		blk, err := blkIter()
+		chunk, err := chunkIter()
 		if err != nil {
 			if err == io.EOF && len(batch) > 0 {
 				return batch, nil
 			}
 			return nil, err
 		}
-		batch, err = blk.search(reader, req.StartSeq, req.Filters, batch)
+		batch, err = chunk.search(reader, req.StartSeq, req.Filters, batch)
 		if err != nil {
 			return nil, err
 		}
@@ -85,10 +61,10 @@ func (reader *Reader) Search(ctx context.Context, req SearchRequest) RowIterator
 	if req.BatchSizeHint == 0 {
 		req.BatchSizeHint = 64
 	}
-	blkIter := t1Search(reader, req.Filters)
+	chunkIter := scanForward(reader, req.Filters)
 	remaining := req.LimitSize
 	return func() ([]Row, error) {
-		batch, err := t2Search(reader, blkIter, req)
+		batch, err := t2Search(reader, chunkIter, req)
 		if err != nil {
 			return nil, err
 		}

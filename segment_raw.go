@@ -64,7 +64,3 @@ func (segment *RawSegment) loadRows(iter *gocodec.Iterator) (rowsChunk, error) {
 		rows = append(rows, Row{Entry: entry, Seq: seq})
 	}
 }
-
-func (segment *RawSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
-	return segment.rows.search(reader, startSeq, filters, collector)
-}

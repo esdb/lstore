@@ -115,7 +115,3 @@ func (segment *TailSegment) read(reader *Reader) (bool, error) {
 		newRowsCount++
 	}
 }
-
-func (segment *TailSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
-	panic("tail chunk is shared and not searchable without reader")
-}

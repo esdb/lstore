@@ -33,7 +33,7 @@ func (filter *IntRangeFilter) searchBlock(blk *block, mask []bool) {
 	}
 }
 
-func (filter *IntRangeFilter) searchIndex(idx slotIndex) Slot {
+func (filter *IntRangeFilter) searchIndex(idx slotIndex) biter.Slot {
 	return 0
 }
 
@@ -57,7 +57,7 @@ func (filter *IntValueFilter) searchBlock(blk *block, mask []bool) {
 	}
 }
 
-func (filter *IntValueFilter) searchIndex(idx slotIndex) Slot {
+func (filter *IntValueFilter) searchIndex(idx slotIndex) biter.Slot {
 	return 0
 }
 
