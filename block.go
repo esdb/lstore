@@ -20,7 +20,7 @@ type block struct {
 type hashColumn []pbloom.HashedElement
 
 // to speed up computation of bloom filter
-type blockHashCache []hashColumn
+type blockHash []hashColumn
 
 type IndexingStrategyConfig struct {
 	Hasher                        pbloom.Hasher
@@ -46,7 +46,7 @@ type IndexingStrategy struct {
 	minMaxIndexedColumns          []int
 }
 
-func NewIndexingStrategy(config IndexingStrategyConfig) *IndexingStrategy {
+func NewIndexingStrategy(config *IndexingStrategyConfig) *IndexingStrategy {
 	hasher := config.Hasher
 	if hasher == nil {
 		hasher = pbloom.HasherFnv
@@ -73,7 +73,7 @@ func (strategy *IndexingStrategy) BloomFilterIndexedColumnsCount() int {
 	return len(strategy.bloomFilterIndexedIntColumns) + len(strategy.bloomFilterIndexedBlobColumns)
 }
 
-func newBlock(strategy *IndexingStrategy, rows []Row) (*block, blockHashCache) {
+func newBlock(rows []Row) *block {
 	rowsCount := len(rows)
 	seqColumn := make([]RowSeq, rowsCount)
 	intColumnsCount := len(rows[0].IntValues)
@@ -83,14 +83,8 @@ func newBlock(strategy *IndexingStrategy, rows []Row) (*block, blockHashCache) {
 	}
 	blobColumnsCount := len(rows[0].BlobValues)
 	blobColumns := make([]blobColumn, blobColumnsCount)
-	blobHashColumns := make([]blobHashColumn, blobColumnsCount)
 	for i := 0; i < blobColumnsCount; i++ {
 		blobColumns[i] = make(blobColumn, rowsCount)
-		blobHashColumns[i] = make(blobHashColumn, rowsCount)
-	}
-	blockHashCache := make(blockHashCache, strategy.BloomFilterIndexedColumnsCount())
-	for i := 0; i < len(blockHashCache); i++ {
-		blockHashCache[i] = make(hashColumn, rowsCount)
 	}
 	for i, row := range rows {
 		seqColumn[i] = row.Seq
@@ -99,24 +93,43 @@ func newBlock(strategy *IndexingStrategy, rows []Row) (*block, blockHashCache) {
 		}
 		for j, blobValue := range row.BlobValues {
 			blobColumns[j][i] = blobValue
-			asSlice := *(*[]byte)(unsafe.Pointer(&blobValue))
-			blobHashColumns[j][i] = strategy.hasher(asSlice).DownCastToUint32()
-		}
-		for _, bfIndexedColumn := range strategy.bloomFilterIndexedIntColumns {
-			sourceValue := row.IntValues[bfIndexedColumn.SourceColumn()]
-			asSlice := (*(*[8]byte)(unsafe.Pointer(&sourceValue)))[:]
-			blockHashCache[bfIndexedColumn.IndexedColumn()][i] = strategy.hasher(asSlice)
-		}
-		for _, bfIndexedColumn := range strategy.bloomFilterIndexedBlobColumns {
-			sourceValue := row.BlobValues[bfIndexedColumn.SourceColumn()]
-			asSlice := *(*[]byte)(unsafe.Pointer(&sourceValue))
-			blockHashCache[bfIndexedColumn.IndexedColumn()][i] = strategy.hasher(asSlice)
 		}
 	}
 	return &block{
 		seqColumn:       seqColumn,
 		intColumns:      intColumns,
 		blobColumns:     blobColumns,
-		blobHashColumns: blobHashColumns,
-	}, blockHashCache
+	}
+}
+
+func (blk *block) Hash(strategy *IndexingStrategy) blockHash {
+	rowsCount := len(blk.seqColumn)
+	blockHash := make(blockHash, strategy.BloomFilterIndexedColumnsCount())
+	for i := 0; i < len(blockHash); i++ {
+		blockHash[i] = make(hashColumn, rowsCount)
+	}
+	blobHashColumns := make([]blobHashColumn, len(strategy.bloomFilterIndexedBlobColumns))
+	for i := 0; i < len(blobHashColumns); i++ {
+		blobHashColumns[i] = make(blobHashColumn, rowsCount)
+	}
+	for _, bfIndexedColumn := range strategy.bloomFilterIndexedIntColumns {
+		indexedColumn := bfIndexedColumn.IndexedColumn()
+		sourceColumn := bfIndexedColumn.SourceColumn()
+		for i, sourceValue := range blk.intColumns[sourceColumn] {
+			asSlice := (*(*[8]byte)(unsafe.Pointer(&sourceValue)))[:]
+			blockHash[indexedColumn][i] = strategy.hasher(asSlice)
+		}
+	}
+	for j, bfIndexedColumn := range strategy.bloomFilterIndexedBlobColumns {
+		indexedColumn := bfIndexedColumn.IndexedColumn()
+		sourceColumn := bfIndexedColumn.SourceColumn()
+		for i, sourceValue := range blk.blobColumns[sourceColumn] {
+			asSlice := *(*[]byte)(unsafe.Pointer(&sourceValue))
+			hashed := strategy.hasher(asSlice)
+			blockHash[indexedColumn][i] = hashed
+			blobHashColumns[j][i] = hashed.DownCastToUint32()
+		}
+	}
+	blk.blobHashColumns = blobHashColumns
+	return blockHash
 }

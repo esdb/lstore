@@ -16,6 +16,7 @@ const CompactingSegmentFileName = "compacting.segment"
 const CompactingSegmentTmpFileName = "compacting.segment.tmp"
 
 type Config struct {
+	BlockManagerConfig
 	Directory           string
 	CommandQueueSize    int
 	TailSegmentMaxSize  int64
@@ -105,7 +106,10 @@ func (store *Store) Start() error {
 	if store.TailSegmentMaxSize == 0 {
 		store.TailSegmentMaxSize = 200 * 1024 * 1024
 	}
-	store.blockManager = newBlockManager(store.Directory + "/block", 30)
+	if store.BlockDirectory == "" {
+		store.BlockDirectory = store.Directory + "/block"
+	}
+	store.blockManager = newBlockManager(&store.BlockManagerConfig)
 	store.executor = concurrent.NewUnboundedExecutor()
 	writer, err := store.newWriter()
 	if err != nil {

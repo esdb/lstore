@@ -93,8 +93,8 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 		compactingSegmentStartSeq = oldCompactingSegment.StartSeq
 	}
 	for _, rawSegment := range store.rawSegments {
-		blk, blkHashCache := newBlock(nil, rawSegment.rows.(*rowsSegment).rows)
-		size, err := blockManager.writeBlock(tailBlockSeq, blk, blkHashCache)
+		blk := newBlock(rawSegment.rows.(*rowsSegment).rows)
+		size, err := blockManager.writeBlock(tailBlockSeq, blk)
 		if err != nil {
 			countlog.Error("event!compacter.failed to write block",
 				"tailBlockSeq", tailBlockSeq, "err", err)
