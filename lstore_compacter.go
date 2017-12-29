@@ -94,14 +94,14 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 	}
 	for _, rawSegment := range store.rawSegments {
 		blk := newBlock(rawSegment.rows.(*rowsSegment).rows)
-		size, err := blockManager.writeBlock(tailBlockSeq, blk)
+		newTailBlockSeq, err := blockManager.writeBlock(tailBlockSeq, blk)
 		if err != nil {
 			countlog.Error("event!compacter.failed to write block",
 				"tailBlockSeq", tailBlockSeq, "err", err)
 			compactionReq.Completed(err)
 			return
 		}
-		tailBlockSeq += BlockSeq(size)
+		tailBlockSeq = newTailBlockSeq
 	}
 	compactedRawSegmentsCount := len(store.rawSegments)
 	newCompactingSegment, err := createCompactingSegment(compacter.store.CompactingSegmentTmpPath(), compactingSegmentValue{
@@ -118,17 +118,21 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 	}
 	compacter.switchCompactingSegment(newCompactingSegment, compactedRawSegmentsCount)
 	compactionReq.Completed(nil)
+	countlog.Info("event!compacter.compacting more segment",
+		"compactedRawSegmentsCount", compactedRawSegmentsCount)
 }
 
 func (compacter *compacter) switchCompactingSegment(
-	newCompactingSegment *compactingSegment, compactedRawSegmentsCount int) error {
+	newCompactingSegment *compactingSegment, compactedRawSegmentsCount int) {
 	resultChan := make(chan error)
-	compacter.store.asyncExecute(context.Background(), func(ctx context.Context, oldVersion *StoreVersion) *StoreVersion {
+	compacter.store.asyncExecute(context.Background(), func(ctx context.Context, oldVersion *StoreVersion) {
 		newVersion := oldVersion.edit()
 		newVersion.rawSegments = oldVersion.rawSegments[compactedRawSegmentsCount:]
 		newVersion.compactingSegment = newCompactingSegment
+		compacter.store.updateCurrentVersion(newVersion.seal())
 		resultChan <- nil
-		return newVersion.seal()
+		return
 	})
-	return <-resultChan
+	<-resultChan
+	return
 }

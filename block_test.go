@@ -32,3 +32,19 @@ func Test_create_block(t *testing.T) {
 	}, blkHash[0])
 	should.Equal(blobHashColumn{0x4283d94f, 0x7283d94f}, blk.blobHashColumns[0])
 }
+
+func Benchmark_column_based_block_scan(b *testing.B) {
+	filters := []Filter{
+		&IntValueFilter{Index: 0, Value: 100},
+	}
+	columnSize := 256
+	blk := &block{
+		seqColumn:       make([]RowSeq, columnSize),
+		intColumns:      []intColumn{make(intColumn, columnSize)},
+		blobHashColumns: []blobHashColumn{make(blobHashColumn, columnSize)},
+		blobColumns:     []blobColumn{make(blobColumn, columnSize)},
+	}
+	for i := 0; i < b.N; i++ {
+		blk.search(nil, 0, filters, nil)
+	}
+}

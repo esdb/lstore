@@ -68,3 +68,7 @@ func createCompactingSegment(path string, segment compactingSegmentValue) (*comp
 		ReferenceCounted:       ref.NewReferenceCounted("compacting segment"),
 	}, nil
 }
+
+func (segment *compactingSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
+	return nil, nil
+}

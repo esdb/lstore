@@ -15,7 +15,7 @@ import (
 	"math"
 )
 
-type command func(ctx context.Context, store *StoreVersion) *StoreVersion
+type command func(ctx context.Context, store *StoreVersion)
 
 type writer struct {
 	store          *Store
@@ -138,17 +138,21 @@ func (writer *writer) start() {
 				return
 			case cmd = <-writer.commandQueue:
 			}
-			newVersion := handleCommand(ctx, cmd, writer.currentVersion)
-			if newVersion != nil {
-				atomic.StorePointer(&writer.store.currentVersion, unsafe.Pointer(newVersion))
-				err := writer.currentVersion.Close()
-				if err != nil {
-					countlog.Error("event!store.failed to close", "err", err)
-				}
-				writer.currentVersion = newVersion
-			}
+			handleCommand(ctx, cmd, writer.currentVersion)
 		}
 	})
+}
+
+func (writer *writer) updateCurrentVersion(newVersion *StoreVersion) {
+	if newVersion == nil {
+		return
+	}
+	atomic.StorePointer(&writer.store.currentVersion, unsafe.Pointer(newVersion))
+	err := writer.currentVersion.Close()
+	if err != nil {
+		countlog.Error("event!store.failed to close", "err", err)
+	}
+	writer.currentVersion = newVersion
 }
 
 func (writer *writer) asyncExecute(ctx context.Context, cmd command) {
@@ -158,7 +162,7 @@ func (writer *writer) asyncExecute(ctx context.Context, cmd command) {
 	}
 }
 
-func handleCommand(ctx context.Context, cmd command, currentVersion *StoreVersion) *StoreVersion {
+func handleCommand(ctx context.Context, cmd command, currentVersion *StoreVersion) {
 	defer func() {
 		recovered := recover()
 		if recovered != nil && recovered != concurrent.StopSignal {
@@ -167,28 +171,31 @@ func handleCommand(ctx context.Context, cmd command, currentVersion *StoreVersio
 				"stacktrace", countlog.ProvideStacktrace)
 		}
 	}()
-	return cmd(ctx, currentVersion)
+	cmd(ctx, currentVersion)
 }
 
 func (writer *writer) AsyncWrite(ctx context.Context, entry *Entry, resultChan chan<- WriteResult) {
-	writer.asyncExecute(ctx, func(ctx context.Context, currentVersion *StoreVersion) *StoreVersion {
+	writer.asyncExecute(ctx, func(ctx context.Context, currentVersion *StoreVersion) {
 		seq, err := writer.tryWrite(ctx, writer.currentVersion.tailSegment, entry)
 		if err == SegmentOverflowError {
 			newVersion, err := writer.rotate(currentVersion)
 			if err != nil {
+				writer.updateCurrentVersion(newVersion)
 				resultChan <- WriteResult{0, err}
-				return newVersion
+				return
 			}
 			seq, err = writer.tryWrite(ctx, newVersion.tailSegment, entry)
 			if err != nil {
+				writer.updateCurrentVersion(newVersion)
 				resultChan <- WriteResult{0, err}
-				return newVersion
+				return
 			}
+			writer.updateCurrentVersion(newVersion)
 			resultChan <- WriteResult{seq, nil}
-			return newVersion
+			return
 		}
 		resultChan <- WriteResult{seq, nil}
-		return nil
+		return
 	})
 }
 

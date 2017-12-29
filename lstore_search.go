@@ -6,7 +6,7 @@ import (
 )
 
 type SearchRequest struct {
-	StartSeq   RowSeq
+	StartSeq      RowSeq
 	BatchSizeHint int
 	LimitSize     int
 	Filters       []Filter
@@ -15,22 +15,47 @@ type SearchRequest struct {
 type blockIterator func() (segment, error)
 type RowIterator func() ([]Row, error)
 
+const (
+	iteratingCompacting = 1
+	iteratingRaw        = 2
+	iteratingTail       = 3
+	iteratingDone       = 4
+)
+
 // t1Search speed up by tree of bloomfilter (for int,blob) and min max (for int)
 func t1Search(reader *Reader, filters []Filter) blockIterator {
 	store := reader.currentVersion
 	rawSegments := store.rawSegments
 	currentRawSegmentIndex := 0
+	state := iteratingCompacting
 	return func() (segment, error) {
+		switch state {
+		case iteratingCompacting:
+			goto iteratingCompacting
+		case iteratingRaw:
+			goto iteratingRaw
+		case iteratingTail:
+			goto iteratingTail
+		case iteratingDone:
+			return nil, io.EOF
+		}
+	iteratingCompacting:
+		if store.compactingSegment != nil {
+			state = iteratingRaw
+			blk, _ := reader.store.blockManager.readBlock(0)
+			return blk, nil
+		}
+		state = iteratingRaw
+	iteratingRaw:
 		if currentRawSegmentIndex < len(rawSegments) {
 			segment := rawSegments[currentRawSegmentIndex].rows
 			currentRawSegmentIndex++
 			return segment, nil
 		}
-		if currentRawSegmentIndex == len(rawSegments) {
-			currentRawSegmentIndex++
-			return reader.tailRows, nil
-		}
-		return nil, io.EOF
+		state = iteratingTail
+	iteratingTail:
+		state = iteratingDone
+		return reader.tailRows, nil
 	}
 }
 
