@@ -11,7 +11,7 @@ import (
 )
 
 type RawSegment struct {
-	SegmentHeader
+	segmentHeader
 	*ref.ReferenceCounted
 	rows rowsChunk
 	Path string
@@ -34,23 +34,23 @@ func openRawSegment(path string) (*RawSegment, error) {
 		return readMMap.Unmap()
 	}))
 	iter := gocodec.NewIterator(readMMap)
-	segmentHeader, _ := iter.Unmarshal((*SegmentHeader)(nil)).(*SegmentHeader)
+	segmentHeader, _ := iter.Unmarshal((*segmentHeader)(nil)).(*segmentHeader)
 	if iter.Error != nil {
 		return nil, iter.Error
 	}
-	segment.SegmentHeader = *segmentHeader
+	segment.segmentHeader = *segmentHeader
 	segment.Path = path
 	segment.rows, err = segment.loadRows(iter)
 	if err != nil {
 		return nil, err
 	}
-	segment.ReferenceCounted = ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d", segment.StartSeq), resources...)
+	segment.ReferenceCounted = ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d", segment.startSeq), resources...)
 	return segment, nil
 }
 
 func (segment *RawSegment) loadRows(iter *gocodec.Iterator) (rowsChunk, error) {
 	var rows rowsChunk
-	startSeq := segment.StartSeq
+	startSeq := segment.startSeq
 	totalSize := RowSeq(len(iter.Buffer()))
 	for {
 		entry, _ := iter.Unmarshal((*Entry)(nil)).(*Entry)

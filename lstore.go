@@ -18,10 +18,12 @@ const CompactingSegmentTmpFileName = "compacting.segment.tmp"
 
 type Config struct {
 	BlockManagerConfig
-	Directory           string
-	CommandQueueSize    int
-	TailSegmentMaxSize  int64
-	CompactAfterStartup bool
+	Directory              string
+	CommandQueueSize       int
+	TailSegmentMaxSize     int64
+	indexingStrategy       *indexingStrategy
+	segmentHashingStrategy *pbloom.HashingStrategy
+	blockHashingStrategy   *pbloom.HashingStrategy
 }
 
 func (conf *Config) TailSegmentPath() string {
@@ -45,29 +47,28 @@ func (conf *Config) CompactingSegmentTmpPath() string {
 type Store struct {
 	Config
 	*writer
-	*compacter
-	hashingStrategy *pbloom.HashingStrategy
-	blockManager    *blockManager
-	currentVersion  unsafe.Pointer
-	executor        *concurrent.UnboundedExecutor // owns writer and compacter
+	*indexer
+	blockManager   *blockManager
+	currentVersion unsafe.Pointer
+	executor       *concurrent.UnboundedExecutor // owns writer and indexer
 }
 
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
-	config         Config
+	config             Config
 	*ref.ReferenceCounted
-	indexedSegment *indexedSegment
-	rawSegments    []*RawSegment
-	tailSegment    *TailSegment
+	rootIndexedSegment *rootIndexedSegment
+	rawSegments        []*RawSegment
+	tailSegment        *TailSegment
 }
 
 func (version StoreVersion) edit() *EditingStoreVersion {
 	return &EditingStoreVersion{
 		StoreVersion{
-			config:         version.config,
-			indexedSegment: version.indexedSegment,
-			rawSegments:    version.rawSegments,
-			tailSegment:    version.tailSegment,
+			config:             version.config,
+			rootIndexedSegment: version.rootIndexedSegment,
+			rawSegments:        version.rawSegments,
+			tailSegment:        version.tailSegment,
 		},
 	}
 }
@@ -88,11 +89,11 @@ func (edt EditingStoreVersion) seal() *StoreVersion {
 		}
 		resources = append(resources, rawSegment)
 	}
-	if version.indexedSegment != nil {
-		if !version.indexedSegment.Acquire() {
+	if version.rootIndexedSegment != nil {
+		if !version.rootIndexedSegment.Acquire() {
 			panic("acquire reference counter should not fail during version rotation")
 		}
-		resources = append(resources, version.indexedSegment)
+		resources = append(resources, version.rootIndexedSegment)
 	}
 	version.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
 	return version
@@ -112,14 +113,18 @@ func (store *Store) Start() error {
 		store.BlockDirectory = store.Directory + "/block"
 	}
 	store.blockManager = newBlockManager(&store.BlockManagerConfig)
-	store.hashingStrategy = pbloom.NewHashingStrategy(pbloom.HasherFnv, 2454, 7)
+	store.Config.indexingStrategy = store.blockManager.indexingStrategy
+	store.Config.segmentHashingStrategy = pbloom.NewHashingStrategy(
+		pbloom.HasherFnv, 10050663, 7)
+	store.Config.blockHashingStrategy = pbloom.NewHashingStrategy(
+		pbloom.HasherFnv, 2454, 7)
 	store.executor = concurrent.NewUnboundedExecutor()
 	writer, err := store.newWriter()
 	if err != nil {
 		return err
 	}
 	store.writer = writer
-	store.compacter = store.newCompacter()
+	store.indexer = store.newCompacter()
 	return nil
 }
 

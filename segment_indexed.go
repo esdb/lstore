@@ -8,25 +8,76 @@ import (
 	"github.com/esdb/gocodec"
 	"github.com/esdb/pbloom"
 	"github.com/esdb/biter"
+	"fmt"
 )
 
 type indexedSegmentVersion struct {
-	SegmentHeader
-	tailSeq      RowSeq
-	slotIndex    slotIndex
-	blocks       []BlockSeq // 64 slots
-	tailBlockSeq BlockSeq
-	tailSlot     biter.Slot
+	segmentHeader
+	tailSeq   RowSeq
+	slotIndex slotIndex
+	tailSlot  biter.Slot
+	children  []BlockSeq // 64 slots
 }
 
 type indexedSegment struct {
 	indexedSegmentVersion
 	*ref.ReferenceCounted
-	path string
+}
+
+type rootIndexedSegmentVersion struct {
+	segmentHeader
+	tailSeq      RowSeq
+	slotIndex    slotIndex
+	tailSlot     biter.Slot
+	tailBlockSeq BlockSeq // next block write to this seq
+}
+
+type rootIndexedSegment struct {
+	rootIndexedSegmentVersion
+	*ref.ReferenceCounted
+	path     string
+	children []*indexedSegment // 64 slots
+}
+
+func openRootIndexedSegment(path string) (*rootIndexedSegment, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY, 0666)
+	if err != nil {
+		return nil, err
+	}
+	resources := []io.Closer{file}
+	segment := &rootIndexedSegment{}
+	readMMap, err := mmap.Map(file, mmap.COPY, 0)
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+	resources = append(resources, ref.NewResource("readMMap", func() error {
+		return readMMap.Unmap()
+	}))
+	iter := gocodec.NewIterator(readMMap)
+	version, _ := iter.Unmarshal((*rootIndexedSegmentVersion)(nil)).(*rootIndexedSegmentVersion)
+	if iter.Error != nil {
+		readMMap.Unmap()
+		file.Close()
+		return nil, iter.Error
+	}
+	segment.path = path
+	segment.rootIndexedSegmentVersion = *version
+	segment.children = make([]*indexedSegment, 64)
+	for i := 0; i < 64; i++ {
+		child, err := openIndexedSegment(fmt.Sprintf("%s.%d", path, i))
+		if err != nil {
+			return nil, err
+		}
+		segment.children[i] = child
+		resources = append(resources, child)
+	}
+	segment.ReferenceCounted = ref.NewReferenceCounted("root indexed segment", resources...)
+	return segment, nil
 }
 
 func openIndexedSegment(path string) (*indexedSegment, error) {
-	file, err := os.OpenFile(path, os.O_RDWR, 0666)
+	file, err := os.OpenFile(path, os.O_RDONLY, 0666)
 	if err != nil {
 		return nil, err
 	}
@@ -41,16 +92,42 @@ func openIndexedSegment(path string) (*indexedSegment, error) {
 		return readMMap.Unmap()
 	}))
 	iter := gocodec.NewIterator(readMMap)
-	storage, _ := iter.Unmarshal((*indexedSegmentVersion)(nil)).(*indexedSegmentVersion)
+	version, _ := iter.Unmarshal((*indexedSegmentVersion)(nil)).(*indexedSegmentVersion)
 	if iter.Error != nil {
 		readMMap.Unmap()
 		file.Close()
 		return nil, iter.Error
 	}
-	segment.path = path
-	segment.indexedSegmentVersion = *storage
+	segment.indexedSegmentVersion = *version
 	segment.ReferenceCounted = ref.NewReferenceCounted("indexed segment", resources...)
 	return segment, nil
+}
+
+func createRootIndexedSegment(path string, segment rootIndexedSegmentVersion, children []*indexedSegment) (*rootIndexedSegment, error) {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	stream := gocodec.NewStream(nil)
+	stream.Marshal(segment)
+	if stream.Error != nil {
+		return nil, stream.Error
+	}
+	_, err = file.Write(stream.Buffer())
+	if err != nil {
+		return nil, err
+	}
+	var resources []io.Closer
+	for _, child := range children {
+		resources = append(resources, child)
+	}
+	return &rootIndexedSegment{
+		path:                      path,
+		rootIndexedSegmentVersion: segment,
+		children:                  children,
+		ReferenceCounted:          ref.NewReferenceCounted("root indexed segment", resources...),
+	}, nil
 }
 
 func createIndexedSegment(path string, segment indexedSegmentVersion) (*indexedSegment, error) {
@@ -69,10 +146,38 @@ func createIndexedSegment(path string, segment indexedSegmentVersion) (*indexedS
 		return nil, err
 	}
 	return &indexedSegment{
-		path:                  path,
 		indexedSegmentVersion: segment,
 		ReferenceCounted:      ref.NewReferenceCounted("indexed segment"),
 	}, nil
+}
+
+func newRootIndexedSegmentVersion(
+	startSeq RowSeq, indexingStrategy *indexingStrategy,
+	hashingStrategy *pbloom.HashingStrategy) rootIndexedSegmentVersion {
+	return rootIndexedSegmentVersion{
+		segmentHeader: segmentHeader{
+			segmentType: SegmentTypeRootIndexed,
+			startSeq:    startSeq,
+		},
+		slotIndex:    newSlotIndex(indexingStrategy, hashingStrategy),
+	}
+}
+
+func newIndexedSegmentVersion(
+	startSeq RowSeq, indexingStrategy *indexingStrategy,
+	hashingStrategy *pbloom.HashingStrategy) indexedSegmentVersion {
+	return indexedSegmentVersion{
+		segmentHeader: segmentHeader{
+			segmentType: SegmentTypeIndexed,
+			startSeq:    startSeq,
+		},
+		slotIndex:    newSlotIndex(indexingStrategy, hashingStrategy),
+		children:     make([]BlockSeq, 64),
+	}
+}
+
+func (segment *rootIndexedSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
+	panic("not implemented")
 }
 
 func (segment *indexedSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
@@ -86,7 +191,7 @@ func (segment *indexedSegment) scanForward(blockManager *blockManager, filters [
 		if slot == biter.NotFound {
 			return nil, io.EOF
 		}
-		blockSeq := segment.blocks[slot]
+		blockSeq := segment.children[slot]
 		block, err := blockManager.readBlock(blockSeq)
 		if err != nil {
 			return nil, err
@@ -95,55 +200,19 @@ func (segment *indexedSegment) scanForward(blockManager *blockManager, filters [
 	}
 }
 
-func (segment *indexedSegment) getTailSlot() biter.Slot {
-	if segment == nil {
-		return 0
-	}
-	return segment.tailSlot
-}
-
-func (segment *indexedSegment) getTailSeq() RowSeq {
-	if segment == nil {
-		return 0
-	}
-	return segment.tailSeq
-}
-
-func (segment *indexedSegment) nextSlot(
-	startSeq RowSeq, indexingStrategy *indexingStrategy,
-	hashingStrategy *pbloom.HashingStrategy) indexedSegmentVersion {
-	if segment == nil {
-		return newIndexedSegmentVersion(startSeq, indexingStrategy, hashingStrategy)
-	}
-	return segment.indexedSegmentVersion.nextSlot()
-}
-
-func newIndexedSegmentVersion(
-	startSeq RowSeq, indexingStrategy *indexingStrategy,
-	hashingStrategy *pbloom.HashingStrategy) indexedSegmentVersion {
-	return indexedSegmentVersion{
-		SegmentHeader: SegmentHeader{
-			SegmentType: SegmentTypeCompacting,
-			StartSeq:    startSeq,
-		},
-		slotIndex:    newSlotIndex(indexingStrategy, hashingStrategy),
-		blocks:       make([]BlockSeq, 64),
-		tailBlockSeq: 0,
-		tailSlot:     0,
-	}
+func (segment *rootIndexedSegment) nextSlot() (rootIndexedSegmentVersion, indexedSegmentVersion) {
+	newVersion := rootIndexedSegmentVersion{}
+	newVersion.segmentHeader = segment.segmentHeader
+	newVersion.tailSlot = segment.tailSlot + 1
+	newVersion.slotIndex = segment.slotIndex.copy()
+	return newVersion, segment.children[newVersion.tailSlot].nextSlot()
 }
 
 func (version *indexedSegmentVersion) nextSlot() (indexedSegmentVersion) {
-	if version == nil {
-	}
-	if version.tailSlot == 63 {
-		panic("indexed segment can only hold 64 slots")
-	}
 	newVersion := indexedSegmentVersion{}
-	newVersion.SegmentHeader = version.SegmentHeader
-	newVersion.tailBlockSeq = version.tailBlockSeq
+	newVersion.segmentHeader = version.segmentHeader
 	newVersion.tailSlot = version.tailSlot + 1
-	newVersion.blocks = append([]BlockSeq(nil), version.blocks...)
+	newVersion.children = append([]BlockSeq(nil), version.children...)
 	newVersion.slotIndex = version.slotIndex.copy()
 	return newVersion
 }

@@ -15,7 +15,7 @@ import (
 var SegmentOverflowError = errors.New("please rotate to new chunk")
 
 type TailSegment struct {
-	SegmentHeader
+	segmentHeader
 	*ref.ReferenceCounted
 	path     string
 	readBuf  []byte
@@ -47,13 +47,13 @@ func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment,
 		return readMMap.Unmap()
 	}))
 	iter := gocodec.NewIterator(readMMap)
-	segmentHeader, _ := iter.Copy((*SegmentHeader)(nil)).(*SegmentHeader)
+	segmentHeader, _ := iter.Copy((*segmentHeader)(nil)).(*segmentHeader)
 	if iter.Error != nil {
 		readMMap.Unmap()
 		file.Close()
 		return nil, iter.Error
 	}
-	segment.SegmentHeader = *segmentHeader
+	segment.segmentHeader = *segmentHeader
 	segment.readBuf = iter.Buffer()
 	segment.path = path
 	segment.ReferenceCounted = ref.NewReferenceCounted("tail segment", resources...)
@@ -72,7 +72,7 @@ func createTailSegment(filename string, maxSize int64, startSeq RowSeq) (*os.Fil
 		return nil, err
 	}
 	stream := gocodec.NewStream(nil)
-	stream.Marshal(SegmentHeader{SegmentType: SegmentTypeRowBased, StartSeq: startSeq})
+	stream.Marshal(segmentHeader{segmentType: SegmentTypeRowBased, startSeq: startSeq})
 	if stream.Error != nil {
 		return nil, stream.Error
 	}
@@ -98,7 +98,7 @@ func (segment *TailSegment) read(reader *Reader) (bool, error) {
 		// tail not moved
 		return false, nil
 	}
-	buf := segment.readBuf[startSeq-segment.StartSeq:]
+	buf := segment.readBuf[startSeq-segment.startSeq:]
 	bufSize := RowSeq(len(buf))
 	iter.Reset(buf)
 	newRowsCount := 0

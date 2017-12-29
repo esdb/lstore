@@ -15,11 +15,11 @@ import (
 	"math"
 )
 
-type command func(ctx context.Context, store *StoreVersion)
+type writerCommand func(ctx context.Context)
 
 type writer struct {
 	store          *Store
-	commandQueue   chan command
+	commandQueue   chan writerCommand
 	currentVersion *StoreVersion
 	tailRows       []Row
 	writeBuf       []byte
@@ -34,7 +34,7 @@ type WriteResult struct {
 func (store *Store) newWriter() (*writer, error) {
 	writer := &writer{
 		store:        store,
-		commandQueue: make(chan command, store.Config.CommandQueueSize),
+		commandQueue: make(chan writerCommand, store.Config.CommandQueueSize),
 	}
 	if err := writer.load(); err != nil {
 		return nil, err
@@ -69,56 +69,6 @@ func (writer *writer) load() error {
 	return nil
 }
 
-func loadInitialVersion(config Config) (*StoreVersion, error) {
-	version := StoreVersion{
-		config: config,
-	}.edit()
-	if err := loadIndexedSegments(config, version); err != nil {
-		return nil, err
-	}
-	if err := loadTailAndRawSegments(config, version); err != nil {
-		return nil, err
-	}
-	return version.seal(), nil
-}
-
-func loadTailAndRawSegments(config Config, version *EditingStoreVersion) error {
-	tailSegment, err := openTailSegment(config.TailSegmentPath(), config.TailSegmentMaxSize, 0)
-	if err != nil {
-		return err
-	}
-	var reversedRawSegments []*RawSegment
-	startSeq := tailSegment.StartSeq
-	for startSeq != version.indexedSegment.getTailSeq() {
-		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startSeq))
-		rawSegment, err := openRawSegment(prev)
-		if err != nil {
-			return err
-		}
-		reversedRawSegments = append(reversedRawSegments, rawSegment)
-		startSeq = rawSegment.StartSeq
-	}
-	rawSegments := make([]*RawSegment, len(reversedRawSegments))
-	for i := 0; i < len(reversedRawSegments); i++ {
-		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
-	}
-	version.tailSegment = tailSegment
-	version.rawSegments = rawSegments
-	return nil
-}
-
-func loadIndexedSegments(config Config, version *EditingStoreVersion) error {
-	segmentPath := config.CompactingSegmentPath()
-	indexedSegment, err := openIndexedSegment(segmentPath)
-	if os.IsNotExist(err) {
-		indexedSegment = nil
-	} else if err != nil {
-		return err
-	}
-	version.indexedSegment = indexedSegment
-	return nil
-}
-
 func (writer *writer) start() {
 	writer.store.executor.Go(func(ctx context.Context) {
 		defer func() {
@@ -132,13 +82,13 @@ func (writer *writer) start() {
 		stream := gocodec.NewStream(nil)
 		ctx = context.WithValue(ctx, "stream", stream)
 		for {
-			var cmd command
+			var cmd writerCommand
 			select {
 			case <-ctx.Done():
 				return
 			case cmd = <-writer.commandQueue:
 			}
-			handleCommand(ctx, cmd, writer.currentVersion)
+			handleCommand(ctx, cmd)
 		}
 	})
 }
@@ -155,14 +105,14 @@ func (writer *writer) updateCurrentVersion(newVersion *StoreVersion) {
 	writer.currentVersion = newVersion
 }
 
-func (writer *writer) asyncExecute(ctx context.Context, cmd command) {
+func (writer *writer) asyncExecute(ctx context.Context, cmd writerCommand) {
 	select {
 	case writer.commandQueue <- cmd:
 	case <-ctx.Done():
 	}
 }
 
-func handleCommand(ctx context.Context, cmd command, currentVersion *StoreVersion) {
+func handleCommand(ctx context.Context, cmd writerCommand) {
 	defer func() {
 		recovered := recover()
 		if recovered != nil && recovered != concurrent.StopSignal {
@@ -171,14 +121,14 @@ func handleCommand(ctx context.Context, cmd command, currentVersion *StoreVersio
 				"stacktrace", countlog.ProvideStacktrace)
 		}
 	}()
-	cmd(ctx, currentVersion)
+	cmd(ctx)
 }
 
 func (writer *writer) AsyncWrite(ctx context.Context, entry *Entry, resultChan chan<- WriteResult) {
-	writer.asyncExecute(ctx, func(ctx context.Context, currentVersion *StoreVersion) {
+	writer.asyncExecute(ctx, func(ctx context.Context) {
 		seq, err := writer.tryWrite(ctx, writer.currentVersion.tailSegment, entry)
 		if err == SegmentOverflowError {
-			newVersion, err := writer.rotate(currentVersion)
+			newVersion, err := writer.rotate(writer.currentVersion)
 			if err != nil {
 				writer.updateCurrentVersion(newVersion)
 				resultChan <- WriteResult{0, err}
@@ -212,13 +162,13 @@ func (writer *writer) Write(ctx context.Context, entry *Entry) (RowSeq, error) {
 
 func (writer *writer) tryWrite(ctx context.Context, tailSegment *TailSegment, entry *Entry) (RowSeq, error) {
 	buf := writer.writeBuf
-	maxTail := tailSegment.StartSeq + RowSeq(len(buf))
+	maxTail := tailSegment.startSeq + RowSeq(len(buf))
 	seq := RowSeq(tailSegment.tail)
 	if seq >= maxTail {
 		return 0, SegmentOverflowError
 	}
 	stream := ctx.Value("stream").(*gocodec.Stream)
-	stream.Reset(buf[seq-tailSegment.StartSeq:seq-tailSegment.StartSeq])
+	stream.Reset(buf[seq-tailSegment.startSeq:seq-tailSegment.startSeq])
 	size := stream.Marshal(*entry)
 	if stream.Error != nil {
 		return 0, stream.Error
@@ -252,11 +202,11 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 	}
 	// use writer.tailRows to build a raw segment without loading from file
 	newVersion.rawSegments[i] = &RawSegment{
-		SegmentHeader: oldVersion.tailSegment.SegmentHeader,
+		segmentHeader: oldVersion.tailSegment.segmentHeader,
 		Path:          rotatedTo,
 		rows:          writer.tailRows,
 		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
-			oldVersion.tailSegment.SegmentHeader.StartSeq)),
+			oldVersion.tailSegment.segmentHeader.startSeq)),
 	}
 	writer.tailRows = nil
 	newVersion.tailSegment, err = openTailSegment(
@@ -268,8 +218,8 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 	if err != nil {
 		return nil, err
 	}
-	newVersion.tailSegment.updateTail(newVersion.tailSegment.StartSeq)
-	countlog.Info("event!store.rotated", "tail", newVersion.tailSegment.StartSeq)
+	newVersion.tailSegment.updateTail(newVersion.tailSegment.startSeq)
+	countlog.Info("event!store.rotated", "tail", newVersion.tailSegment.startSeq)
 	return newVersion.seal(), nil
 }
 
