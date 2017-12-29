@@ -55,6 +55,7 @@ func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment,
 	segment.SegmentHeader = *segmentHeader
 	segment.readBuf = iter.Buffer()
 	segment.path = path
+	segment.ReferenceCounted = ref.NewReferenceCounted("tail segment", resources...)
 	return segment, nil
 }
 

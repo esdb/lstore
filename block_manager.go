@@ -250,7 +250,7 @@ func (mgr *blockManager) openWriteMMap(fileBlockSeq BlockSeq) (mmap.MMap, error)
 	}
 	writeMMap, err := mmap.Map(file, mmap.RDWR, 0)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("map RDWR for block failed: %s", err.Error())
 	}
 	mgr.writeMMaps[fileBlockSeq] = writeMMap
 	return writeMMap, nil
@@ -265,6 +265,7 @@ func (mgr *blockManager) openFile(fileBlockSeq BlockSeq) (*os.File, error) {
 		"%d.block", fileBlockSeq<<mgr.blockFileSizeInPowerOfTwo))
 	file, err := os.OpenFile(filePath, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
+		os.MkdirAll(path.Dir(filePath), 0777)
 		file, err = os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
 		if err != nil {
 			return nil, err
