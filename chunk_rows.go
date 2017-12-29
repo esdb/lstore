@@ -1,11 +1,9 @@
 package lstore
 
-type rowsSegment struct {
-	rows []Row
-}
+type rowsChunk []Row
 
-func (segment *rowsSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
-	for _, row := range segment.rows  {
+func (chunk rowsChunk) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
+	for _, row := range chunk  {
 		if row.Seq < startSeq {
 			continue
 		}

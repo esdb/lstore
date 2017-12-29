@@ -64,7 +64,7 @@ func (writer *writer) load() error {
 		return err
 	}
 	defer reader.Close()
-	writer.tailRows = reader.tailRows.rows
+	writer.tailRows = reader.tailRows
 	tailSegment.updateTail(reader.tailSeq)
 	return nil
 }
@@ -90,7 +90,7 @@ func loadTailAndRawSegments(config Config, version *EditingStoreVersion) error {
 	var reversedRawSegments []*RawSegment
 	startSeq := tailSegment.StartSeq
 	for startSeq != 0 {
-		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startSeq))
+		prev := path.Join(config.Directory, fmt.Sprintf("%d.chunk", startSeq))
 		rawSegment, err := openRawSegment(prev)
 		if err != nil {
 			return err
@@ -246,16 +246,16 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 		newVersion.rawSegments[i] = oldVersion.rawSegments[i]
 	}
 	conf := oldVersion.config
-	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.segment", oldVersion.tailSegment.tail))
+	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.chunk", oldVersion.tailSegment.tail))
 	if err = os.Rename(oldVersion.tailSegment.path, rotatedTo); err != nil {
 		return nil, err
 	}
-	// use writer.tailRows to build a raw segment without loading from file
+	// use writer.tailRows to build a raw chunk without loading from file
 	newVersion.rawSegments[i] = &RawSegment{
 		SegmentHeader: oldVersion.tailSegment.SegmentHeader,
 		Path:          rotatedTo,
-		rows:          &rowsSegment{writer.tailRows},
-		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
+		rows:          writer.tailRows,
+		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw chunk@%d",
 			oldVersion.tailSegment.SegmentHeader.StartSeq)),
 	}
 	writer.tailRows = nil
@@ -276,7 +276,7 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 func (writer *writer) mapFile(tailSegment *TailSegment) error {
 	writeMMap, err := mmap.Map(tailSegment.file, mmap.RDWR, 0)
 	if err != nil {
-		countlog.Error("event!segment.failed to mmap as RDWR", "err", err, "path", tailSegment.path)
+		countlog.Error("event!chunk.failed to mmap as RDWR", "err", err, "path", tailSegment.path)
 		return err
 	}
 	writer.writeMMap = writeMMap

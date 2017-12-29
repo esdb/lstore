@@ -43,7 +43,7 @@ func openCompactingSegment(path string) (*compactingSegment, error) {
 	}
 	segment.path = path
 	segment.compactingSegmentValue = *storage
-	segment.ReferenceCounted = ref.NewReferenceCounted("compacting segment", resources...)
+	segment.ReferenceCounted = ref.NewReferenceCounted("compacting chunk", resources...)
 	return segment, nil
 }
 
@@ -65,7 +65,7 @@ func createCompactingSegment(path string, segment compactingSegmentValue) (*comp
 	return &compactingSegment{
 		path: path,
 		compactingSegmentValue: segment,
-		ReferenceCounted:       ref.NewReferenceCounted("compacting segment"),
+		ReferenceCounted:       ref.NewReferenceCounted("compacting chunk"),
 	}, nil
 }
 

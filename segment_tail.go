@@ -11,7 +11,7 @@ import (
 	"github.com/esdb/lstore/ref"
 )
 
-var SegmentOverflowError = errors.New("please rotate to new segment")
+var SegmentOverflowError = errors.New("please rotate to new chunk")
 
 type TailSegment struct {
 	SegmentHeader
@@ -39,10 +39,10 @@ func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment,
 	readMMap, err := mmap.Map(file, mmap.RDONLY, 0)
 	if err != nil {
 		file.Close()
-		countlog.Error("event!segment.failed to mmap as RDONLY", "err", err, "path", path)
+		countlog.Error("event!chunk.failed to mmap as RDONLY", "err", err, "path", path)
 		return nil, err
 	}
-	resources = append(resources, ref.NewResource("tail segment readMMap", func() error {
+	resources = append(resources, ref.NewResource("tail chunk readMMap", func() error {
 		return readMMap.Unmap()
 	}))
 	iter := gocodec.NewIterator(readMMap)
@@ -55,7 +55,7 @@ func openTailSegment(path string, maxSize int64, startSeq RowSeq) (*TailSegment,
 	segment.SegmentHeader = *segmentHeader
 	segment.readBuf = iter.Buffer()
 	segment.path = path
-	segment.ReferenceCounted = ref.NewReferenceCounted("tail segment", resources...)
+	segment.ReferenceCounted = ref.NewReferenceCounted("tail chunk", resources...)
 	return segment, nil
 }
 
@@ -111,11 +111,11 @@ func (segment *TailSegment) read(reader *Reader) (bool, error) {
 		if iter.Error != nil {
 			return false, iter.Error
 		}
-		reader.tailRows.rows = append(reader.tailRows.rows, Row{Entry: entry, Seq: currentSeq})
+		reader.tailRows = append(reader.tailRows, Row{Entry: entry, Seq: currentSeq})
 		newRowsCount++
 	}
 }
 
 func (segment *TailSegment) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
-	panic("tail segment is shared and not searchable without reader")
+	panic("tail chunk is shared and not searchable without reader")
 }

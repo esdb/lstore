@@ -85,7 +85,7 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 		return
 	}
 	tailBlockSeq := BlockSeq(0)
-	firstRow := store.rawSegments[0].rows.(*rowsSegment).rows[0]
+	firstRow := store.rawSegments[0].rows[0]
 	compactingSegmentStartSeq := firstRow.Seq
 	oldCompactingSegment := store.compactingSegment
 	if oldCompactingSegment != nil {
@@ -93,7 +93,7 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 		compactingSegmentStartSeq = oldCompactingSegment.StartSeq
 	}
 	for _, rawSegment := range store.rawSegments {
-		blk := newBlock(rawSegment.rows.(*rowsSegment).rows)
+		blk := newBlock(rawSegment.rows)
 		newTailBlockSeq, err := blockManager.writeBlock(tailBlockSeq, blk)
 		if err != nil {
 			countlog.Error("event!compacter.failed to write block",
@@ -112,13 +112,13 @@ func (compacter *compacter) compact(compactionReq compactionRequest) {
 		tailBlockSeq: tailBlockSeq,
 	})
 	if err != nil {
-		countlog.Error("event!compacter.failed to create new compacting segment", "err", err)
+		countlog.Error("event!compacter.failed to create new compacting chunk", "err", err)
 		compactionReq.Completed(err)
 		return
 	}
 	compacter.switchCompactingSegment(newCompactingSegment, compactedRawSegmentsCount)
 	compactionReq.Completed(nil)
-	countlog.Info("event!compacter.compacting more segment",
+	countlog.Info("event!compacter.compacting more chunk",
 		"compactedRawSegmentsCount", compactedRawSegmentsCount)
 }
 

@@ -10,10 +10,10 @@ import (
 	"io"
 )
 
-const TailSegmentFileName = "tail.segment"
-const TailSegmentTmpFileName = "tail.segment.tmp"
-const CompactingSegmentFileName = "compacting.segment"
-const CompactingSegmentTmpFileName = "compacting.segment.tmp"
+const TailSegmentFileName = "tail.chunk"
+const TailSegmentTmpFileName = "tail.chunk.tmp"
+const CompactingSegmentFileName = "compacting.chunk"
+const CompactingSegmentTmpFileName = "compacting.chunk.tmp"
 
 type Config struct {
 	BlockManagerConfig

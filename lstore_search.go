@@ -12,7 +12,7 @@ type SearchRequest struct {
 	Filters       []Filter
 }
 
-type blockIterator func() (segment, error)
+type blockIterator func() (chunk, error)
 type RowIterator func() ([]Row, error)
 
 const (
@@ -28,7 +28,7 @@ func t1Search(reader *Reader, filters []Filter) blockIterator {
 	rawSegments := store.rawSegments
 	currentRawSegmentIndex := 0
 	state := iteratingCompacting
-	return func() (segment, error) {
+	return func() (chunk, error) {
 		switch state {
 		case iteratingCompacting:
 			goto iteratingCompacting
@@ -60,7 +60,7 @@ func t1Search(reader *Reader, filters []Filter) blockIterator {
 }
 
 // t2Search speed up by column based disk layout (for compacted segments)
-// and in memory cache (for raw segments and tail segment)
+// and in memory cache (for raw segments and tail chunk)
 func t2Search(reader *Reader, blkIter blockIterator, req SearchRequest) ([]Row, error) {
 	var batch []Row
 	for {
