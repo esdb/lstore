@@ -13,8 +13,10 @@ type intColumn []int64
 type blobColumn []Blob
 type blobHashColumn []uint32
 
+const blockLength = 256
+
 type block struct {
-	seqColumn   []RowSeq
+	startOffset Offset
 	intColumns  []intColumn
 	blobColumns []blobColumn
 	// to speed up blob column linear search
@@ -113,9 +115,8 @@ func (strategy *indexingStrategy) hashingStrategy(level int) *pbloom.HashingStra
 	}
 }
 
-func newBlock(rows []Row) *block {
+func newBlock(startOffset Offset, rows []Row) *block {
 	rowsCount := len(rows)
-	seqColumn := make([]RowSeq, rowsCount)
 	intColumnsCount := len(rows[0].IntValues)
 	intColumns := make([]intColumn, intColumnsCount)
 	for i := 0; i < intColumnsCount; i++ {
@@ -127,7 +128,6 @@ func newBlock(rows []Row) *block {
 		blobColumns[i] = make(blobColumn, rowsCount)
 	}
 	for i, row := range rows {
-		seqColumn[i] = row.Seq
 		for j, intValue := range row.IntValues {
 			intColumns[j][i] = intValue
 		}
@@ -136,21 +136,20 @@ func newBlock(rows []Row) *block {
 		}
 	}
 	return &block{
-		seqColumn:   seqColumn,
+		startOffset: startOffset,
 		intColumns:  intColumns,
 		blobColumns: blobColumns,
 	}
 }
 
 func (blk *block) Hash(strategy *indexingStrategy) blockHash {
-	rowsCount := len(blk.seqColumn)
 	blockHash := make(blockHash, strategy.bloomFilterIndexedColumnsCount())
 	for i := 0; i < len(blockHash); i++ {
-		blockHash[i] = make(hashColumn, rowsCount)
+		blockHash[i] = make(hashColumn, blockLength)
 	}
 	blobHashColumns := make([]blobHashColumn, len(strategy.bloomFilterIndexedBlobColumns))
 	for i := 0; i < len(blobHashColumns); i++ {
-		blobHashColumns[i] = make(blobHashColumn, rowsCount)
+		blobHashColumns[i] = make(blobHashColumn, blockLength)
 	}
 	for _, bfIndexedColumn := range strategy.bloomFilterIndexedIntColumns {
 		indexedColumn := bfIndexedColumn.IndexedColumn()
@@ -174,12 +173,11 @@ func (blk *block) Hash(strategy *indexingStrategy) blockHash {
 	return blockHash
 }
 
-func (blk *block) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
-	mask := make([]bool, len(blk.seqColumn))
-	for i, seq := range blk.seqColumn {
-		if seq >= startSeq {
-			mask[i] = true
-		}
+func (blk *block) search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error) {
+	mask := make([]bool, blockLength)
+	for i := 0; i < blockLength; i++ {
+		// TODO: test block startOffset
+		mask[i] = true
 	}
 	for _, filter := range filters {
 		filter.searchBlock(blk, mask)
@@ -198,7 +196,8 @@ func (blk *block) search(reader *Reader, startSeq RowSeq, filters []Filter, coll
 		for j := 0; j < blobColumnsCount; j++ {
 			blobValues[j] = blk.blobColumns[j][i]
 		}
-		collector = append(collector, Row{Seq: blk.seqColumn[i], Entry: &Entry{
+		// TODO: set Offset properly
+		collector = append(collector, Row{Offset: 0, Entry: &Entry{
 			EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues}})
 	}
 	return collector, nil

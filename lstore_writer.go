@@ -27,8 +27,8 @@ type writer struct {
 }
 
 type WriteResult struct {
-	Seq   RowSeq
-	Error error
+	Offset Offset
+	Error  error
 }
 
 func (store *Store) newWriter() (*writer, error) {
@@ -65,7 +65,7 @@ func (writer *writer) load() error {
 	}
 	defer reader.Close()
 	writer.tailRows = reader.tailRows
-	tailSegment.updateTail(reader.tailSeq)
+	tailSegment.updateTail(reader.tailOffset)
 	return nil
 }
 
@@ -149,38 +149,34 @@ func (writer *writer) AsyncWrite(ctx context.Context, entry *Entry, resultChan c
 	})
 }
 
-func (writer *writer) Write(ctx context.Context, entry *Entry) (RowSeq, error) {
+func (writer *writer) Write(ctx context.Context, entry *Entry) (Offset, error) {
 	resultChan := make(chan WriteResult)
 	writer.AsyncWrite(ctx, entry, resultChan)
 	select {
 	case result := <-resultChan:
-		return result.Seq, result.Error
+		return result.Offset, result.Error
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	}
 }
 
-func (writer *writer) tryWrite(ctx context.Context, tailSegment *TailSegment, entry *Entry) (RowSeq, error) {
+func (writer *writer) tryWrite(ctx context.Context, tailSegment *TailSegment, entry *Entry) (Offset, error) {
 	buf := writer.writeBuf
-	maxTail := tailSegment.startSeq + RowSeq(len(buf))
-	seq := RowSeq(tailSegment.tail)
-	if seq >= maxTail {
-		return 0, SegmentOverflowError
-	}
 	stream := ctx.Value("stream").(*gocodec.Stream)
-	stream.Reset(buf[seq-tailSegment.startSeq:seq-tailSegment.startSeq])
+	stream.Reset(buf[tailSegment.tail:tailSegment.tail])
 	size := stream.Marshal(*entry)
 	if stream.Error != nil {
 		return 0, stream.Error
 	}
-	tail := seq + RowSeq(size)
-	if tail >= maxTail {
+	tail := tailSegment.tail + size
+	if tail >= uint64(len(buf)) {
 		return 0, SegmentOverflowError
 	}
-	writer.tailRows = append(writer.tailRows, Row{Seq: seq, Entry: entry})
+	offset := tailSegment.startOffset + Offset(len(writer.tailRows))
+	writer.tailRows = append(writer.tailRows, Row{Offset: offset, Entry: entry})
 	// reader will know if read the tail using atomic
-	tailSegment.updateTail(tail)
-	return seq, nil
+	tailSegment.updateTail(offset)
+	return offset, nil
 }
 
 func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
@@ -206,11 +202,11 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 		Path:          rotatedTo,
 		rows:          writer.tailRows,
 		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
-			oldVersion.tailSegment.segmentHeader.startSeq)),
+			oldVersion.tailSegment.segmentHeader.startOffset)),
 	}
 	writer.tailRows = nil
 	newVersion.tailSegment, err = openTailSegment(
-		conf.TailSegmentPath(), conf.TailSegmentMaxSize, RowSeq(oldVersion.tailSegment.tail))
+		conf.TailSegmentPath(), conf.TailSegmentMaxSize, Offset(oldVersion.tailSegment.tail))
 	if err != nil {
 		return nil, err
 	}
@@ -218,8 +214,8 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 	if err != nil {
 		return nil, err
 	}
-	newVersion.tailSegment.updateTail(newVersion.tailSegment.startSeq)
-	countlog.Debug("event!store.rotated", "tail", newVersion.tailSegment.startSeq)
+	newVersion.tailSegment.updateTail(newVersion.tailSegment.startOffset)
+	countlog.Debug("event!store.rotated", "tail", newVersion.tailSegment.startOffset)
 	return newVersion.seal(), nil
 }
 
@@ -237,7 +233,7 @@ func (writer *writer) mapFile(tailSegment *TailSegment) error {
 }
 
 func (writer *writer) switchIndexedSegment(
-	newIndexedSegment *indexedSegment, purgedRawSegmentsCount int) error {
+	newIndexedSegment *headSegment, purgedRawSegmentsCount int) error {
 	resultChan := make(chan error)
 	writer.asyncExecute(context.Background(), func(ctx context.Context) {
 		oldVersion := writer.currentVersion
@@ -250,7 +246,7 @@ func (writer *writer) switchIndexedSegment(
 	})
 	countlog.Debug("event!writer.switched indexed segment",
 		"purgedRawSegmentsCount", purgedRawSegmentsCount,
-		"tailSeq", newIndexedSegment.tailSeq,
+		"tailOffset", newIndexedSegment.tailOffset,
 		"tailBlockSeq", newIndexedSegment.tailBlockSeq,
 		"tailSlotIndexSeq", newIndexedSegment.tailSlotIndexSeq,
 		"topLevel", newIndexedSegment.topLevel)

@@ -46,14 +46,12 @@ func openRawSegment(path string) (*rawSegment, error) {
 		countlog.Error("event!raw.failed to unmarshal rows", "err", iter.Error, "path", path)
 		return nil, err
 	}
-	segment.ReferenceCounted = ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d", segment.startSeq), resources...)
+	segment.ReferenceCounted = ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d", segment.startOffset), resources...)
 	return segment, nil
 }
 
 func (segment *rawSegment) loadRows(iter *gocodec.Iterator) (rowsChunk, error) {
 	var rows rowsChunk
-	startSeq := segment.startSeq
-	totalSize := RowSeq(len(iter.Buffer()))
 	for {
 		iter.Reset(iter.Buffer())
 		entry, _ := iter.Unmarshal((*Entry)(nil)).(*Entry)
@@ -63,7 +61,7 @@ func (segment *rawSegment) loadRows(iter *gocodec.Iterator) (rowsChunk, error) {
 		if iter.Error != nil {
 			return nil, iter.Error
 		}
-		seq := startSeq + (totalSize - RowSeq(len(iter.Buffer())))
-		rows = append(rows, Row{Entry: entry, Seq: seq})
+		offset := segment.startOffset + Offset(len(rows))
+		rows = append(rows, Row{Entry: entry, Offset: offset})
 	}
 }

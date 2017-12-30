@@ -10,13 +10,14 @@ import (
 type Reader struct {
 	store          *Store
 	currentVersion *StoreVersion
-	tailSeq        RowSeq    // seq to start next cache fill
+	tailSeq        uint64    // seq to start next cache fill
+	tailOffset     Offset
 	tailRows       rowsChunk // rows cache
 	gocIter        *gocodec.Iterator
 }
 
 type SearchRequest struct {
-	StartSeq      RowSeq
+	StartOffset   Offset
 	BatchSizeHint int
 	LimitSize     int
 	Filters       []Filter
@@ -41,8 +42,8 @@ func (reader *Reader) Refresh() (bool, error) {
 	latestVersion := reader.store.latest()
 	defer latestVersion.Close()
 	if reader.currentVersion == nil || latestVersion.tailSegment != reader.currentVersion.tailSegment {
-		reader.tailSeq = latestVersion.tailSegment.startSeq
-		reader.tailRows = make(rowsChunk, 0, 4)
+		reader.tailSeq = 0
+		reader.tailRows = make(rowsChunk, 0, blockLength)
 	}
 	if reader.currentVersion != latestVersion {
 		// when reader moves forward, older version has a chance to die
@@ -111,7 +112,7 @@ func searchChunks(reader *Reader, chunkIter chunkIterator, req SearchRequest) ([
 			}
 			return nil, err
 		}
-		batch, err = chunk.search(reader, req.StartSeq, req.Filters, batch)
+		batch, err = chunk.search(reader, req.StartOffset, req.Filters, batch)
 		if err != nil {
 			return nil, err
 		}

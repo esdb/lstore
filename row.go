@@ -1,10 +1,8 @@
 package lstore
 
-// the sequence number for entries
-type RowSeq uint64
+type Offset uint64
 type Blob string
 type EntryType uint8
-type SegmentType uint8
 
 type Entry struct {
 	Reserved   uint8
@@ -19,5 +17,5 @@ const EntryTypeConfigurationChange = 5
 
 type Row struct {
 	*Entry
-	Seq RowSeq
+	Offset Offset
 }

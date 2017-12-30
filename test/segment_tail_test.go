@@ -13,7 +13,7 @@ func Test_write_read_one_entry(t *testing.T) {
 	defer store.Stop(context.Background())
 	seq, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(0), seq)
+	should.Equal(lstore.Offset(0), seq)
 	reader, err := store.NewReader()
 	should.Nil(err)
 	defer reader.Close()
@@ -32,15 +32,15 @@ func Test_write_two_entries(t *testing.T) {
 	defer store.Stop(context.Background())
 	seq, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(0), seq)
+	should.Equal(lstore.Offset(0), seq)
 	seq, err = store.Write(context.Background(), intEntry(2))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(0x58), seq)
+	should.Equal(lstore.Offset(1), seq)
 	reader, err := store.NewReader()
 	should.Nil(err)
 	defer reader.Close()
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
-		StartSeq: seq,
+		StartOffset: seq,
 		LimitSize:   2,
 	})
 	rows, err := iter()
@@ -55,7 +55,7 @@ func Test_reopen_tail_segment(t *testing.T) {
 	defer store.Stop(context.Background())
 	seq, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(0), seq)
+	should.Equal(lstore.Offset(0), seq)
 
 	store = reopenTestStore(store)
 
@@ -73,7 +73,7 @@ func Test_reopen_tail_segment(t *testing.T) {
 
 	seq, err = store.Write(context.Background(), intEntry(2))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(0x58), seq)
+	should.Equal(lstore.Offset(1), seq)
 
 	// can not read new rows without refresh
 	iter = reader.Search(context.Background(), lstore.SearchRequest{
@@ -102,11 +102,11 @@ func Test_write_rotation(t *testing.T) {
 	defer store.Stop(context.Background())
 	seq, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(0), seq)
+	should.Equal(lstore.Offset(0), seq)
 	seq, err = store.Write(context.Background(), intEntry(2))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(88), seq)
+	should.Equal(lstore.Offset(1), seq)
 	seq, err = store.Write(context.Background(), intEntry(3))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(176), seq)
+	should.Equal(lstore.Offset(2), seq)
 }

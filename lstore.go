@@ -8,12 +8,12 @@ import (
 	"path"
 	"github.com/esdb/lstore/ref"
 	"io"
+	"fmt"
 )
 
+const HeadSegmentFileName = "head.segment"
 const TailSegmentFileName = "tail.segment"
 const TailSegmentTmpFileName = "tail.segment.tmp"
-const IndexedSegmentFileName = "indexed.segment"
-const IndexedSegmentTmpFileName = "indexed.segment.tmp"
 
 type Config struct {
 	blockManagerConfig
@@ -23,20 +23,28 @@ type Config struct {
 	indexingStrategy   *indexingStrategy
 }
 
+func (conf *Config) HeadSegmentPath() string {
+	return path.Join(conf.Directory, HeadSegmentFileName)
+}
+
+func (conf *Config) IndexingSegmentPath(level level) string {
+	return path.Join(conf.Directory, fmt.Sprintf("indexing-level%d.segment", level))
+}
+
+func (conf *Config) IndexingSegmentTmpPath(level level) string {
+	return path.Join(conf.Directory, fmt.Sprintf("indexing-level%d.segment.tmp", level))
+}
+
+func (conf *Config) RawSegmentPath(tailOffset Offset) string {
+	return path.Join(conf.Directory, fmt.Sprintf("raw-%d.segment", tailOffset))
+}
+
 func (conf *Config) TailSegmentPath() string {
 	return path.Join(conf.Directory, TailSegmentFileName)
 }
 
 func (conf *Config) TailSegmentTmpPath() string {
 	return path.Join(conf.Directory, TailSegmentTmpFileName)
-}
-
-func (conf *Config) IndexedSegmentPath() string {
-	return path.Join(conf.Directory, IndexedSegmentFileName)
-}
-
-func (conf *Config) IndexedSegmentTmpPath() string {
-	return path.Join(conf.Directory, IndexedSegmentTmpFileName)
 }
 
 // Store is physically a directory, containing multiple files on disk
@@ -54,7 +62,7 @@ type Store struct {
 type StoreVersion struct {
 	config         Config
 	*ref.ReferenceCounted
-	indexedSegment *indexedSegment
+	indexedSegment *headSegment
 	rawSegments    []*rawSegment
 	tailSegment    *TailSegment
 }

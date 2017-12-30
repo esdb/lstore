@@ -3,7 +3,7 @@ package lstore
 import "io"
 
 type chunk interface {
-	search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error)
+	search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error)
 }
 
 type chunkIterator func() (chunk, error)

@@ -22,14 +22,14 @@ func Test_write_read_latency(t *testing.T) {
 	go func() {
 		for {
 			result := <-resultChan
-			fmt.Println("write: ", result.Seq, time.Now())
+			fmt.Println("write: ", result.Offset, time.Now())
 		}
 	}()
 	go func() {
 		countlog.Info("event!test.search")
 		reader, err := store.NewReader()
 		should.Nil(err)
-		startSeq := lstore.RowSeq(0)
+		startOffset := lstore.Offset(0)
 		for {
 			hasNew, err := reader.Refresh()
 			should.Nil(err)
@@ -37,7 +37,7 @@ func Test_write_read_latency(t *testing.T) {
 				time.Sleep(time.Millisecond)
 				continue
 			}
-			iter := reader.Search(ctx, lstore.SearchRequest{StartSeq: startSeq, LimitSize: 1024 * 1024})
+			iter := reader.Search(ctx, lstore.SearchRequest{StartOffset: startOffset, LimitSize: 1024 * 1024})
 			for {
 				rows, err := iter()
 				if err == io.EOF {
@@ -47,9 +47,9 @@ func Test_write_read_latency(t *testing.T) {
 					panic(err)
 				}
 				for _, row := range rows {
-					fmt.Println("read: ", row.Seq, time.Now())
+					fmt.Println("read: ", row.Offset, time.Now())
 				}
-				startSeq = rows[len(rows) - 1].Seq
+				startOffset = rows[len(rows) - 1].Offset
 			}
 		}
 	}()

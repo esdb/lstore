@@ -1,8 +1,9 @@
 package lstore
 
+type SegmentType uint8
 type segmentHeader struct {
 	segmentType SegmentType
-	startSeq    RowSeq
+	startOffset Offset
 }
 
 // 1 tail / multiple raw

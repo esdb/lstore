@@ -1,16 +1,17 @@
 package lstore
 
 import (
-	"path"
-	"fmt"
 	"github.com/v2pro/plz/countlog"
 )
 
 func loadInitialVersion(config *Config) (*StoreVersion, error) {
 	version := StoreVersion{config: *config}.edit()
-	if err := loadIndexedSegment(config, version); err != nil {
+	indexedSegment, err := openHeadSegment(config, config.indexingStrategy)
+	if err != nil {
+		countlog.Error("event!lstore.failed to load headSegment", "err", err)
 		return nil, err
 	}
+	version.indexedSegment = indexedSegment
 	if err := loadTailAndRawSegments(config, version); err != nil {
 		return nil, err
 	}
@@ -23,17 +24,17 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 		return err
 	}
 	var reversedRawSegments []*rawSegment
-	startSeq := tailSegment.startSeq
-	for startSeq != version.indexedSegment.tailSeq {
-		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startSeq))
-		rawSegment, err := openRawSegment(prev)
+	startOffset := tailSegment.startOffset
+	for startOffset != version.indexedSegment.tailOffset {
+		rawSegmentPath := config.RawSegmentPath(startOffset)
+		rawSegment, err := openRawSegment(rawSegmentPath)
 		if err != nil {
 			countlog.Error("event!lstore.failed to open raw segment",
-				"err", err, "path", prev)
+				"err", err, "rawSegmentPath", rawSegmentPath)
 			return err
 		}
 		reversedRawSegments = append(reversedRawSegments, rawSegment)
-		startSeq = rawSegment.startSeq
+		startOffset = rawSegment.startOffset
 	}
 	rawSegments := make([]*rawSegment, len(reversedRawSegments))
 	for i := 0; i < len(reversedRawSegments); i++ {
@@ -41,17 +42,5 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 	}
 	version.tailSegment = tailSegment
 	version.rawSegments = rawSegments
-	return nil
-}
-
-func loadIndexedSegment(config *Config, version *EditingStoreVersion) error {
-	segmentPath := config.IndexedSegmentPath()
-	indexedSegment, err := openIndexedSegment(segmentPath, config.indexingStrategy)
-	if err != nil {
-		countlog.Error("event!lstore.failed to load indexedSegment",
-			"segmentPath", segmentPath, "err", err)
-		return err
-	}
-	version.indexedSegment = indexedSegment
 	return nil
 }

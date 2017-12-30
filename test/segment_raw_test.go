@@ -14,10 +14,10 @@ func Test_raw_segment(t *testing.T) {
 	defer store.Stop(context.Background())
 	seq, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(0), seq)
+	should.Equal(lstore.Offset(0), seq)
 	seq, err = store.Write(context.Background(), intEntry(2))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(88), seq)
+	should.Equal(lstore.Offset(1), seq)
 	reader, err := store.NewReader()
 	should.Nil(err)
 	defer reader.Close()
@@ -39,7 +39,7 @@ func Test_a_lot_raw_segment(t *testing.T) {
 	for i := 0; i < 256; i++ {
 		seq, err := store.Write(context.Background(), intEntry(int64(i)))
 		should.Nil(err)
-		should.Equal(lstore.RowSeq(88 * i), seq)
+		should.Equal(lstore.Offset(i), seq)
 	}
 	reader, err := store.NewReader()
 	should.Nil(err)
@@ -61,10 +61,10 @@ func Test_reopen_raw_segment(t *testing.T) {
 	defer store.Stop(context.Background())
 	seq, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(0), seq)
+	should.Equal(lstore.Offset(0), seq)
 	seq, err = store.Write(context.Background(), intEntry(2))
 	should.Nil(err)
-	should.Equal(lstore.RowSeq(88), seq)
+	should.Equal(lstore.Offset(1), seq)
 
 	store = reopenTestStore(store)
 

@@ -12,16 +12,19 @@ import (
 	"github.com/edsrzf/mmap-go"
 )
 
-type indexedSegmentVersion struct {
+const level0 level = 0
+type level int
+type headSegmentVersion struct {
 	segmentHeader
-	topLevel         int // minimum 3 level
-	tailSeq          RowSeq
+	topLevel         level // minimum 3 level
+	headOffset       Offset
+	tailOffset       Offset
 	tailBlockSeq     blockSeq
 	tailSlotIndexSeq slotIndexSeq
 }
 
-type indexedSegment struct {
-	indexedSegmentVersion
+type headSegment struct {
+	headSegmentVersion
 	*ref.ReferenceCounted
 	levels []*indexingSegment
 }
@@ -37,27 +40,29 @@ type indexingSegment struct {
 	*ref.ReferenceCounted
 }
 
-func openIndexedSegment(path string, strategy *indexingStrategy) (*indexedSegment, error) {
-	buf, err := ioutil.ReadFile(path)
+func openHeadSegment(config *Config, strategy *indexingStrategy) (*headSegment, error) {
+	headSegmentPath := config.HeadSegmentPath()
+	buf, err := ioutil.ReadFile(headSegmentPath)
 	if os.IsNotExist(err) {
-		if err := initIndexedSegment(path, strategy); err != nil {
+		if err := initIndexedSegment(headSegmentPath, strategy); err != nil {
 			return nil, err
 		}
-		buf, err = ioutil.ReadFile(path)
+		buf, err = ioutil.ReadFile(headSegmentPath)
 	}
 	if err != nil {
 		return nil, err
 	}
 	iter := gocodec.NewIterator(buf)
-	segment, _ := iter.Unmarshal((*indexedSegmentVersion)(nil)).(*indexedSegmentVersion)
+	segment, _ := iter.Unmarshal((*headSegmentVersion)(nil)).(*headSegmentVersion)
 	if iter.Error != nil {
 		return nil, iter.Error
 	}
 	var rootResources []io.Closer
 	var levels []*indexingSegment
-	for i := 0; i < segment.topLevel; i++ {
+	for level := level0; level < segment.topLevel; level++ {
 		var resources []io.Closer
-		file, err := os.OpenFile(fmt.Sprintf("%s.level%d", path, i), os.O_RDONLY, 0666)
+		indexingSegmentPath := config.IndexingSegmentPath(level)
+		file, err := os.OpenFile(indexingSegmentPath, os.O_RDONLY, 0666)
 		if err != nil {
 			return nil, err
 		}
@@ -77,21 +82,21 @@ func openIndexedSegment(path string, strategy *indexingStrategy) (*indexedSegmen
 		level := &indexingSegment{
 			indexingSegmentVersion: *levelVersion,
 			ReferenceCounted: ref.NewReferenceCounted(
-				fmt.Sprintf("indexing segment level %d", i), resources...),
+				fmt.Sprintf("indexing segment level %d", level), resources...),
 		}
 		levels = append(levels, level)
 		rootResources = append(rootResources, level)
 	}
-	return &indexedSegment{
-		indexedSegmentVersion: *segment,
-		ReferenceCounted:      ref.NewReferenceCounted("indexed segment", rootResources...),
-		levels:                levels,
+	return &headSegment{
+		headSegmentVersion: *segment,
+		ReferenceCounted:   ref.NewReferenceCounted("indexed segment", rootResources...),
+		levels:             levels,
 	}, nil
 }
 
 func initIndexedSegment(segmentPath string, strategy *indexingStrategy) error {
 	stream := gocodec.NewStream(nil)
-	stream.Marshal(indexedSegmentVersion{
+	stream.Marshal(headSegmentVersion{
 		segmentHeader: segmentHeader{segmentType: SegmentTypeIndexed},
 		topLevel:      3,
 	})
@@ -121,6 +126,6 @@ func initIndexedSegment(segmentPath string, strategy *indexingStrategy) error {
 	return nil
 }
 
-func (segment *indexedSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
+func (segment *headSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
 	return iterateChunks(nil)
 }

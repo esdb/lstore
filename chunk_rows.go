@@ -2,9 +2,10 @@ package lstore
 
 type rowsChunk []Row
 
-func (chunk rowsChunk) search(reader *Reader, startSeq RowSeq, filters []Filter, collector []Row) ([]Row, error) {
+func (chunk rowsChunk) search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error) {
 	for _, row := range chunk  {
-		if row.Seq < startSeq {
+		if row.Offset < startOffset {
+			// TODO: skip rows directly
 			continue
 		}
 		if rowMatches(row.Entry, filters) {
