@@ -35,7 +35,7 @@ func Test_create_block(t *testing.T) {
 
 func Benchmark_column_based_block_scan(b *testing.B) {
 	filters := []Filter{
-		&IntValueFilter{Index: 0, Value: 100},
+		//&IntValueFilter{Index: 0, Value: 100},
 	}
 	columnSize := 256
 	blk := &block{

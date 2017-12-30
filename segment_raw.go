@@ -27,7 +27,7 @@ func openRawSegment(path string) (*RawSegment, error) {
 	segment := &RawSegment{}
 	readMMap, err := mmap.Map(file, mmap.COPY, 0)
 	if err != nil {
-		countlog.Error("event!chunk.failed to mmap as COPY", "err", err, "path", path)
+		countlog.Error("event!raw.failed to mmap as COPY", "err", err, "path", path)
 		return nil, err
 	}
 	resources = append(resources, ref.NewResource("mmap as COPY", func() error {
@@ -36,12 +36,14 @@ func openRawSegment(path string) (*RawSegment, error) {
 	iter := gocodec.NewIterator(readMMap)
 	segmentHeader, _ := iter.Unmarshal((*segmentHeader)(nil)).(*segmentHeader)
 	if iter.Error != nil {
+		countlog.Error("event!raw.failed to unmarshal header", "err", iter.Error, "path", path)
 		return nil, iter.Error
 	}
 	segment.segmentHeader = *segmentHeader
 	segment.Path = path
 	segment.rows, err = segment.loadRows(iter)
 	if err != nil {
+		countlog.Error("event!raw.failed to unmarshal rows", "err", iter.Error, "path", path)
 		return nil, err
 	}
 	segment.ReferenceCounted = ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d", segment.startSeq), resources...)
@@ -53,6 +55,7 @@ func (segment *RawSegment) loadRows(iter *gocodec.Iterator) (rowsChunk, error) {
 	startSeq := segment.startSeq
 	totalSize := RowSeq(len(iter.Buffer()))
 	for {
+		iter.Reset(iter.Buffer())
 		entry, _ := iter.Unmarshal((*Entry)(nil)).(*Entry)
 		if iter.Error == io.EOF {
 			return rows, nil
