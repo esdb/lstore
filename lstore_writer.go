@@ -190,7 +190,7 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 		return nil, err
 	}
 	newVersion := oldVersion.edit()
-	newVersion.rawSegments = make([]*RawSegment, len(oldVersion.rawSegments)+1)
+	newVersion.rawSegments = make([]*rawSegment, len(oldVersion.rawSegments)+1)
 	i := 0
 	for ; i < len(oldVersion.rawSegments); i++ {
 		newVersion.rawSegments[i] = oldVersion.rawSegments[i]
@@ -201,7 +201,7 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 		return nil, err
 	}
 	// use writer.tailRows to build a raw segment without loading from file
-	newVersion.rawSegments[i] = &RawSegment{
+	newVersion.rawSegments[i] = &rawSegment{
 		segmentHeader: oldVersion.tailSegment.segmentHeader,
 		Path:          rotatedTo,
 		rows:          writer.tailRows,

@@ -45,6 +45,7 @@ type Store struct {
 	Config
 	*writer
 	*indexer
+	*compacter
 	blockManager   *blockManager
 	currentVersion unsafe.Pointer
 	executor       *concurrent.UnboundedExecutor // owns writer and indexer
@@ -55,7 +56,7 @@ type StoreVersion struct {
 	config             Config
 	*ref.ReferenceCounted
 	rootIndexedSegment *rootIndexedSegment
-	rawSegments        []*RawSegment
+	rawSegments        []*rawSegment
 	tailSegment        *TailSegment
 }
 
@@ -117,7 +118,8 @@ func (store *Store) Start() error {
 		return err
 	}
 	store.writer = writer
-	store.indexer = store.newCompacter()
+	store.indexer = store.newIndexer()
+	store.compacter = store.newCompacter()
 	return nil
 }
 

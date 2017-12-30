@@ -23,7 +23,7 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 	if err != nil {
 		return err
 	}
-	var reversedRawSegments []*RawSegment
+	var reversedRawSegments []*rawSegment
 	startSeq := tailSegment.startSeq
 	tailSeq := RowSeq(0)
 	if version.rootIndexedSegment != nil {
@@ -41,7 +41,7 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 		reversedRawSegments = append(reversedRawSegments, rawSegment)
 		startSeq = rawSegment.startSeq
 	}
-	rawSegments := make([]*RawSegment, len(reversedRawSegments))
+	rawSegments := make([]*rawSegment, len(reversedRawSegments))
 	for i := 0; i < len(reversedRawSegments); i++ {
 		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
 	}

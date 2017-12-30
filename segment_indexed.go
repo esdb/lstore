@@ -35,7 +35,6 @@ type rootIndexedSegmentVersion struct {
 type rootIndexedSegment struct {
 	rootIndexedSegmentVersion
 	*ref.ReferenceCounted
-	path     string
 	children []*indexedSegment // 64 slots
 }
 
@@ -61,7 +60,6 @@ func openRootIndexedSegment(path string) (*rootIndexedSegment, error) {
 		file.Close()
 		return nil, iter.Error
 	}
-	segment.path = path
 	segment.rootIndexedSegmentVersion = *version
 	segment.children = make([]*indexedSegment, 64)
 	for i := biter.Slot(0); i <= segment.tailSlot; i++ {
@@ -136,7 +134,6 @@ func createRootIndexedSegment(path string, segment rootIndexedSegmentVersion, ch
 		resources = append(resources, child)
 	}
 	return &rootIndexedSegment{
-		path:                      path,
 		rootIndexedSegmentVersion: segment,
 		children:                  children,
 		ReferenceCounted:          ref.NewReferenceCounted("root indexed segment", resources...),
@@ -233,14 +230,8 @@ func (segment *indexedSegment) scanForward(blockManager *blockManager, filters [
 	}
 }
 
-func (segment *rootIndexedSegment) isFull() bool {
-	if segment == nil {
-		return false
-	}
-	if segment.tailSlot < 63 {
-		return false
-	}
-	return segment.children[63].isFull()
+func (version *rootIndexedSegmentVersion) isFull() bool {
+	return version.tailSlot >= 63
 }
 
 func (version *indexedSegmentVersion) isFull() bool {
@@ -254,7 +245,7 @@ func (segment *rootIndexedSegment) getChildren() []*indexedSegment {
 	return segment.children
 }
 
-func (segment *rootIndexedSegment) nextSlot(
+func (segment *rootIndexedSegment) currentSlot(
 	startSeq RowSeq, strategy *indexingStrategy) (rootIndexedSegmentVersion, indexedSegmentVersion) {
 	if segment == nil {
 		newVersion := newRootIndexedSegmentVersion(startSeq, strategy)
@@ -262,7 +253,7 @@ func (segment *rootIndexedSegment) nextSlot(
 		return newVersion, newIndexedSegmentVersion(startSeq, strategy)
 	}
 	child := segment.children[segment.tailSlot]
-	return segment.rootIndexedSegmentVersion.nextSlot(startSeq, strategy, child.indexedSegmentVersion)
+	return segment.rootIndexedSegmentVersion, child.indexedSegmentVersion
 }
 
 func (version *rootIndexedSegmentVersion) nextSlot(

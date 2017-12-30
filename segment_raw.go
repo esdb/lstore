@@ -10,21 +10,21 @@ import (
 	"fmt"
 )
 
-type RawSegment struct {
+type rawSegment struct {
 	segmentHeader
 	*ref.ReferenceCounted
 	rows rowsChunk
 	Path string
 }
 
-func openRawSegment(path string) (*RawSegment, error) {
+func openRawSegment(path string) (*rawSegment, error) {
 	file, err := os.OpenFile(path, os.O_RDONLY, 0666)
 	if err != nil {
 		return nil, err
 	}
 	var resources []io.Closer
 	resources = append(resources, file)
-	segment := &RawSegment{}
+	segment := &rawSegment{}
 	readMMap, err := mmap.Map(file, mmap.COPY, 0)
 	if err != nil {
 		countlog.Error("event!raw.failed to mmap as COPY", "err", err, "path", path)
@@ -50,7 +50,7 @@ func openRawSegment(path string) (*RawSegment, error) {
 	return segment, nil
 }
 
-func (segment *RawSegment) loadRows(iter *gocodec.Iterator) (rowsChunk, error) {
+func (segment *rawSegment) loadRows(iter *gocodec.Iterator) (rowsChunk, error) {
 	var rows rowsChunk
 	startSeq := segment.startSeq
 	totalSize := RowSeq(len(iter.Buffer()))
