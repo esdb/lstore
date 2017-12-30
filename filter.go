@@ -7,8 +7,9 @@ import (
 )
 
 type Filter interface {
-	searchBigIndex(idx slotIndex) biter.Bits
-	searchSmallIndex(idx slotIndex) biter.Bits
+	searchLargeIndex(idx *slotIndex) biter.Bits
+	searchMediumIndex(idx *slotIndex) biter.Bits
+	searchSmallIndex(idx *slotIndex) biter.Bits
 	searchBlock(blk *block, mask []bool)
 	matches(entry *Entry) bool
 }
@@ -84,7 +85,7 @@ func (store *Store) NewBlobValueFilter(
 		valueHash:     hashed.DownCastToUint32(),
 		hashed:        hashed,
 		smallBloom:    strategy.smallHashingStrategy.HashStage2(hashed),
-		bigBloom:      strategy.bigHashingStrategy.HashStage2(hashed),
+		bigBloom:      strategy.mediumHashingStrategy.HashStage2(hashed),
 	}
 }
 
@@ -106,12 +107,17 @@ func (filter *blobValueFilter) searchBlock(blk *block, mask []bool) {
 	}
 }
 
-func (filter *blobValueFilter) searchBigIndex(idx slotIndex) biter.Bits {
+func (filter *blobValueFilter) searchLargeIndex(idx *slotIndex) biter.Bits {
 	pbf := idx.pbfs[filter.indexedColumn]
 	return pbf.Find(filter.smallBloom)
 }
 
-func (filter *blobValueFilter) searchSmallIndex(idx slotIndex) biter.Bits {
+func (filter *blobValueFilter) searchMediumIndex(idx *slotIndex) biter.Bits {
+	pbf := idx.pbfs[filter.indexedColumn]
+	return pbf.Find(filter.smallBloom)
+}
+
+func (filter *blobValueFilter) searchSmallIndex(idx *slotIndex) biter.Bits {
 	pbf := idx.pbfs[filter.indexedColumn]
 	return pbf.Find(filter.smallBloom)
 }

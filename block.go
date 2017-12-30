@@ -43,8 +43,9 @@ func (col bloomFilterIndexedColumn) SourceColumn() int {
 }
 
 type indexingStrategy struct {
-	bigHashingStrategy            *pbloom.HashingStrategy
 	smallHashingStrategy          *pbloom.HashingStrategy
+	mediumHashingStrategy         *pbloom.HashingStrategy
+	largeHashingStrategy          *pbloom.HashingStrategy
 	bloomFilterIndexedIntColumns  []bloomFilterIndexedColumn
 	bloomFilterIndexedBlobColumns []bloomFilterIndexedColumn
 	minMaxIndexedColumns          []int
@@ -63,13 +64,16 @@ func newIndexingStrategy(config *indexingStrategyConfig) *indexingStrategy {
 			len(bloomFilterIndexedBlobColumns) + i,
 			config.BloomFilterIndexedIntColumns[i]}
 	}
-	bigHashingStrategy := pbloom.NewHashingStrategy(
-		pbloom.HasherFnv, 157042, 7)
+	largeHashingStrategy := pbloom.NewHashingStrategy(
+		pbloom.HasherFnv, 10050663, 8)
+	mediumHashingStrategy := pbloom.NewHashingStrategy(
+		pbloom.HasherFnv, 157042, 8)
 	smallHashingStrategy := pbloom.NewHashingStrategy(
-		pbloom.HasherFnv, 2454, 7)
+		pbloom.HasherFnv, 2454, 8)
 	return &indexingStrategy{
+		largeHashingStrategy:          largeHashingStrategy,
+		mediumHashingStrategy:         mediumHashingStrategy,
 		smallHashingStrategy:          smallHashingStrategy,
-		bigHashingStrategy:            bigHashingStrategy,
 		bloomFilterIndexedIntColumns:  bloomFilterIndexedIntColumns,
 		bloomFilterIndexedBlobColumns: bloomFilterIndexedBlobColumns,
 		minMaxIndexedColumns:          config.MinMaxIndexedColumns,
@@ -96,6 +100,17 @@ func (strategy *indexingStrategy) lookupIntColumn(sourceColumn int) int {
 		}
 	}
 	panic(fmt.Sprintf("int column not indexed: %d", sourceColumn))
+}
+
+func (strategy *indexingStrategy) hashingStrategy(level int) *pbloom.HashingStrategy {
+	switch level {
+	case 0:
+		return strategy.smallHashingStrategy
+	case 1:
+		return strategy.mediumHashingStrategy
+	default:
+		return strategy.largeHashingStrategy
+	}
 }
 
 func newBlock(rows []Row) *block {

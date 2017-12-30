@@ -46,7 +46,7 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 
 func loadIndexedSegment(config *Config, version *EditingStoreVersion) error {
 	segmentPath := config.IndexedSegmentPath()
-	indexedSegment, err := openIndexedSegment(segmentPath)
+	indexedSegment, err := openIndexedSegment(segmentPath, config.indexingStrategy)
 	if err != nil {
 		countlog.Error("event!lstore.failed to load indexedSegment",
 			"segmentPath", segmentPath, "err", err)
