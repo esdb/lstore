@@ -83,12 +83,27 @@ func (indexer *indexer) Index() error {
 	return <-resultChan
 }
 
-func (indexer *indexer) doIndex(ctx context.Context) error {
+func (indexer *indexer) doIndex(ctx context.Context) (err error) {
 	// version will not change during compaction
 	store := indexer.currentVersion
+	blockManager := indexer.store.blockManager
 	countlog.Trace("event!indexer.run")
 	if len(store.rawSegments) == 0 {
 		return nil
+	}
+	tailBlockSeq := store.indexedSegment.tailBlockSeq
+	purgedRawSegmentsCount := 0
+	for _, rawSegment := range store.rawSegments {
+		purgedRawSegmentsCount++
+		blk := newBlock(rawSegment.rows)
+		tailBlockSeq, _, err = blockManager.writeBlock(tailBlockSeq, blk)
+		if err != nil {
+			return err
+		}
+	}
+	err = indexer.store.writer.switchIndexedSegment(store.indexedSegment, purgedRawSegmentsCount)
+	if err != nil {
+		return err
 	}
 	return nil
 }

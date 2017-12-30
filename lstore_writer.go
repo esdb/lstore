@@ -248,5 +248,11 @@ func (writer *writer) switchIndexedSegment(
 		resultChan <- nil
 		return
 	})
+	countlog.Debug("event!writer.switched indexed segment",
+		"purgedRawSegmentsCount", purgedRawSegmentsCount,
+		"tailSeq", newIndexedSegment.tailSeq,
+		"tailBlockSeq", newIndexedSegment.tailBlockSeq,
+		"tailSlotIndexSeq", newIndexedSegment.tailSlotIndexSeq,
+		"topLevel", newIndexedSegment.topLevel)
 	return <-resultChan
 }
