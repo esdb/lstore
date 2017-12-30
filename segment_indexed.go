@@ -13,10 +13,10 @@ import (
 
 type indexedSegmentVersion struct {
 	segmentHeader
-	tailSeq   RowSeq
 	slotIndex slotIndex
+	children  []blockSeq // 64 slots
+	tailSeq   RowSeq
 	tailSlot  biter.Slot
-	children  []BlockSeq // 64 slots
 }
 
 type indexedSegment struct {
@@ -29,7 +29,7 @@ type rootIndexedSegmentVersion struct {
 	tailSeq      RowSeq
 	slotIndex    slotIndex
 	tailSlot     biter.Slot
-	tailBlockSeq BlockSeq // next block write to this seq
+	tailBlockSeq blockSeq // next block write to this seq
 }
 
 type rootIndexedSegment struct {
@@ -182,7 +182,7 @@ func newIndexedSegmentVersion(startSeq RowSeq, strategy *indexingStrategy) index
 			startSeq:    startSeq,
 		},
 		slotIndex: newSlotIndex(strategy, strategy.smallHashingStrategy),
-		children:  make([]BlockSeq, 64),
+		children:  make([]blockSeq, 64),
 	}
 }
 
@@ -276,7 +276,7 @@ func (version *indexedSegmentVersion) nextSlot() (indexedSegmentVersion) {
 	newVersion := indexedSegmentVersion{}
 	newVersion.segmentHeader = version.segmentHeader
 	newVersion.tailSlot = version.tailSlot + 1
-	newVersion.children = append([]BlockSeq(nil), version.children...)
+	newVersion.children = append([]blockSeq(nil), version.children...)
 	newVersion.slotIndex = version.slotIndex.copy()
 	return newVersion
 }

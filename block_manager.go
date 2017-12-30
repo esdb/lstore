@@ -2,13 +2,6 @@ package lstore
 
 import (
 	"github.com/hashicorp/golang-lru"
-	"os"
-	"sync"
-	"github.com/v2pro/plz/countlog"
-	"github.com/esdb/lstore/ref"
-	"path"
-	"fmt"
-	"github.com/edsrzf/mmap-go"
 	"github.com/esdb/gocodec"
 	"github.com/esdb/lstore/lz4"
 )
@@ -25,7 +18,7 @@ func calcCompressedBlockHeaderSize() uint32 {
 	return uint32(stream.Marshal(compressedBlockHeader{1, 1}))
 }
 
-type BlockManagerConfig struct {
+type blockManagerConfig struct {
 	indexingStrategyConfig
 	BlockDirectory            string
 	BlockFileSizeInPowerOfTwo uint8
@@ -37,23 +30,15 @@ type BlockManagerConfig struct {
 // compress/decompress block from the mmap
 // retain lru block cache
 type blockManager struct {
-	indexingStrategy          *indexingStrategy
-	blockDirectory            string
-	blockFileSizeInPowerOfTwo uint8 // 2 ^ x
-	blockFileSize             uint64
-	blockCache                *lru.ARCCache
-	blockHashCache            *lru.ARCCache
+	dataManager      *dataManager
+	indexingStrategy *indexingStrategy
+	blockCache       *lru.ARCCache
+	blockHashCache   *lru.ARCCache
 	// tmp assume there is single writer
 	blockCompressTmp []byte
-	// only lock the modification of following maps
-	// does not cover reading or writing
-	mapMutex   *sync.Mutex
-	files      map[BlockSeq]*os.File
-	writeMMaps map[BlockSeq]mmap.MMap
-	readMMaps  map[BlockSeq]mmap.MMap
 }
 
-func newBlockManager(config *BlockManagerConfig) *blockManager {
+func newBlockManager(config *blockManagerConfig) *blockManager {
 	if config.BlockFileSizeInPowerOfTwo == 0 {
 		config.BlockFileSizeInPowerOfTwo = 30
 	}
@@ -64,51 +49,21 @@ func newBlockManager(config *BlockManagerConfig) *blockManager {
 	blockHashCache, _ := lru.NewARC(64)
 	indexingStrategy := newIndexingStrategy(&config.indexingStrategyConfig)
 	return &blockManager{
-		indexingStrategy:          indexingStrategy,
-		blockDirectory:            config.BlockDirectory,
-		blockFileSizeInPowerOfTwo: config.BlockFileSizeInPowerOfTwo,
-		blockFileSize:             2 << config.BlockFileSizeInPowerOfTwo,
-		blockCache:                blockCache,
-		blockHashCache:            blockHashCache,
-		mapMutex:                  &sync.Mutex{},
-		files:                     map[BlockSeq]*os.File{},
-		readMMaps:                 map[BlockSeq]mmap.MMap{},
-		writeMMaps:                map[BlockSeq]mmap.MMap{},
+		indexingStrategy: indexingStrategy,
+		blockCache:       blockCache,
+		blockHashCache:   blockHashCache,
+		dataManager:      newDataManager(config.BlockDirectory, config.BlockFileSizeInPowerOfTwo),
 	}
 }
 
 func (mgr *blockManager) Close() error {
-	mgr.mapMutex.Lock()
-	defer mgr.mapMutex.Unlock()
-	var errs []error
-	for _, writeMMap := range mgr.writeMMaps {
-		err := writeMMap.Unmap()
-		if err != nil {
-			errs = append(errs, err)
-			countlog.Error("event!block_manager.failed to close writeMMap", "err", err)
-		}
-	}
-	for _, readMMap := range mgr.readMMaps {
-		err := readMMap.Unmap()
-		if err != nil {
-			errs = append(errs, err)
-			countlog.Error("event!block_manager.failed to close readMMap", "err", err)
-		}
-	}
-	for _, file := range mgr.files {
-		err := file.Close()
-		if err != nil {
-			errs = append(errs, err)
-			countlog.Error("event!block_manager.failed to close file", "err", err)
-		}
-	}
-	return ref.NewMultiError(errs)
+	return mgr.dataManager.Close()
 }
 
-func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (BlockSeq, blockHash, error) {
+func (mgr *blockManager) writeBlock(seq blockSeq, block *block) (blockSeq, blockHash, error) {
 	blkHash := block.Hash(mgr.indexingStrategy)
-	mgr.blockHashCache.Add(blockSeq, blkHash)
-	mgr.blockCache.Add(blockSeq, block)
+	mgr.blockHashCache.Add(seq, blkHash)
+	mgr.blockCache.Add(seq, block)
 	stream := gocodec.NewStream(nil)
 	blockOriginalSize, blockCompressedSize, compressedBlock :=
 		mgr.compressBlock(stream, block)
@@ -121,16 +76,16 @@ func (mgr *blockManager) writeBlock(blockSeq BlockSeq, block *block) (BlockSeq, 
 		return 0, nil, stream.Error
 	}
 	header := stream.Buffer()
-	err := mgr.writeBuf(blockSeq, header)
+	err := mgr.dataManager.writeBuf(uint64(seq), header)
 	if err != nil {
 		return 0, nil, err
 	}
-	tailBlockSeq := blockSeq + BlockSeq(len(header))
-	err = mgr.writeBuf(tailBlockSeq, compressedBlock)
+	tailBlockSeq := seq + blockSeq(len(header))
+	err = mgr.dataManager.writeBuf(uint64(tailBlockSeq), compressedBlock)
 	if err != nil {
 		return 0, nil, err
 	}
-	tailBlockSeq += BlockSeq(len(compressedBlock))
+	tailBlockSeq += blockSeq(len(compressedBlock))
 	return tailBlockSeq, blkHash, nil
 }
 
@@ -149,23 +104,7 @@ func (mgr *blockManager) compressBlock(stream *gocodec.Stream, block *block) (ui
 	return uint32(len(buf)), uint32(compressedSize), mgr.blockCompressTmp[:compressedSize]
 }
 
-func (mgr *blockManager) writeBuf(blockSeq BlockSeq, buf []byte) error {
-	fileBlockSeq := blockSeq >> mgr.blockFileSizeInPowerOfTwo
-	relativeOffset := int(blockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo))
-	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
-	if err != nil {
-		return err
-	}
-	dst := writeMMap[relativeOffset:]
-	copiedBytesCount := copy(dst, buf)
-	buf = buf[copiedBytesCount:]
-	if len(buf) > 0 {
-		return mgr.writeBuf(blockSeq+BlockSeq(copiedBytesCount), buf)
-	}
-	return nil
-}
-
-func (mgr *blockManager) readBlockHash(blockSeq BlockSeq) (blockHash, error) {
+func (mgr *blockManager) readBlockHash(blockSeq blockSeq) (blockHash, error) {
 	blkHashCache, found := mgr.blockHashCache.Get(blockSeq)
 	if found {
 		return blkHashCache.(blockHash), nil
@@ -177,12 +116,12 @@ func (mgr *blockManager) readBlockHash(blockSeq BlockSeq) (blockHash, error) {
 	return blk.Hash(mgr.indexingStrategy), nil
 }
 
-func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
-	blkObj, found := mgr.blockCache.Get(blockSeq)
+func (mgr *blockManager) readBlock(seq blockSeq) (*block, error) {
+	blkObj, found := mgr.blockCache.Get(seq)
 	if found {
 		return blkObj.(*block), nil
 	}
-	headerBuf, err := mgr.readBuf(blockSeq, compressedBlockHeaderSize)
+	headerBuf, err := mgr.dataManager.readBuf(uint64(seq), compressedBlockHeaderSize)
 	if err != nil {
 		return nil, err
 	}
@@ -192,8 +131,8 @@ func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
 		return nil, iter.Error
 	}
 	decompressed := make([]byte, compressedBlockHeader.blockOriginalSize)
-	compressedBuf, err := mgr.readBuf(
-		blockSeq+BlockSeq(compressedBlockHeaderSize),
+	compressedBuf, err := mgr.dataManager.readBuf(
+		uint64(seq)+uint64(compressedBlockHeaderSize),
 		compressedBlockHeader.blockCompressedSize)
 	if err != nil {
 		return nil, err
@@ -204,80 +143,6 @@ func (mgr *blockManager) readBlock(blockSeq BlockSeq) (*block, error) {
 	if iter.Error != nil {
 		return nil, iter.Error
 	}
-	mgr.blockCache.Add(blockSeq, blk)
+	mgr.blockCache.Add(seq, blk)
 	return blk, nil
-}
-
-func (mgr *blockManager) readBuf(blockSeq BlockSeq, remainingSize uint32) ([]byte, error) {
-	fileBlockSeq := blockSeq >> mgr.blockFileSizeInPowerOfTwo
-	relativeOffset := blockSeq - (fileBlockSeq << mgr.blockFileSizeInPowerOfTwo)
-	readMMap, err := mgr.openReadMMap(fileBlockSeq)
-	if err != nil {
-		return nil, err
-	}
-	buf := readMMap[relativeOffset:]
-	if uint32(len(buf)) < remainingSize {
-		remainingSize -= uint32(len(buf))
-		moreBuf, err := mgr.readBuf(blockSeq+BlockSeq(len(buf)), remainingSize)
-		if err != nil {
-			return nil, err
-		}
-		return append(buf, moreBuf...), nil
-	}
-	return buf[:remainingSize], nil
-}
-
-func (mgr *blockManager) openReadMMap(fileBlockSeq BlockSeq) (mmap.MMap, error) {
-	mgr.mapMutex.Lock()
-	defer mgr.mapMutex.Unlock()
-	file, err := mgr.openFile(fileBlockSeq)
-	if err != nil {
-		return nil, err
-	}
-	readMMap, err := mmap.Map(file, mmap.COPY, 0)
-	if err != nil {
-		return nil, err
-	}
-	mgr.readMMaps[fileBlockSeq] = readMMap
-	return readMMap, nil
-}
-
-func (mgr *blockManager) openWriteMMap(fileBlockSeq BlockSeq) (mmap.MMap, error) {
-	mgr.mapMutex.Lock()
-	defer mgr.mapMutex.Unlock()
-	file, err := mgr.openFile(fileBlockSeq)
-	if err != nil {
-		return nil, err
-	}
-	writeMMap, err := mmap.Map(file, mmap.RDWR, 0)
-	if err != nil {
-		return nil, fmt.Errorf("map RDWR for block failed: %s", err.Error())
-	}
-	mgr.writeMMaps[fileBlockSeq] = writeMMap
-	return writeMMap, nil
-}
-
-func (mgr *blockManager) openFile(fileBlockSeq BlockSeq) (*os.File, error) {
-	file := mgr.files[fileBlockSeq]
-	if file != nil {
-		return file, nil
-	}
-	filePath := path.Join(mgr.blockDirectory, fmt.Sprintf(
-		"%d.block", fileBlockSeq<<mgr.blockFileSizeInPowerOfTwo))
-	file, err := os.OpenFile(filePath, os.O_RDWR, 0666)
-	if os.IsNotExist(err) {
-		os.MkdirAll(path.Dir(filePath), 0777)
-		file, err = os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
-		if err != nil {
-			return nil, err
-		}
-		err = file.Truncate(int64(mgr.blockFileSize))
-		if err != nil {
-			return nil, err
-		}
-	} else if err != nil {
-		return nil, err
-	}
-	mgr.files[fileBlockSeq] = file
-	return file, nil
 }

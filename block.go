@@ -8,7 +8,7 @@ import (
 
 // the sequence number for compressed block
 // the block reference in memory is called CompactSegment
-type BlockSeq uint64
+type blockSeq uint64
 type intColumn []int64
 type blobColumn []Blob
 type blobHashColumn []uint32

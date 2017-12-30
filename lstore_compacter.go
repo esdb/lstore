@@ -3,6 +3,7 @@ package lstore
 import (
 	"context"
 	"github.com/v2pro/plz/countlog"
+	"errors"
 )
 
 type compacterCommand func(ctx context.Context)
@@ -40,6 +41,20 @@ func (compacter *compacter) start() {
 	})
 }
 
+func (compacter *compacter) asyncExecute(cmd compacterCommand) error {
+	select {
+	case compacter.commandQueue <- cmd:
+		return nil
+	default:
+		return errors.New("too many compaction request")
+	}
+}
+
 // purgeIndexedSegments should only be called from indexer
-func (compacter *compacter) purgeIndexedSegments() {
+func (compacter *compacter) purgeIndexedSegments() error {
+	resultChan := make(chan error)
+	compacter.asyncExecute(func(ctx context.Context) {
+
+	})
+	return <-resultChan
 }

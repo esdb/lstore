@@ -5,8 +5,16 @@ import (
 	"github.com/esdb/biter"
 )
 
+type slotIndexSeq uint64
+
+type blockIndex struct {
+	slotIndex slotIndex
+	children  []blockSeq // 64 slots
+}
+
 type slotIndex struct {
-	pbfs         []pbloom.ParallelBloomFilter // 64 slots
+	pbfs []pbloom.ParallelBloomFilter // 64 slots
+	children []uint64 // 64 slots, can be blockSeq or slotIndexSeq
 }
 
 func newSlotIndex(indexingStrategy *indexingStrategy,
@@ -15,7 +23,7 @@ func newSlotIndex(indexingStrategy *indexingStrategy,
 	for i := 0; i < len(pbfs); i++ {
 		pbfs[i] = hashingStrategy.New()
 	}
-	return slotIndex{pbfs}
+	return slotIndex{pbfs, nil}
 }
 
 func (idx slotIndex) copy() slotIndex {

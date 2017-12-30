@@ -16,7 +16,7 @@ const RootIndexedSegmentFileName = "indexed.segment"
 const RootIndexedSegmentTmpFileName = "indexed.segment.tmp"
 
 type Config struct {
-	BlockManagerConfig
+	blockManagerConfig
 	Directory              string
 	CommandQueueSize       int
 	TailSegmentMaxSize     int64
@@ -110,7 +110,7 @@ func (store *Store) Start() error {
 	if store.BlockDirectory == "" {
 		store.BlockDirectory = store.Directory + "/block"
 	}
-	store.blockManager = newBlockManager(&store.BlockManagerConfig)
+	store.blockManager = newBlockManager(&store.blockManagerConfig)
 	store.Config.indexingStrategy = store.blockManager.indexingStrategy
 	store.executor = concurrent.NewUnboundedExecutor()
 	writer, err := store.newWriter()

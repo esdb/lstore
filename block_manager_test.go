@@ -13,7 +13,7 @@ func testBlockManager(blockFileSizeInPowerOfTwo uint8) *blockManager {
 	if err != nil {
 		panic(err)
 	}
-	mgr := newBlockManager(&BlockManagerConfig{
+	mgr := newBlockManager(&blockManagerConfig{
 		BlockDirectory: "/tmp/block",
 		BlockFileSizeInPowerOfTwo: blockFileSizeInPowerOfTwo,
 	})

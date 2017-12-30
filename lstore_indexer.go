@@ -69,14 +69,6 @@ func (indexer *indexer) start() {
 	})
 }
 
-func (indexer *indexer) Index() error {
-	resultChan := make(chan error)
-	indexer.asyncExecute(func(ctx context.Context) {
-		resultChan <- indexer.doIndex(ctx)
-	})
-	return <-resultChan
-}
-
 func (indexer *indexer) asyncExecute(cmd indexerCommand) error {
 	select {
 	case indexer.commandQueue <- cmd:
@@ -84,6 +76,14 @@ func (indexer *indexer) asyncExecute(cmd indexerCommand) error {
 	default:
 		return errors.New("too many compaction request")
 	}
+}
+
+func (indexer *indexer) Index() error {
+	resultChan := make(chan error)
+	indexer.asyncExecute(func(ctx context.Context) {
+		resultChan <- indexer.doIndex(ctx)
+	})
+	return <-resultChan
 }
 
 func (indexer *indexer) doIndex(ctx context.Context) error {
@@ -197,7 +197,7 @@ func (indexer *indexer) writeRootIndexedSegment(
 			return err
 		}
 	}
-	err = indexer.switchRootIndexedSegment(rootSegment, purgedRawSegmentsCount)
+	err = indexer.store.writer.switchRootIndexedSegment(rootSegment, purgedRawSegmentsCount)
 	if err != nil {
 		countlog.Error("event!indexer.failed to switch root indexed segment",
 			"err", err)
@@ -206,22 +206,6 @@ func (indexer *indexer) writeRootIndexedSegment(
 	countlog.Info("event!indexer.indexed segments",
 		"purgedRawSegmentsCount", purgedRawSegmentsCount)
 	return nil
-}
-
-func (indexer *indexer) switchRootIndexedSegment(
-	newRootIndexedSegment *rootIndexedSegment, purgedRawSegmentsCount int) error {
-	resultChan := make(chan error)
-	writer := indexer.store.writer
-	writer.asyncExecute(context.Background(), func(ctx context.Context) {
-		oldVersion := writer.currentVersion
-		newVersion := oldVersion.edit()
-		newVersion.rawSegments = oldVersion.rawSegments[purgedRawSegmentsCount:]
-		newVersion.rootIndexedSegment = newRootIndexedSegment
-		indexer.store.updateCurrentVersion(newVersion.seal())
-		resultChan <- nil
-		return
-	})
-	return <-resultChan
 }
 
 func firstRowOf(rawSegments []*rawSegment) Row {

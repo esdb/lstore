@@ -235,3 +235,18 @@ func (writer *writer) mapFile(tailSegment *TailSegment) error {
 	writer.writeBuf = iter.Buffer()
 	return nil
 }
+
+func (writer *writer) switchRootIndexedSegment(
+	newRootIndexedSegment *rootIndexedSegment, purgedRawSegmentsCount int) error {
+	resultChan := make(chan error)
+	writer.asyncExecute(context.Background(), func(ctx context.Context) {
+		oldVersion := writer.currentVersion
+		newVersion := oldVersion.edit()
+		newVersion.rawSegments = oldVersion.rawSegments[purgedRawSegmentsCount:]
+		newVersion.rootIndexedSegment = newRootIndexedSegment
+		writer.updateCurrentVersion(newVersion.seal())
+		resultChan <- nil
+		return
+	})
+	return <-resultChan
+}
