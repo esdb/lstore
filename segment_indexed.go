@@ -119,6 +119,9 @@ func createRootIndexedSegment(path string, segment rootIndexedSegmentVersion, ch
 	}
 	var resources []io.Closer
 	for _, child := range children {
+		if child == nil {
+			continue
+		}
 		if !child.Acquire() {
 			panic("acquire reference counter should not fail during version rotation")
 		}
@@ -178,7 +181,25 @@ func (segment *rootIndexedSegment) scanForward(blockManager *blockManager, filte
 	if segment == nil {
 		return iterateChunks(nil)
 	}
-	panic("not implemented")
+	i := biter.Slot(0)
+	var childIter func() (chunk, error)
+	return func() (chunk, error) {
+		for {
+			if i > segment.tailSlot {
+				return nil, io.EOF
+			}
+			if childIter == nil {
+				childIter = segment.children[i].scanForward(blockManager, filters)
+			}
+			chunk, err := childIter()
+			if err == io.EOF {
+				childIter = nil
+				i++
+				continue
+			}
+			return chunk, err
+		}
+	}
 }
 
 func (segment *indexedSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
@@ -211,6 +232,13 @@ func (segment *rootIndexedSegment) isFull() bool {
 	return true
 }
 
+func (segment *rootIndexedSegment) getChildren() []*indexedSegment {
+	if segment == nil {
+		return make([]*indexedSegment, 64)
+	}
+	return segment.children
+}
+
 func (segment *rootIndexedSegment) nextSlot(
 	startSeq RowSeq, strategy *indexingStrategy) (rootIndexedSegmentVersion, indexedSegmentVersion) {
 	if segment == nil {
@@ -228,12 +256,14 @@ func (version *rootIndexedSegmentVersion) nextSlot(
 	if child.tailSlot == 63 {
 		newVersion := rootIndexedSegmentVersion{}
 		newVersion.segmentHeader = version.segmentHeader
+		newVersion.tailBlockSeq = version.tailBlockSeq
 		newVersion.tailSlot = version.tailSlot + 1
 		newVersion.slotIndex = version.slotIndex.copy()
 		return newVersion, newIndexedSegmentVersion(startSeq, strategy)
 	}
 	newVersion := rootIndexedSegmentVersion{}
 	newVersion.segmentHeader = version.segmentHeader
+	newVersion.tailBlockSeq = version.tailBlockSeq
 	newVersion.tailSlot = version.tailSlot
 	newVersion.slotIndex = version.slotIndex.copy()
 	return newVersion, child.nextSlot()

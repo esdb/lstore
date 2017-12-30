@@ -5,9 +5,11 @@ import (
 	"context"
 	"github.com/stretchr/testify/require"
 	"github.com/esdb/lstore"
+	"github.com/v2pro/plz/countlog"
 )
 
 func Test_indexed_segment(t *testing.T) {
+	countlog.Setup(countlog.Config{})
 	should := require.New(t)
 	store := smallTestStore()
 	defer store.Stop(context.Background())

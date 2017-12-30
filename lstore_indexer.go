@@ -90,11 +90,15 @@ func (indexer *indexer) doIndex(ctx context.Context) error {
 	}
 	firstRow := firstRowOf(store.rawSegments)
 	root, child := store.rootIndexedSegment.nextSlot(firstRow.Seq, strategy)
+	countlog.Trace("event!indexer.next slot",
+		"rootTailSlot", root.tailSlot, "childTailSlot", child.tailSlot)
 	root.tailSeq = store.tailSegment.startSeq
-	children := store.rootIndexedSegment.children
+	children := store.rootIndexedSegment.getChildren()
 	for i, rawSegment := range store.rawSegments {
 		if i != 0 {
 			root, child = root.nextSlot(rawSegment.startSeq, strategy, child)
+			countlog.Trace("event!indexer.next slot",
+				"rootTailSlot", root.tailSlot, "childTailSlot", child.tailSlot)
 		}
 		blk := newBlock(rawSegment.rows)
 		blockSeq := root.tailBlockSeq

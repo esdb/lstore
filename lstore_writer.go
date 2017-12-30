@@ -219,7 +219,7 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 		return nil, err
 	}
 	newVersion.tailSegment.updateTail(newVersion.tailSegment.startSeq)
-	countlog.Info("event!store.rotated", "tail", newVersion.tailSegment.startSeq)
+	countlog.Debug("event!store.rotated", "tail", newVersion.tailSegment.startSeq)
 	return newVersion.seal(), nil
 }
 
