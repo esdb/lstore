@@ -8,13 +8,12 @@ import (
 	"path"
 	"github.com/esdb/lstore/ref"
 	"io"
-	"github.com/esdb/pbloom"
 )
 
 const TailSegmentFileName = "tail.segment"
 const TailSegmentTmpFileName = "tail.segment.tmp"
-const CompactingSegmentFileName = "compacting.segment"
-const CompactingSegmentTmpFileName = "compacting.segment.tmp"
+const RootIndexedSegmentFileName = "indexed.segment"
+const RootIndexedSegmentTmpFileName = "indexed.segment.tmp"
 
 type Config struct {
 	BlockManagerConfig
@@ -22,8 +21,6 @@ type Config struct {
 	CommandQueueSize       int
 	TailSegmentMaxSize     int64
 	indexingStrategy       *indexingStrategy
-	segmentHashingStrategy *pbloom.HashingStrategy
-	blockHashingStrategy   *pbloom.HashingStrategy
 }
 
 func (conf *Config) TailSegmentPath() string {
@@ -34,12 +31,12 @@ func (conf *Config) TailSegmentTmpPath() string {
 	return path.Join(conf.Directory, TailSegmentTmpFileName)
 }
 
-func (conf *Config) CompactingSegmentPath() string {
-	return path.Join(conf.Directory, CompactingSegmentFileName)
+func (conf *Config) RootIndexedSegmentPath() string {
+	return path.Join(conf.Directory, RootIndexedSegmentFileName)
 }
 
-func (conf *Config) CompactingSegmentTmpPath() string {
-	return path.Join(conf.Directory, CompactingSegmentTmpFileName)
+func (conf *Config) RootIndexedSegmentTmpPath() string {
+	return path.Join(conf.Directory, RootIndexedSegmentTmpFileName)
 }
 
 // Store is physically a directory, containing multiple files on disk
@@ -114,10 +111,6 @@ func (store *Store) Start() error {
 	}
 	store.blockManager = newBlockManager(&store.BlockManagerConfig)
 	store.Config.indexingStrategy = store.blockManager.indexingStrategy
-	store.Config.segmentHashingStrategy = pbloom.NewHashingStrategy(
-		pbloom.HasherFnv, 10050663, 7)
-	store.Config.blockHashingStrategy = pbloom.NewHashingStrategy(
-		pbloom.HasherFnv, 2454, 7)
 	store.executor = concurrent.NewUnboundedExecutor()
 	writer, err := store.newWriter()
 	if err != nil {

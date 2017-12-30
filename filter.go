@@ -67,23 +67,23 @@ type blobValueFilter struct {
 	value         Blob
 	valueHash     uint32
 	hashed        pbloom.HashedElement
-	bloom         pbloom.BloomElement
+	smallBloom    pbloom.BloomElement
+	bigBloom      pbloom.BloomElement
 }
 
 func (store *Store) NewBlobValueFilter(
 	column int, value Blob) Filter {
-	indexingStrategy := store.blockManager.indexingStrategy
-	hashingStrategy := store.hashingStrategy
-	indexedColumn := indexingStrategy.lookupBlobColumn(column)
-	hashed := hashingStrategy.HashStage1(*(*[]byte)((unsafe.Pointer)(&value)))
-	bloom := hashingStrategy.HashStage2(hashed)
+	strategy := store.blockManager.indexingStrategy
+	indexedColumn := strategy.lookupBlobColumn(column)
+	hashed := strategy.smallHashingStrategy.HashStage1(*(*[]byte)((unsafe.Pointer)(&value)))
 	return &blobValueFilter{
 		sourceColumn:  column,
 		indexedColumn: indexedColumn,
 		value:         value,
 		valueHash:     hashed.DownCastToUint32(),
 		hashed:        hashed,
-		bloom:         bloom,
+		smallBloom:    strategy.smallHashingStrategy.HashStage2(hashed),
+		bigBloom:      strategy.bigHashingStrategy.HashStage2(hashed),
 	}
 }
 
@@ -107,5 +107,5 @@ func (filter *blobValueFilter) searchBlock(blk *block, mask []bool) {
 
 func (filter *blobValueFilter) searchIndex(idx slotIndex) biter.Bits {
 	pbf := idx.pbfs[filter.indexedColumn]
-	return pbf.Find(filter.bloom)
+	return pbf.Find(filter.smallBloom)
 }

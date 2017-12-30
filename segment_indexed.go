@@ -6,7 +6,6 @@ import (
 	"io"
 	"github.com/edsrzf/mmap-go"
 	"github.com/esdb/gocodec"
-	"github.com/esdb/pbloom"
 	"github.com/esdb/biter"
 	"fmt"
 )
@@ -120,6 +119,9 @@ func createRootIndexedSegment(path string, segment rootIndexedSegmentVersion, ch
 	}
 	var resources []io.Closer
 	for _, child := range children {
+		if !child.Acquire() {
+			panic("acquire reference counter should not fail during version rotation")
+		}
 		resources = append(resources, child)
 	}
 	return &rootIndexedSegment{
@@ -151,39 +153,35 @@ func createIndexedSegment(path string, segment indexedSegmentVersion) (*indexedS
 	}, nil
 }
 
-func newRootIndexedSegmentVersion(
-	startSeq RowSeq, indexingStrategy *indexingStrategy,
-	hashingStrategy *pbloom.HashingStrategy) rootIndexedSegmentVersion {
+func newRootIndexedSegmentVersion(startSeq RowSeq, strategy *indexingStrategy) rootIndexedSegmentVersion {
 	return rootIndexedSegmentVersion{
 		segmentHeader: segmentHeader{
 			segmentType: SegmentTypeRootIndexed,
 			startSeq:    startSeq,
 		},
-		slotIndex:    newSlotIndex(indexingStrategy, hashingStrategy),
+		slotIndex: newSlotIndex(strategy, strategy.bigHashingStrategy),
 	}
 }
 
-func newIndexedSegmentVersion(
-	startSeq RowSeq, indexingStrategy *indexingStrategy,
-	hashingStrategy *pbloom.HashingStrategy) indexedSegmentVersion {
+func newIndexedSegmentVersion(startSeq RowSeq, strategy *indexingStrategy) indexedSegmentVersion {
 	return indexedSegmentVersion{
 		segmentHeader: segmentHeader{
 			segmentType: SegmentTypeIndexed,
 			startSeq:    startSeq,
 		},
-		slotIndex:    newSlotIndex(indexingStrategy, hashingStrategy),
-		children:     make([]BlockSeq, 64),
+		slotIndex: newSlotIndex(strategy, strategy.smallHashingStrategy),
+		children:  make([]BlockSeq, 64),
 	}
 }
 
 func (segment *rootIndexedSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
+	if segment == nil {
+		return iterateChunks(nil)
+	}
 	panic("not implemented")
 }
 
 func (segment *indexedSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
-	if segment == nil {
-		return iterateChunks(nil)
-	}
 	result := segment.slotIndex.search(filters)
 	iter := result.ScanForward()
 	return func() (chunk, error) {
@@ -200,12 +198,45 @@ func (segment *indexedSegment) scanForward(blockManager *blockManager, filters [
 	}
 }
 
-func (segment *rootIndexedSegment) nextSlot() (rootIndexedSegmentVersion, indexedSegmentVersion) {
+func (segment *rootIndexedSegment) isFull() bool {
+	if segment == nil {
+		return false
+	}
+	if segment.tailSlot < 63 {
+		return false
+	}
+	if segment.children[63].tailSlot < 63 {
+		return false
+	}
+	return true
+}
+
+func (segment *rootIndexedSegment) nextSlot(
+	startSeq RowSeq, strategy *indexingStrategy) (rootIndexedSegmentVersion, indexedSegmentVersion) {
+	if segment == nil {
+		newVersion := newRootIndexedSegmentVersion(startSeq, strategy)
+		newVersion.tailSlot = 0
+		return newVersion, newIndexedSegmentVersion(startSeq, strategy)
+	}
+	child := segment.children[segment.tailSlot]
+	return segment.rootIndexedSegmentVersion.nextSlot(startSeq, strategy, child.indexedSegmentVersion)
+}
+
+func (version *rootIndexedSegmentVersion) nextSlot(
+	startSeq RowSeq, strategy *indexingStrategy, child indexedSegmentVersion) (
+	rootIndexedSegmentVersion, indexedSegmentVersion) {
+	if child.tailSlot == 63 {
+		newVersion := rootIndexedSegmentVersion{}
+		newVersion.segmentHeader = version.segmentHeader
+		newVersion.tailSlot = version.tailSlot + 1
+		newVersion.slotIndex = version.slotIndex.copy()
+		return newVersion, newIndexedSegmentVersion(startSeq, strategy)
+	}
 	newVersion := rootIndexedSegmentVersion{}
-	newVersion.segmentHeader = segment.segmentHeader
-	newVersion.tailSlot = segment.tailSlot + 1
-	newVersion.slotIndex = segment.slotIndex.copy()
-	return newVersion, segment.children[newVersion.tailSlot].nextSlot()
+	newVersion.segmentHeader = version.segmentHeader
+	newVersion.tailSlot = version.tailSlot
+	newVersion.slotIndex = version.slotIndex.copy()
+	return newVersion, child.nextSlot()
 }
 
 func (version *indexedSegmentVersion) nextSlot() (indexedSegmentVersion) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/esdb/biter"
 	"os"
+	"fmt"
 )
 
 type indexerCommand func(ctx context.Context)
@@ -82,64 +83,81 @@ func (indexer *indexer) doIndex(ctx context.Context) error {
 	// version will not change during compaction
 	store := indexer.currentVersion
 	blockManager := indexer.store.blockManager
-	indexingStrategy := blockManager.indexingStrategy
-	hashingStrategy := indexer.store.hashingStrategy
+	strategy := blockManager.indexingStrategy
 	countlog.Trace("event!indexer.run")
 	if len(store.rawSegments) == 0 {
-		return
+		return nil
 	}
 	firstRow := firstRowOf(store.rawSegments)
-	compactingSegment := store.rootIndexedSegment.nextSlot(firstRow.Seq, indexingStrategy, hashingStrategy)
-	compactingSegment.tailSeq = store.tailSegment.startSeq
-	for _, rawSegment := range store.rawSegments {
+	root, child := store.rootIndexedSegment.nextSlot(firstRow.Seq, strategy)
+	root.tailSeq = store.tailSegment.startSeq
+	children := store.rootIndexedSegment.children
+	for i, rawSegment := range store.rawSegments {
+		if i != 0 {
+			root, child = root.nextSlot(rawSegment.startSeq, strategy, child)
+		}
 		blk := newBlock(rawSegment.rows)
-		blockSeq := compactingSegment.tailBlockSeq
+		blockSeq := root.tailBlockSeq
 		newTailBlockSeq, blkHash, err := blockManager.writeBlock(blockSeq, blk)
 		if err != nil {
 			countlog.Error("event!indexer.failed to write block",
-				"tailBlockSeq", compactingSegment.tailBlockSeq, "err", err)
+				"tailBlockSeq", root.tailBlockSeq, "err", err)
 			return err
 		}
-		for i, pbf := range compactingSegment.slotIndex.pbfs {
+		childSlotMask := biter.SetBits[child.tailSlot]
+		rootSlotMask := biter.SetBits[root.tailSlot]
+		for i, childPbf := range child.slotIndex.pbfs {
+			rootPbf := root.slotIndex.pbfs[i]
 			for _, hashedElement := range blkHash[i] {
-				pbf.Put(biter.SetBits[compactingSegment.tailSlot], hashingStrategy.HashStage2(hashedElement))
+				childPbf.Put(childSlotMask, strategy.smallHashingStrategy.HashStage2(hashedElement))
+				rootPbf.Put(rootSlotMask, strategy.bigHashingStrategy.HashStage2(hashedElement))
 			}
 		}
-		compactingSegment.children[compactingSegment.tailSlot] = blockSeq
-		compactingSegment.tailBlockSeq = newTailBlockSeq
-		compactingSegment.tailSlot++
+		child.children[child.tailSlot] = blockSeq
+		root.tailBlockSeq = newTailBlockSeq
 	}
-	compactedRawSegmentsCount := len(store.rawSegments)
-	newCompactingSegment, err := createIndexedSegment(
-		indexer.store.CompactingSegmentTmpPath(), compactingSegment)
+	purgedRawSegmentsCount := len(store.rawSegments)
+	childTmpPath := fmt.Sprintf("%s.%d", indexer.store.RootIndexedSegmentTmpPath(), root.tailSlot)
+	childPath := fmt.Sprintf("%s.%d", indexer.store.RootIndexedSegmentPath(), root.tailSlot)
+	childSegment, err := createIndexedSegment(childTmpPath, child)
 	if err != nil {
-		countlog.Error("event!indexer.failed to create new compacting chunk", "err", err)
+		countlog.Error("event!indexer.failed to create indexed segment", "err", err)
 		return err
 	}
-	err = indexer.switchCompactingSegment(newCompactingSegment, compactedRawSegmentsCount)
+	err = os.Rename(childTmpPath, childPath)
 	if err != nil {
-		countlog.Error("event!indexer.failed to switch compacting segment",
+		return err
+	}
+	children[root.tailSlot] = childSegment
+	rootSegment, err := createRootIndexedSegment(indexer.store.RootIndexedSegmentTmpPath(), root, children)
+	if err != nil {
+		countlog.Error("event!indexer.failed to create root indexed segment", "err", err)
+		return err
+	}
+	err = indexer.switchRootIndexedSegment(rootSegment, purgedRawSegmentsCount)
+	if err != nil {
+		countlog.Error("event!indexer.failed to switch root indexed segment",
 			"err", err)
 		return err
 	}
-	countlog.Info("event!indexer.compacting more chunk",
-		"compactedRawSegmentsCount", compactedRawSegmentsCount)
+	countlog.Info("event!indexer.indexed segments",
+		"purgedRawSegmentsCount", purgedRawSegmentsCount)
 	return nil
 }
 
-func (indexer *indexer) switchCompactingSegment(
-	newRootIndexedSegment *rootIndexedSegment, compactedRawSegmentsCount int) error {
+func (indexer *indexer) switchRootIndexedSegment(
+	newRootIndexedSegment *rootIndexedSegment, purgedRawSegmentsCount int) error {
 	resultChan := make(chan error)
 	writer := indexer.store.writer
 	writer.asyncExecute(context.Background(), func(ctx context.Context) {
-		err := os.Rename(newRootIndexedSegment.path, indexer.store.CompactingSegmentPath())
+		err := os.Rename(newRootIndexedSegment.path, indexer.store.RootIndexedSegmentPath())
 		if err != nil {
 			resultChan <- err
 			return
 		}
 		oldVersion := writer.currentVersion
 		newVersion := oldVersion.edit()
-		newVersion.rawSegments = oldVersion.rawSegments[compactedRawSegmentsCount:]
+		newVersion.rawSegments = oldVersion.rawSegments[purgedRawSegmentsCount:]
 		newVersion.rootIndexedSegment = newRootIndexedSegment
 		indexer.store.updateCurrentVersion(newVersion.seal())
 		resultChan <- nil

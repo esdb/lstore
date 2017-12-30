@@ -46,7 +46,7 @@ func (store *Store) newWriter() (*writer, error) {
 func (writer *writer) load() error {
 	store := writer.store
 	config := store.Config
-	initialVersion, err := loadInitialVersion(config)
+	initialVersion, err := loadInitialVersion(&config)
 	if err != nil {
 		return err
 	}

@@ -19,7 +19,7 @@ func Test_indexed_segment(t *testing.T) {
 		_, err := store.Write(context.Background(), intBlobEntry(int64(i)+1, blobValue))
 		should.Nil(err)
 	}
-	should.Nil(store.Compact())
+	should.Nil(store.Index())
 	reader, err := store.NewReader()
 	should.Nil(err)
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
@@ -46,7 +46,7 @@ func Test_reopen_indexed_segment(t *testing.T) {
 		_, err := store.Write(context.Background(), intBlobEntry(int64(i)+1, blobValue))
 		should.Nil(err)
 	}
-	should.Nil(store.Compact())
+	should.Nil(store.Index())
 
 	store = reopenTestStore(store)
 
@@ -76,7 +76,7 @@ func Test_a_lot_indexed_segment(t *testing.T) {
 		_, err := store.Write(context.Background(), intBlobEntry(int64(i)+1, blobValue))
 		should.Nil(err)
 	}
-	should.Nil(store.Compact())
+	should.Nil(store.Index())
 	reader, err := store.NewReader()
 	should.Nil(err)
 	iter := reader.Search(context.Background(), lstore.SearchRequest{

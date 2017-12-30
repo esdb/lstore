@@ -24,7 +24,11 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 	}
 	var reversedRawSegments []*RawSegment
 	startSeq := tailSegment.startSeq
-	for startSeq != version.rootIndexedSegment.tailSeq {
+	tailSeq := RowSeq(0)
+	if version.rootIndexedSegment != nil {
+		tailSeq = version.rootIndexedSegment.tailSeq
+	}
+	for startSeq != tailSeq {
 		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startSeq))
 		rawSegment, err := openRawSegment(prev)
 		if err != nil {
@@ -43,21 +47,13 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 }
 
 func loadIndexedSegments(config *Config, version *EditingStoreVersion) error {
-	segmentPath := config.CompactingSegmentPath()
+	segmentPath := config.RootIndexedSegmentPath()
 	rootIndexedSegment, err := openRootIndexedSegment(segmentPath)
 	if os.IsNotExist(err) {
-		rootIndexedSegment, err = initIndexedSegments()
-		if err != nil {
-			return err
-		}
+		rootIndexedSegment = nil
 	} else if err != nil {
 		return err
 	}
 	version.rootIndexedSegment = rootIndexedSegment
 	return nil
-}
-
-// create 64 + 1 segments
-func initIndexedSegments() (*rootIndexedSegment, error) {
-	// TODO
 }

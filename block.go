@@ -43,14 +43,14 @@ func (col bloomFilterIndexedColumn) SourceColumn() int {
 }
 
 type indexingStrategy struct {
-	hasher                        pbloom.Hasher
+	bigHashingStrategy            *pbloom.HashingStrategy
+	smallHashingStrategy          *pbloom.HashingStrategy
 	bloomFilterIndexedIntColumns  []bloomFilterIndexedColumn
 	bloomFilterIndexedBlobColumns []bloomFilterIndexedColumn
 	minMaxIndexedColumns          []int
 }
 
 func newIndexingStrategy(config *indexingStrategyConfig) *indexingStrategy {
-	hasher := pbloom.HasherFnv
 	bloomFilterIndexedBlobColumns := make([]bloomFilterIndexedColumn, len(config.BloomFilterIndexedBlobColumns))
 	for i := 0; i < len(bloomFilterIndexedBlobColumns); i++ {
 		bloomFilterIndexedBlobColumns[i] = bloomFilterIndexedColumn{
@@ -63,8 +63,13 @@ func newIndexingStrategy(config *indexingStrategyConfig) *indexingStrategy {
 			len(bloomFilterIndexedBlobColumns) + i,
 			config.BloomFilterIndexedIntColumns[i]}
 	}
+	bigHashingStrategy := pbloom.NewHashingStrategy(
+		pbloom.HasherFnv, 10050663, 7)
+	smallHashingStrategy := pbloom.NewHashingStrategy(
+		pbloom.HasherFnv, 2454, 7)
 	return &indexingStrategy{
-		hasher:                        hasher,
+		smallHashingStrategy:          smallHashingStrategy,
+		bigHashingStrategy:            bigHashingStrategy,
 		bloomFilterIndexedIntColumns:  bloomFilterIndexedIntColumns,
 		bloomFilterIndexedBlobColumns: bloomFilterIndexedBlobColumns,
 		minMaxIndexedColumns:          config.MinMaxIndexedColumns,
@@ -137,7 +142,7 @@ func (blk *block) Hash(strategy *indexingStrategy) blockHash {
 		sourceColumn := bfIndexedColumn.SourceColumn()
 		for i, sourceValue := range blk.intColumns[sourceColumn] {
 			asSlice := (*(*[8]byte)(unsafe.Pointer(&sourceValue)))[:]
-			blockHash[indexedColumn][i] = strategy.hasher(asSlice)
+			blockHash[indexedColumn][i] = strategy.smallHashingStrategy.HashStage1(asSlice)
 		}
 	}
 	for j, bfIndexedColumn := range strategy.bloomFilterIndexedBlobColumns {
@@ -145,7 +150,7 @@ func (blk *block) Hash(strategy *indexingStrategy) blockHash {
 		sourceColumn := bfIndexedColumn.SourceColumn()
 		for i, sourceValue := range blk.blobColumns[sourceColumn] {
 			asSlice := *(*[]byte)(unsafe.Pointer(&sourceValue))
-			hashed := strategy.hasher(asSlice)
+			hashed := strategy.smallHashingStrategy.HashStage1(asSlice)
 			blockHash[indexedColumn][i] = hashed
 			blobHashColumns[j][i] = hashed.DownCastToUint32()
 		}
