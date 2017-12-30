@@ -7,9 +7,10 @@ import (
 )
 
 type Filter interface {
-	matches(entry *Entry) bool
-	searchIndex(idx slotIndex) biter.Bits
+	searchBigIndex(idx slotIndex) biter.Bits
+	searchSmallIndex(idx slotIndex) biter.Bits
 	searchBlock(blk *block, mask []bool)
+	matches(entry *Entry) bool
 }
 
 // IntRangeFilter [Min, Max]
@@ -105,7 +106,12 @@ func (filter *blobValueFilter) searchBlock(blk *block, mask []bool) {
 	}
 }
 
-func (filter *blobValueFilter) searchIndex(idx slotIndex) biter.Bits {
+func (filter *blobValueFilter) searchBigIndex(idx slotIndex) biter.Bits {
+	pbf := idx.pbfs[filter.indexedColumn]
+	return pbf.Find(filter.smallBloom)
+}
+
+func (filter *blobValueFilter) searchSmallIndex(idx slotIndex) biter.Bits {
 	pbf := idx.pbfs[filter.indexedColumn]
 	return pbf.Find(filter.smallBloom)
 }

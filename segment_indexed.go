@@ -8,6 +8,7 @@ import (
 	"github.com/esdb/gocodec"
 	"github.com/esdb/biter"
 	"fmt"
+	"github.com/v2pro/plz/countlog"
 )
 
 type indexedSegmentVersion struct {
@@ -63,9 +64,12 @@ func openRootIndexedSegment(path string) (*rootIndexedSegment, error) {
 	segment.path = path
 	segment.rootIndexedSegmentVersion = *version
 	segment.children = make([]*indexedSegment, 64)
-	for i := 0; i < 64; i++ {
-		child, err := openIndexedSegment(fmt.Sprintf("%s.%d", path, i))
+	for i := biter.Slot(0); i <= segment.tailSlot; i++ {
+		childPath := fmt.Sprintf("%s.%d", path, i)
+		child, err := openIndexedSegment(childPath)
 		if err != nil {
+			countlog.Error("event!indexedSegment.failed to load child",
+				"childPath", childPath, "err", err)
 			return nil, err
 		}
 		segment.children[i] = child
@@ -115,8 +119,12 @@ func createRootIndexedSegment(path string, segment rootIndexedSegmentVersion, ch
 	}
 	_, err = file.Write(stream.Buffer())
 	if err != nil {
+		countlog.Error("event!rootIndexedSegment.failed to create", "err", err, "path", path)
 		return nil, err
 	}
+	countlog.Trace("event!rootIndexedSegment.create",
+		"path", path, "startSeq", segment.startSeq, "tailSeq", segment.tailSeq,
+		"tailSlot", segment.tailSlot, "tailBlockSeq", segment.tailBlockSeq)
 	var resources []io.Closer
 	for _, child := range children {
 		if child == nil {
@@ -148,8 +156,12 @@ func createIndexedSegment(path string, segment indexedSegmentVersion) (*indexedS
 	}
 	_, err = file.Write(stream.Buffer())
 	if err != nil {
+		countlog.Error("event!indexedSegment.failed to create", "err", err, "path", path)
 		return nil, err
 	}
+	countlog.Trace("event!indexedSegment.create",
+		"path", path, "startSeq", segment.startSeq, "tailSeq", segment.tailSeq,
+			"tailSlot", segment.tailSlot)
 	return &indexedSegment{
 		indexedSegmentVersion: segment,
 		ReferenceCounted:      ref.NewReferenceCounted("indexed segment"),
@@ -181,20 +193,22 @@ func (segment *rootIndexedSegment) scanForward(blockManager *blockManager, filte
 	if segment == nil {
 		return iterateChunks(nil)
 	}
-	i := biter.Slot(0)
+	result := segment.slotIndex.searchBig(filters)
+	iter := result.ScanForward()
+	slot := iter()
 	var childIter func() (chunk, error)
 	return func() (chunk, error) {
 		for {
-			if i > segment.tailSlot {
+			if slot == biter.NotFound {
 				return nil, io.EOF
 			}
 			if childIter == nil {
-				childIter = segment.children[i].scanForward(blockManager, filters)
+				childIter = segment.children[slot].scanForward(blockManager, filters)
 			}
 			chunk, err := childIter()
 			if err == io.EOF {
 				childIter = nil
-				i++
+				slot = iter()
 				continue
 			}
 			return chunk, err
@@ -203,7 +217,7 @@ func (segment *rootIndexedSegment) scanForward(blockManager *blockManager, filte
 }
 
 func (segment *indexedSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
-	result := segment.slotIndex.search(filters)
+	result := segment.slotIndex.searchSmall(filters)
 	iter := result.ScanForward()
 	return func() (chunk, error) {
 		slot := iter()
@@ -226,10 +240,11 @@ func (segment *rootIndexedSegment) isFull() bool {
 	if segment.tailSlot < 63 {
 		return false
 	}
-	if segment.children[63].tailSlot < 63 {
-		return false
-	}
-	return true
+	return segment.children[63].isFull()
+}
+
+func (version *indexedSegmentVersion) isFull() bool {
+	return version.tailSlot >= 63
 }
 
 func (segment *rootIndexedSegment) getChildren() []*indexedSegment {
@@ -253,19 +268,16 @@ func (segment *rootIndexedSegment) nextSlot(
 func (version *rootIndexedSegmentVersion) nextSlot(
 	startSeq RowSeq, strategy *indexingStrategy, child indexedSegmentVersion) (
 	rootIndexedSegmentVersion, indexedSegmentVersion) {
-	if child.tailSlot == 63 {
-		newVersion := rootIndexedSegmentVersion{}
-		newVersion.segmentHeader = version.segmentHeader
-		newVersion.tailBlockSeq = version.tailBlockSeq
-		newVersion.tailSlot = version.tailSlot + 1
-		newVersion.slotIndex = version.slotIndex.copy()
-		return newVersion, newIndexedSegmentVersion(startSeq, strategy)
-	}
 	newVersion := rootIndexedSegmentVersion{}
 	newVersion.segmentHeader = version.segmentHeader
 	newVersion.tailBlockSeq = version.tailBlockSeq
-	newVersion.tailSlot = version.tailSlot
+	newVersion.tailSeq = version.tailSeq
 	newVersion.slotIndex = version.slotIndex.copy()
+	if child.isFull() {
+		newVersion.tailSlot = version.tailSlot + 1
+		return newVersion, newIndexedSegmentVersion(startSeq, strategy)
+	}
+	newVersion.tailSlot = version.tailSlot
 	return newVersion, child.nextSlot()
 }
 

@@ -4,6 +4,7 @@ import (
 	"path"
 	"fmt"
 	"os"
+	"github.com/v2pro/plz/countlog"
 )
 
 func loadInitialVersion(config *Config) (*StoreVersion, error) {
@@ -32,6 +33,9 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startSeq))
 		rawSegment, err := openRawSegment(prev)
 		if err != nil {
+			countlog.Error("event!lstore.failed to open raw segment",
+				"err", err, "path", prev, "tailSeq", tailSeq,
+					"rootIndexedSegmentIsNil", version.rootIndexedSegment==nil)
 			return err
 		}
 		reversedRawSegments = append(reversedRawSegments, rawSegment)
@@ -52,6 +56,8 @@ func loadIndexedSegments(config *Config, version *EditingStoreVersion) error {
 	if os.IsNotExist(err) {
 		rootIndexedSegment = nil
 	} else if err != nil {
+		countlog.Error("event!lstore.failed to load rootIndexedSegment",
+			"segmentPath", segmentPath, "err", err)
 		return err
 	}
 	version.rootIndexedSegment = rootIndexedSegment

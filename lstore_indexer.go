@@ -92,9 +92,16 @@ func (indexer *indexer) doIndex(ctx context.Context) error {
 	root, child := store.rootIndexedSegment.nextSlot(firstRow.Seq, strategy)
 	countlog.Trace("event!indexer.next slot",
 		"rootTailSlot", root.tailSlot, "childTailSlot", child.tailSlot)
-	root.tailSeq = store.tailSegment.startSeq
 	children := store.rootIndexedSegment.getChildren()
 	for i, rawSegment := range store.rawSegments {
+		if child.isFull() {
+			child.tailSeq = rawSegment.startSeq
+			childSegment, err := writeIndexedSegment(&indexer.store.Config, root.tailSlot, child)
+			if err != nil {
+				return err
+			}
+			children[root.tailSlot] = childSegment
+		}
 		if i != 0 {
 			root, child = root.nextSlot(rawSegment.startSeq, strategy, child)
 			countlog.Trace("event!indexer.next slot",
@@ -120,15 +127,9 @@ func (indexer *indexer) doIndex(ctx context.Context) error {
 		child.children[child.tailSlot] = blockSeq
 		root.tailBlockSeq = newTailBlockSeq
 	}
-	purgedRawSegmentsCount := len(store.rawSegments)
-	childTmpPath := fmt.Sprintf("%s.%d", indexer.store.RootIndexedSegmentTmpPath(), root.tailSlot)
-	childPath := fmt.Sprintf("%s.%d", indexer.store.RootIndexedSegmentPath(), root.tailSlot)
-	childSegment, err := createIndexedSegment(childTmpPath, child)
-	if err != nil {
-		countlog.Error("event!indexer.failed to create indexed segment", "err", err)
-		return err
-	}
-	err = os.Rename(childTmpPath, childPath)
+	root.tailSeq = store.tailSegment.startSeq
+	child.tailSeq = store.tailSegment.startSeq
+	childSegment, err := writeIndexedSegment(&indexer.store.Config, root.tailSlot, child)
 	if err != nil {
 		return err
 	}
@@ -138,6 +139,7 @@ func (indexer *indexer) doIndex(ctx context.Context) error {
 		countlog.Error("event!indexer.failed to create root indexed segment", "err", err)
 		return err
 	}
+	purgedRawSegmentsCount := len(store.rawSegments)
 	err = indexer.switchRootIndexedSegment(rootSegment, purgedRawSegmentsCount)
 	if err != nil {
 		countlog.Error("event!indexer.failed to switch root indexed segment",
@@ -156,10 +158,24 @@ func (indexer *indexer) switchRootIndexedSegment(
 	writer.asyncExecute(context.Background(), func(ctx context.Context) {
 		err := os.Rename(newRootIndexedSegment.path, indexer.store.RootIndexedSegmentPath())
 		if err != nil {
+			countlog.Error("event!indexer.failed to rename rootIndexedSegment file",
+				"from", newRootIndexedSegment.path,
+				"to", indexer.store.RootIndexedSegmentPath(),
+				"err", err)
 			resultChan <- err
 			return
 		}
+		countlog.Trace("event!indexer.renamed rootIndexedSegment file",
+			"from", newRootIndexedSegment.path,
+				"to", indexer.store.RootIndexedSegmentPath())
 		oldVersion := writer.currentVersion
+		for _, rawSegment := range oldVersion.rawSegments[:purgedRawSegmentsCount] {
+			err = os.Remove(rawSegment.Path)
+			if err != nil {
+				resultChan <- err
+				return
+			}
+		}
 		newVersion := oldVersion.edit()
 		newVersion.rawSegments = oldVersion.rawSegments[purgedRawSegmentsCount:]
 		newVersion.rootIndexedSegment = newRootIndexedSegment
@@ -168,6 +184,22 @@ func (indexer *indexer) switchRootIndexedSegment(
 		return
 	})
 	return <-resultChan
+}
+
+func writeIndexedSegment(config *Config, slot biter.Slot, version indexedSegmentVersion) (*indexedSegment, error) {
+	childTmpPath := fmt.Sprintf("%s.%d", config.RootIndexedSegmentTmpPath(), slot)
+	childPath := fmt.Sprintf("%s.%d", config.RootIndexedSegmentPath(), slot)
+	childSegment, err := createIndexedSegment(childTmpPath, version)
+	if err != nil {
+		countlog.Error("event!indexer.failed to create indexed segment", "err", err)
+		return nil, err
+	}
+	err = os.Rename(childTmpPath, childPath)
+	if err != nil {
+		return nil, err
+	}
+	countlog.Trace("event!indexer.renamed indexedSegment", "from", childTmpPath, "to", childPath)
+	return childSegment, nil
 }
 
 func firstRowOf(rawSegments []*RawSegment) Row {

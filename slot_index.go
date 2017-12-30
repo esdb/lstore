@@ -27,10 +27,18 @@ func (idx slotIndex) copy() slotIndex {
 	return newVersion
 }
 
-func (idx slotIndex) search(filters []Filter) biter.Bits {
+func (idx slotIndex) searchBig(filters []Filter) biter.Bits {
 	result := biter.SetAllBits
 	for _, filter := range filters {
-		result &= filter.searchIndex(idx)
+		result &= filter.searchBigIndex(idx)
+	}
+	return result
+}
+
+func (idx slotIndex) searchSmall(filters []Filter) biter.Bits {
+	result := biter.SetAllBits
+	for _, filter := range filters {
+		result &= filter.searchSmallIndex(idx)
 	}
 	return result
 }

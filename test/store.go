@@ -4,7 +4,12 @@ import (
 	"github.com/esdb/lstore"
 	"context"
 	"os"
+	"github.com/v2pro/plz/countlog"
 )
+
+func init() {
+	countlog.Setup(countlog.Config{})
+}
 
 func bigTestStore() *lstore.Store {
 	store := &lstore.Store{}

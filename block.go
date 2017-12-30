@@ -64,7 +64,7 @@ func newIndexingStrategy(config *indexingStrategyConfig) *indexingStrategy {
 			config.BloomFilterIndexedIntColumns[i]}
 	}
 	bigHashingStrategy := pbloom.NewHashingStrategy(
-		pbloom.HasherFnv, 10050663, 7)
+		pbloom.HasherFnv, 157042, 7)
 	smallHashingStrategy := pbloom.NewHashingStrategy(
 		pbloom.HasherFnv, 2454, 7)
 	return &indexingStrategy{
