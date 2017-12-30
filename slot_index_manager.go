@@ -2,11 +2,8 @@ package lstore
 
 import (
 	"github.com/hashicorp/golang-lru"
-	"sync"
-	"github.com/edsrzf/mmap-go"
-	"os"
-	"github.com/v2pro/plz/countlog"
-	"github.com/esdb/lstore/ref"
+	"github.com/esdb/gocodec"
+	"unsafe"
 )
 
 type slotIndexManagerConfig struct {
@@ -20,16 +17,8 @@ type slotIndexManagerConfig struct {
 // compress/decompress index from the mmap
 // retain lru index cache
 type slotIndexManager struct {
-	indexDirectory            string
-	indexFileSizeInPowerOfTwo uint8 // 2 ^ x
-	indexFileSize             uint64
-	indexCache                *lru.ARCCache
-	// only lock the modification of following maps
-	// does not cover reading or writing
-	mapMutex   *sync.Mutex
-	files      map[slotIndexSeq]*os.File
-	writeMMaps map[slotIndexSeq]mmap.MMap
-	readMMaps  map[slotIndexSeq]mmap.MMap
+	dataManager *dataManager
+	indexCache  *lru.ARCCache
 }
 
 func newSlotIndexManager(config *slotIndexManagerConfig) *slotIndexManager {
@@ -41,49 +30,48 @@ func newSlotIndexManager(config *slotIndexManagerConfig) *slotIndexManager {
 	}
 	indexCache, _ := lru.NewARC(config.IndexCacheSize)
 	return &slotIndexManager{
-		indexDirectory:            config.IndexDirectory,
-		indexFileSizeInPowerOfTwo: config.IndexFileSizeInPowerOfTwo,
-		indexFileSize:             2 << config.IndexFileSizeInPowerOfTwo,
-		indexCache:                indexCache,
-		mapMutex:                  &sync.Mutex{},
-		files:                     map[slotIndexSeq]*os.File{},
-		readMMaps:                 map[slotIndexSeq]mmap.MMap{},
-		writeMMaps:                map[slotIndexSeq]mmap.MMap{},
+		indexCache:  indexCache,
+		dataManager: newDataManager(config.IndexDirectory, config.IndexFileSizeInPowerOfTwo),
 	}
 }
 
 func (mgr *slotIndexManager) Close() error {
-	mgr.mapMutex.Lock()
-	defer mgr.mapMutex.Unlock()
-	var errs []error
-	for _, writeMMap := range mgr.writeMMaps {
-		err := writeMMap.Unmap()
-		if err != nil {
-			errs = append(errs, err)
-			countlog.Error("event!slotIndexManager.failed to close writeMMap", "err", err)
-		}
-	}
-	for _, readMMap := range mgr.readMMaps {
-		err := readMMap.Unmap()
-		if err != nil {
-			errs = append(errs, err)
-			countlog.Error("event!slotIndexManager.failed to close readMMap", "err", err)
-		}
-	}
-	for _, file := range mgr.files {
-		err := file.Close()
-		if err != nil {
-			errs = append(errs, err)
-			countlog.Error("event!slotIndexManager.failed to close file", "err", err)
-		}
-	}
-	return ref.NewMultiError(errs)
+	return mgr.dataManager.Close()
 }
 
 func (mgr *slotIndexManager) writeSlotIndex(seq slotIndexSeq, idx *slotIndex) (slotIndexSeq, error) {
-	return 0, nil
+	stream := gocodec.NewStream(nil)
+	stream.Reset(nil)
+	size := uint32(stream.Marshal(*idx))
+	if stream.Error != nil {
+		return 0, stream.Error
+	}
+	header := (*(*[4]byte)(unsafe.Pointer(&size)))[:]
+	err := mgr.dataManager.writeBuf(uint64(seq), header)
+	if err != nil {
+		return 0, err
+	}
+	err = mgr.dataManager.writeBuf(uint64(seq)+4, stream.Buffer())
+	if err != nil {
+		return 0, err
+	}
+	return seq + slotIndexSeq(size) + 4, nil
 }
 
 func (mgr *slotIndexManager) readSlotIndex(seq slotIndexSeq) (*slotIndex, error) {
-	return nil, nil
+	header, err := mgr.dataManager.readBuf(uint64(seq), 4)
+	if err != nil {
+		return nil, err
+	}
+	size := *(*uint32)(unsafe.Pointer(&header[0]))
+	buf, err := mgr.dataManager.readBuf(uint64(seq)+4, size)
+	if err != nil {
+		return nil, err
+	}
+	iter := gocodec.NewIterator(buf)
+	idx, _ := iter.Unmarshal((*slotIndex)(nil)).(*slotIndex)
+	if iter.Error != nil {
+		return nil, iter.Error
+	}
+	return idx, nil
 }

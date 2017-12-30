@@ -13,7 +13,7 @@ func testSlotIndexManager(blockFileSizeInPowerOfTwo uint8) *slotIndexManager {
 		panic(err)
 	}
 	mgr := newSlotIndexManager(&slotIndexManagerConfig{
-		IndexDirectory: "/tmp/block",
+		IndexDirectory:            "/tmp/index",
 		IndexFileSizeInPowerOfTwo: blockFileSizeInPowerOfTwo,
 	})
 	return mgr
@@ -23,11 +23,11 @@ func Test_write_slot_index_to_file_head(t *testing.T) {
 	should := require.New(t)
 	mgr := testSlotIndexManager(30)
 	defer mgr.Close()
-	size, err := mgr.writeSlotIndex(0, &slotIndex{})
+	size, err := mgr.writeSlotIndex(0, &slotIndex{children: []uint64{1, 2, 3}})
 	should.Nil(err)
 	should.True(size > 0)
 	mgr.indexCache.Purge()
 	idx, err := mgr.readSlotIndex(0)
 	should.Nil(err)
-	should.Equal([]RowSeq{1}, idx.children)
+	should.Equal([]uint64{1, 2, 3}, idx.children)
 }
