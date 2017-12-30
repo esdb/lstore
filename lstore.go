@@ -12,15 +12,15 @@ import (
 
 const TailSegmentFileName = "tail.segment"
 const TailSegmentTmpFileName = "tail.segment.tmp"
-const RootIndexedSegmentFileName = "indexed.segment"
-const RootIndexedSegmentTmpFileName = "indexed.segment.tmp"
+const IndexedSegmentFileName = "indexed.segment"
+const IndexedSegmentTmpFileName = "indexed.segment.tmp"
 
 type Config struct {
 	blockManagerConfig
-	Directory              string
-	CommandQueueSize       int
-	TailSegmentMaxSize     int64
-	indexingStrategy       *indexingStrategy
+	Directory          string
+	CommandQueueSize   int
+	TailSegmentMaxSize int64
+	indexingStrategy   *indexingStrategy
 }
 
 func (conf *Config) TailSegmentPath() string {
@@ -31,12 +31,12 @@ func (conf *Config) TailSegmentTmpPath() string {
 	return path.Join(conf.Directory, TailSegmentTmpFileName)
 }
 
-func (conf *Config) RootIndexedSegmentPath() string {
-	return path.Join(conf.Directory, RootIndexedSegmentFileName)
+func (conf *Config) IndexedSegmentPath() string {
+	return path.Join(conf.Directory, IndexedSegmentFileName)
 }
 
-func (conf *Config) RootIndexedSegmentTmpPath() string {
-	return path.Join(conf.Directory, RootIndexedSegmentTmpFileName)
+func (conf *Config) IndexedSegmentTmpPath() string {
+	return path.Join(conf.Directory, IndexedSegmentTmpFileName)
 }
 
 // Store is physically a directory, containing multiple files on disk
@@ -45,7 +45,6 @@ type Store struct {
 	Config
 	*writer
 	*indexer
-	*compacter
 	blockManager   *blockManager
 	currentVersion unsafe.Pointer
 	executor       *concurrent.UnboundedExecutor // owns writer and indexer
@@ -53,20 +52,20 @@ type Store struct {
 
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
-	config             Config
+	config         Config
 	*ref.ReferenceCounted
-	rootIndexedSegment *rootIndexedSegment
-	rawSegments        []*rawSegment
-	tailSegment        *TailSegment
+	indexedSegment *indexedSegment
+	rawSegments    []*rawSegment
+	tailSegment    *TailSegment
 }
 
 func (version StoreVersion) edit() *EditingStoreVersion {
 	return &EditingStoreVersion{
 		StoreVersion{
-			config:             version.config,
-			rootIndexedSegment: version.rootIndexedSegment,
-			rawSegments:        version.rawSegments,
-			tailSegment:        version.tailSegment,
+			config:         version.config,
+			indexedSegment: version.indexedSegment,
+			rawSegments:    version.rawSegments,
+			tailSegment:    version.tailSegment,
 		},
 	}
 }
@@ -87,11 +86,11 @@ func (edt EditingStoreVersion) seal() *StoreVersion {
 		}
 		resources = append(resources, rawSegment)
 	}
-	if version.rootIndexedSegment != nil {
-		if !version.rootIndexedSegment.Acquire() {
+	if version.indexedSegment != nil {
+		if !version.indexedSegment.Acquire() {
 			panic("acquire reference counter should not fail during version rotation")
 		}
-		resources = append(resources, version.rootIndexedSegment)
+		resources = append(resources, version.indexedSegment)
 	}
 	version.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
 	return version
@@ -119,7 +118,6 @@ func (store *Store) Start() error {
 	}
 	store.writer = writer
 	store.indexer = store.newIndexer()
-	store.compacter = store.newCompacter()
 	return nil
 }
 

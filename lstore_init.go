@@ -3,13 +3,12 @@ package lstore
 import (
 	"path"
 	"fmt"
-	"os"
 	"github.com/v2pro/plz/countlog"
 )
 
 func loadInitialVersion(config *Config) (*StoreVersion, error) {
 	version := StoreVersion{config: *config}.edit()
-	if err := loadIndexedSegments(config, version); err != nil {
+	if err := loadIndexedSegment(config, version); err != nil {
 		return nil, err
 	}
 	if err := loadTailAndRawSegments(config, version); err != nil {
@@ -25,17 +24,12 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 	}
 	var reversedRawSegments []*rawSegment
 	startSeq := tailSegment.startSeq
-	tailSeq := RowSeq(0)
-	if version.rootIndexedSegment != nil {
-		tailSeq = version.rootIndexedSegment.tailSeq
-	}
-	for startSeq != tailSeq {
+	for startSeq != version.indexedSegment.tailSeq {
 		prev := path.Join(config.Directory, fmt.Sprintf("%d.segment", startSeq))
 		rawSegment, err := openRawSegment(prev)
 		if err != nil {
 			countlog.Error("event!lstore.failed to open raw segment",
-				"err", err, "path", prev, "tailSeq", tailSeq,
-					"rootIndexedSegmentIsNil", version.rootIndexedSegment==nil)
+				"err", err, "path", prev)
 			return err
 		}
 		reversedRawSegments = append(reversedRawSegments, rawSegment)
@@ -50,16 +44,14 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 	return nil
 }
 
-func loadIndexedSegments(config *Config, version *EditingStoreVersion) error {
-	segmentPath := config.RootIndexedSegmentPath()
-	rootIndexedSegment, err := openRootIndexedSegment(segmentPath)
-	if os.IsNotExist(err) {
-		rootIndexedSegment = nil
-	} else if err != nil {
-		countlog.Error("event!lstore.failed to load rootIndexedSegment",
+func loadIndexedSegment(config *Config, version *EditingStoreVersion) error {
+	segmentPath := config.IndexedSegmentPath()
+	indexedSegment, err := openIndexedSegment(segmentPath)
+	if err != nil {
+		countlog.Error("event!lstore.failed to load indexedSegment",
 			"segmentPath", segmentPath, "err", err)
 		return err
 	}
-	version.rootIndexedSegment = rootIndexedSegment
+	version.indexedSegment = indexedSegment
 	return nil
 }
