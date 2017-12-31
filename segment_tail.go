@@ -115,8 +115,8 @@ func (segment *TailSegment) read(reader *Reader) (bool, error) {
 		if iter.Error != nil {
 			return false, iter.Error
 		}
-		offset := startOffset + Offset(len(reader.tailRows))
-		reader.tailRows = append(reader.tailRows, Row{Entry: entry, Offset: offset})
+		offset := startOffset + Offset(len(reader.tailRows.rows))
+		reader.tailRows.rows = append(reader.tailRows.rows, entry)
 		reader.tailOffset = offset + 1
 		newRowsCount++
 	}

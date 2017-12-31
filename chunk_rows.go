@@ -4,34 +4,39 @@ import (
 	"strconv"
 )
 
-type rowsChunk []Row
+type rowsChunk struct {
+	startOffset Offset
+	rows        []*Entry
+}
+
+func newRowsChunk(startOffset Offset) rowsChunk {
+	return rowsChunk{
+		startOffset: startOffset,
+		rows:        make([]*Entry, 0, blockLength),
+	}
+}
 
 func (chunk rowsChunk) search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error) {
-	for _, row := range chunk  {
-		if row.Offset < startOffset {
-			// TODO: skip rows directly
+	for i, entry := range chunk.rows {
+		offset := chunk.startOffset + Offset(i)
+		if offset < startOffset {
 			continue
 		}
-		if rowMatches(row.Entry, filters) {
-			collector = append(collector, row)
+		if rowMatches(entry, filters) {
+			collector = append(collector, Row{Entry: entry, Offset: offset})
 		}
 	}
 	return collector, nil
 }
 
 func (chunk rowsChunk) String() string {
-	if len(chunk) == 0 {
+	if len(chunk.rows) == 0 {
 		return "rowsChunk{}"
 	}
-	desc := []byte("rowsChunk{")
-	for i, row := range chunk {
-		if i != 0 {
-			desc = append(desc, ',')
-		}
-		desc = append(desc, strconv.Itoa(int(row.Offset))...)
-	}
-	desc = append(desc, '}')
-	return string(desc)
+	start := int(chunk.startOffset)
+	end := start + len(chunk.rows) - 1
+	desc := "rowsChunk{" + strconv.Itoa(start) + "~" + strconv.Itoa(end) + "}"
+	return desc
 }
 
 func rowMatches(entry *Entry, filters []Filter) bool {

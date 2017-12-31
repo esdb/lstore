@@ -115,7 +115,8 @@ func (strategy *indexingStrategy) hashingStrategy(level level) *pbloom.HashingSt
 	}
 }
 
-func newBlock(startOffset Offset, rows []Row) *block {
+func newBlock(chunk rowsChunk) *block {
+	rows := chunk.rows
 	rowsCount := len(rows)
 	intColumnsCount := len(rows[0].IntValues)
 	intColumns := make([]intColumn, intColumnsCount)
@@ -136,7 +137,7 @@ func newBlock(startOffset Offset, rows []Row) *block {
 		}
 	}
 	return &block{
-		startOffset: startOffset,
+		startOffset: chunk.startOffset,
 		intColumns:  intColumns,
 		blobColumns: blobColumns,
 	}

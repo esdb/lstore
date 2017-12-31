@@ -49,7 +49,7 @@ func (reader *Reader) Refresh(ctx context.Context) (bool, error) {
 	defer countlog.Close(latestVersion, "ctx", ctx)
 	if reader.currentVersion == nil || latestVersion.tailSegment != reader.currentVersion.tailSegment {
 		reader.tailSeq = 0
-		reader.tailRows = make(rowsChunk, 0, blockLength)
+		reader.tailRows = newRowsChunk(latestVersion.tailSegment.startOffset)
 	}
 	if reader.currentVersion != latestVersion {
 		// when reader moves forward, older version has a chance to die

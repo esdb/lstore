@@ -96,8 +96,7 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 	purgedRawSegmentsCount := 0
 	for _, rawSegment := range store.rawSegments {
 		purgedRawSegmentsCount++
-		// TODO: set startOffset
-		blk := newBlock(0, rawSegment.rows)
+		blk := newBlock(rawSegment.rows)
 		tailBlockSeq, _, err = blockManager.writeBlock(tailBlockSeq, blk)
 		if err != nil {
 			return err
@@ -108,8 +107,4 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 		return err
 	}
 	return nil
-}
-
-func firstRowOf(rawSegments []*rawSegment) Row {
-	return rawSegments[0].rows[0]
 }

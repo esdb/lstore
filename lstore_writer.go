@@ -21,7 +21,7 @@ type writer struct {
 	commandQueue   chan writerCommand
 	currentVersion *StoreVersion
 	tailSeq        uint64 // relative seq to file header
-	tailRows       []Row
+	tailRows       rowsChunk
 	writeBuf       []byte
 	writeMMap      mmap.MMap
 }
@@ -181,8 +181,8 @@ func (writer *writer) tryWrite(ctx countlog.Context, tailSegment *TailSegment, e
 	if tail >= uint64(len(buf)) {
 		return 0, SegmentOverflowError
 	}
-	offset := tailSegment.startOffset + Offset(len(writer.tailRows))
-	writer.tailRows = append(writer.tailRows, Row{Offset: offset, Entry: entry})
+	offset := tailSegment.startOffset + Offset(len(writer.tailRows.rows))
+	writer.tailRows.rows = append(writer.tailRows.rows, entry)
 	writer.tailSeq += size
 	countlog.Trace("event!writer.tryWrite", "tailSeq", writer.tailSeq, "offset", offset)
 	// reader will know if read the tail using atomic
@@ -216,7 +216,7 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 			oldVersion.tailSegment.segmentHeader.startOffset)),
 	}
 	writer.tailSeq = 0
-	writer.tailRows = nil
+	writer.tailRows = newRowsChunk(0)
 	newVersion.tailSegment, err = openTailSegment(
 		conf.TailSegmentPath(), conf.TailSegmentMaxSize, Offset(oldVersion.tailSegment.tail))
 	if err != nil {

@@ -61,9 +61,8 @@ func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator
 		}
 		ctx.TraceCall("callee!iter.Unmarshal", iter.Error)
 		if iter.Error != nil {
-			return nil, fmt.Errorf("load raw segment rows failed: %v", iter.Error.Error())
+			return rowsChunk{}, fmt.Errorf("load raw segment rows failed: %v", iter.Error.Error())
 		}
-		offset := segment.startOffset + Offset(len(rows))
-		rows = append(rows, Row{Entry: entry, Offset: offset})
+		rows.rows = append(rows.rows, entry)
 	}
 }
