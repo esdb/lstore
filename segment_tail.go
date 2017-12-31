@@ -21,7 +21,7 @@ type TailSegment struct {
 	readBuf  []byte
 	file     *os.File
 	readMMap mmap.MMap
-	tail     uint64 // writer use atomic to notify readers
+	tail     uint64 // offset, writer use atomic to notify readers
 }
 
 func openTailSegment(path string, maxSize int64, startOffset Offset) (*TailSegment, error) {
@@ -97,25 +97,24 @@ func (segment *TailSegment) read(reader *Reader) (bool, error) {
 		// tail not moved
 		return false, nil
 	}
-	startSeq := reader.tailSeq
 	buf := segment.readBuf[reader.tailSeq:]
 	bufSize := uint64(len(buf))
 	iter.Reset(buf)
 	newRowsCount := 0
+	startOffset := reader.currentVersion.tailSegment.startOffset
 	for {
-		currentSeq := startSeq + (bufSize - uint64(len(iter.Buffer())))
+		currentSeq := reader.tailSeq + (bufSize - uint64(len(iter.Buffer())))
 		entry, _ := iter.Copy((*Entry)(nil)).(*Entry)
 		if iter.Error == io.EOF {
 			reader.tailSeq = currentSeq
-			countlog.Trace("event!segment_tail.read", "newRowsCount", newRowsCount)
 			return true, nil
 		}
 		if iter.Error != nil {
 			return false, iter.Error
 		}
-		offset := reader.currentVersion.tailSegment.startOffset + Offset(len(reader.tailRows))
+		offset := startOffset + Offset(len(reader.tailRows))
 		reader.tailRows = append(reader.tailRows, Row{Entry: entry, Offset: offset})
-		reader.tailOffset = offset
+		reader.tailOffset = offset + 1
 		newRowsCount++
 	}
 }

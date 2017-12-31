@@ -7,10 +7,12 @@ import (
 	"github.com/v2pro/plz"
 	"testing"
 	"github.com/v2pro/plz/concurrent"
+	"github.com/v2pro/plz/countlog"
 )
 
 func TestMain(m *testing.M) {
 	defer concurrent.GlobalUnboundedExecutor.StopAndWaitForever()
+	plz.LogLevel = countlog.LevelDebug
 	plz.PlugAndPlay()
 	m.Run()
 }

@@ -22,7 +22,7 @@ func Test_compacted_segment(t *testing.T) {
 		}
 		should.Nil(store.Index())
 	}
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	should.Nil(err)
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		LimitSize: 2,

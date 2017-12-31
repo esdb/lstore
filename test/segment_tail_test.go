@@ -14,7 +14,7 @@ func Test_write_read_one_entry(t *testing.T) {
 	seq, err := store.Write(context.Background(), intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), seq)
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	should.Nil(err)
 	defer reader.Close()
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
@@ -36,7 +36,7 @@ func Test_write_two_entries(t *testing.T) {
 	seq, err = store.Write(context.Background(), intEntry(2))
 	should.Nil(err)
 	should.Equal(lstore.Offset(1), seq)
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	should.Nil(err)
 	defer reader.Close()
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
@@ -60,7 +60,7 @@ func Test_reopen_tail_segment(t *testing.T) {
 	store = reopenTestStore(store)
 
 	// can read rows from disk
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	should.Nil(err)
 	defer reader.Close()
 	iter := reader.Search(context.Background(), lstore.SearchRequest{

@@ -21,6 +21,7 @@ type writer struct {
 	store          *Store
 	commandQueue   chan writerCommand
 	currentVersion *StoreVersion
+	tailSeq        uint64 // relative seq to file header
 	tailRows       []Row
 	writeBuf       []byte
 	writeMMap      mmap.MMap
@@ -59,7 +60,7 @@ func (writer *writer) load(ctx countlog.Context) error {
 	}
 	// force reader to read all remaining rows
 	tailSegment.updateTail(math.MaxUint64)
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	if err != nil {
 		return err
 	}
@@ -151,13 +152,19 @@ func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultCha
 	})
 }
 
-func (writer *writer) Write(ctx context.Context, entry *Entry) (Offset, error) {
+func (writer *writer) Write(ctxObj context.Context, entry *Entry) (Offset, error) {
+	ctx := countlog.Ctx(ctxObj)
 	resultChan := make(chan WriteResult)
 	writer.AsyncWrite(ctx, entry, resultChan)
 	select {
 	case result := <-resultChan:
+		ctx.DebugCall("callee!writer.AsyncWrite", result.Error, "offset", result.Offset,
+			"tail", func() interface{} {
+				return writer.store.latest().tailSegment.getTail()
+			})
 		return result.Offset, result.Error
 	case <-ctx.Done():
+		ctx.DebugCall("callee!writer.AsyncWrite", ctx.Err())
 		return 0, ctx.Err()
 	}
 }
@@ -165,19 +172,20 @@ func (writer *writer) Write(ctx context.Context, entry *Entry) (Offset, error) {
 func (writer *writer) tryWrite(ctx countlog.Context, tailSegment *TailSegment, entry *Entry) (Offset, error) {
 	buf := writer.writeBuf
 	stream := ctx.Value("stream").(*gocodec.Stream)
-	stream.Reset(buf[tailSegment.tail:tailSegment.tail])
+	stream.Reset(buf[writer.tailSeq:writer.tailSeq])
 	size := stream.Marshal(*entry)
 	if stream.Error != nil {
 		return 0, stream.Error
 	}
-	tail := tailSegment.tail + size
+	tail := writer.tailSeq + size
 	if tail >= uint64(len(buf)) {
 		return 0, SegmentOverflowError
 	}
 	offset := tailSegment.startOffset + Offset(len(writer.tailRows))
 	writer.tailRows = append(writer.tailRows, Row{Offset: offset, Entry: entry})
+	writer.tailSeq += size
 	// reader will know if read the tail using atomic
-	tailSegment.updateTail(offset)
+	tailSegment.updateTail(offset + 1)
 	return offset, nil
 }
 
@@ -206,6 +214,7 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 		ReferenceCounted: ref.NewReferenceCounted(fmt.Sprintf("raw segment@%d",
 			oldVersion.tailSegment.segmentHeader.startOffset)),
 	}
+	writer.tailSeq = 0
 	writer.tailRows = nil
 	newVersion.tailSegment, err = openTailSegment(
 		conf.TailSegmentPath(), conf.TailSegmentMaxSize, Offset(oldVersion.tailSegment.tail))

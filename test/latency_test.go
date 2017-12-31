@@ -27,7 +27,7 @@ func Test_write_read_latency(t *testing.T) {
 	}()
 	go func() {
 		countlog.Info("event!test.search")
-		reader, err := store.NewReader()
+		reader, err := store.NewReader(context.Background())
 		should.Nil(err)
 		startOffset := lstore.Offset(0)
 		for {

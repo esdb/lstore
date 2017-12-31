@@ -4,6 +4,7 @@ import (
 	"github.com/esdb/gocodec"
 	"context"
 	"io"
+	"github.com/v2pro/plz/countlog"
 )
 
 // Reader is not thread safe, can only be used from one goroutine
@@ -25,13 +26,18 @@ type SearchRequest struct {
 
 type RowIterator func() ([]Row, error)
 
-func (store *Store) NewReader() (*Reader, error) {
+func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
+	ctx := countlog.Ctx(ctxObj)
 	reader := &Reader{
 		store:    store,
 		tailRows: rowsChunk{},
 		gocIter:  gocodec.NewIterator(nil),
 	}
-	if _, err := reader.Refresh(); err != nil {
+	_, err := reader.Refresh()
+	ctx.DebugCall("callee!reader.Refresh", err,
+		"caller", "store.NewReader",
+		"tailOffset", reader.tailOffset)
+	if err != nil {
 		return nil, err
 	}
 	return reader, nil
@@ -112,6 +118,7 @@ func searchChunks(reader *Reader, chunkIter chunkIterator, req SearchRequest) ([
 			}
 			return nil, err
 		}
+		countlog.Debug("event!reader.iterate chunk", "chunk", chunk)
 		batch, err = chunk.search(reader, req.StartOffset, req.Filters, batch)
 		if err != nil {
 			return nil, err

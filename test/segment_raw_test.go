@@ -18,7 +18,7 @@ func Test_raw_segment(t *testing.T) {
 	seq, err = store.Write(context.Background(), intEntry(2))
 	should.Nil(err)
 	should.Equal(lstore.Offset(1), seq)
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	should.Nil(err)
 	defer reader.Close()
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
@@ -41,7 +41,7 @@ func Test_a_lot_raw_segment(t *testing.T) {
 		should.Nil(err)
 		should.Equal(lstore.Offset(i), seq)
 	}
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	should.Nil(err)
 	defer reader.Close()
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
@@ -68,7 +68,7 @@ func Test_reopen_raw_segment(t *testing.T) {
 
 	store = reopenTestStore(store)
 
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	should.Nil(err)
 	defer reader.Close()
 	iter := reader.Search(context.Background(), lstore.SearchRequest{

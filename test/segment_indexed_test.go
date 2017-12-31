@@ -20,7 +20,7 @@ func Test_indexed_segment(t *testing.T) {
 		should.Nil(err)
 	}
 	should.Nil(store.Index())
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	should.Nil(err)
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		LimitSize: 2,
@@ -50,7 +50,7 @@ func Test_reopen_indexed_segment(t *testing.T) {
 
 	store = reopenTestStore(store)
 
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	should.Nil(err)
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		LimitSize: 2,
@@ -77,7 +77,7 @@ func Test_a_lot_indexed_segment(t *testing.T) {
 		should.Nil(err)
 	}
 	should.Nil(store.Index())
-	reader, err := store.NewReader()
+	reader, err := store.NewReader(context.Background())
 	should.Nil(err)
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		LimitSize: 2,
