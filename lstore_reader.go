@@ -10,7 +10,7 @@ import (
 type Reader struct {
 	store          *Store
 	currentVersion *StoreVersion
-	tailSeq        uint64    // seq to start next cache fill
+	tailSeq        uint64 // seq to start next cache fill
 	tailOffset     Offset
 	tailRows       rowsChunk // rows cache
 	gocIter        *gocodec.Iterator

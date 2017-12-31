@@ -4,11 +4,15 @@ import (
 	"github.com/esdb/lstore"
 	"context"
 	"os"
-	"github.com/v2pro/plz/countlog"
+	"github.com/v2pro/plz"
+	"testing"
+	"github.com/v2pro/plz/concurrent"
 )
 
-func init() {
-	countlog.Setup(countlog.Config{})
+func TestMain(m *testing.M) {
+	defer concurrent.GlobalUnboundedExecutor.StopAndWaitForever()
+	plz.PlugAndPlay()
+	m.Run()
 }
 
 func bigTestStore() *lstore.Store {
@@ -16,7 +20,7 @@ func bigTestStore() *lstore.Store {
 	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 200 * 1024 * 1024
 	os.RemoveAll(store.Directory)
-	err := store.Start()
+	err := store.Start(context.Background())
 	if err != nil {
 		panic(err)
 	}
@@ -28,7 +32,7 @@ func tinyTestStore() *lstore.Store {
 	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 140
 	os.RemoveAll(store.Directory)
-	err := store.Start()
+	err := store.Start(context.Background())
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +45,7 @@ func smallTestStore() *lstore.Store {
 	store.TailSegmentMaxSize = 280
 	store.BloomFilterIndexedBlobColumns = []int{0}
 	os.RemoveAll(store.Directory)
-	err := store.Start()
+	err := store.Start(context.Background())
 	if err != nil {
 		panic(err)
 	}
@@ -52,7 +56,7 @@ func reopenTestStore(store *lstore.Store) *lstore.Store {
 	store.Stop(context.Background())
 	newStore := &lstore.Store{}
 	newStore.Config = store.Config
-	err := newStore.Start()
+	err := newStore.Start(context.Background())
 	if err != nil {
 		panic(err)
 	}

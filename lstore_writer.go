@@ -15,7 +15,7 @@ import (
 	"math"
 )
 
-type writerCommand func(ctx context.Context)
+type writerCommand func(ctx countlog.Context)
 
 type writer struct {
 	store          *Store
@@ -31,22 +31,22 @@ type WriteResult struct {
 	Error  error
 }
 
-func (store *Store) newWriter() (*writer, error) {
+func (store *Store) newWriter(ctx countlog.Context) (*writer, error) {
 	writer := &writer{
 		store:        store,
 		commandQueue: make(chan writerCommand, store.Config.CommandQueueSize),
 	}
-	if err := writer.load(); err != nil {
+	if err := writer.load(ctx); err != nil {
 		return nil, err
 	}
 	writer.start()
 	return writer, nil
 }
 
-func (writer *writer) load() error {
+func (writer *writer) load(ctx countlog.Context) error {
 	store := writer.store
 	config := store.Config
-	initialVersion, err := loadInitialVersion(&config)
+	initialVersion, err := loadInitialVersion(ctx, &config)
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,8 @@ func (writer *writer) load() error {
 }
 
 func (writer *writer) start() {
-	writer.store.executor.Go(func(ctx context.Context) {
+	writer.store.executor.Go(func(ctxObj context.Context) {
+		ctx := countlog.Ctx(ctxObj)
 		defer func() {
 			countlog.Info("event!writer.stop")
 			err := writer.currentVersion.Close()
@@ -80,7 +81,7 @@ func (writer *writer) start() {
 		}()
 		countlog.Info("event!writer.start")
 		stream := gocodec.NewStream(nil)
-		ctx = context.WithValue(ctx, "stream", stream)
+		ctx = countlog.Ctx(context.WithValue(ctx, "stream", stream))
 		for {
 			var cmd writerCommand
 			select {
@@ -105,14 +106,14 @@ func (writer *writer) updateCurrentVersion(newVersion *StoreVersion) {
 	writer.currentVersion = newVersion
 }
 
-func (writer *writer) asyncExecute(ctx context.Context, cmd writerCommand) {
+func (writer *writer) asyncExecute(ctx countlog.Context, cmd writerCommand) {
 	select {
 	case writer.commandQueue <- cmd:
 	case <-ctx.Done():
 	}
 }
 
-func handleCommand(ctx context.Context, cmd writerCommand) {
+func handleCommand(ctx countlog.Context, cmd writerCommand) {
 	defer func() {
 		recovered := recover()
 		if recovered != nil && recovered != concurrent.StopSignal {
@@ -124,8 +125,9 @@ func handleCommand(ctx context.Context, cmd writerCommand) {
 	cmd(ctx)
 }
 
-func (writer *writer) AsyncWrite(ctx context.Context, entry *Entry, resultChan chan<- WriteResult) {
-	writer.asyncExecute(ctx, func(ctx context.Context) {
+func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultChan chan<- WriteResult) {
+	ctx := countlog.Ctx(ctxObj)
+	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		seq, err := writer.tryWrite(ctx, writer.currentVersion.tailSegment, entry)
 		if err == SegmentOverflowError {
 			newVersion, err := writer.rotate(writer.currentVersion)
@@ -160,7 +162,7 @@ func (writer *writer) Write(ctx context.Context, entry *Entry) (Offset, error) {
 	}
 }
 
-func (writer *writer) tryWrite(ctx context.Context, tailSegment *TailSegment, entry *Entry) (Offset, error) {
+func (writer *writer) tryWrite(ctx countlog.Context, tailSegment *TailSegment, entry *Entry) (Offset, error) {
 	buf := writer.writeBuf
 	stream := ctx.Value("stream").(*gocodec.Stream)
 	stream.Reset(buf[tailSegment.tail:tailSegment.tail])
@@ -233,9 +235,9 @@ func (writer *writer) mapFile(tailSegment *TailSegment) error {
 }
 
 func (writer *writer) switchIndexedSegment(
-	newIndexedSegment *headSegment, purgedRawSegmentsCount int) error {
+	ctx countlog.Context, newIndexedSegment *headSegment, purgedRawSegmentsCount int) error {
 	resultChan := make(chan error)
-	writer.asyncExecute(context.Background(), func(ctx context.Context) {
+	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
 		newVersion := oldVersion.edit()
 		newVersion.rawSegments = oldVersion.rawSegments[purgedRawSegmentsCount:]

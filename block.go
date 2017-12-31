@@ -104,7 +104,7 @@ func (strategy *indexingStrategy) lookupIntColumn(sourceColumn int) int {
 	panic(fmt.Sprintf("int column not indexed: %d", sourceColumn))
 }
 
-func (strategy *indexingStrategy) hashingStrategy(level int) *pbloom.HashingStrategy {
+func (strategy *indexingStrategy) hashingStrategy(level level) *pbloom.HashingStrategy {
 	switch level {
 	case 0:
 		return strategy.smallHashingStrategy

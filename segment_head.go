@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"github.com/edsrzf/mmap-go"
+	"github.com/v2pro/plz/countlog"
 )
 
 const level0 level = 0
@@ -40,11 +41,11 @@ type indexingSegment struct {
 	*ref.ReferenceCounted
 }
 
-func openHeadSegment(config *Config, strategy *indexingStrategy) (*headSegment, error) {
+func openHeadSegment(ctx countlog.Context, config *Config, strategy *indexingStrategy) (*headSegment, error) {
 	headSegmentPath := config.HeadSegmentPath()
 	buf, err := ioutil.ReadFile(headSegmentPath)
 	if os.IsNotExist(err) {
-		if err := initIndexedSegment(headSegmentPath, strategy); err != nil {
+		if err := initIndexedSegment(ctx, config, strategy); err != nil {
 			return nil, err
 		}
 		buf, err = ioutil.ReadFile(headSegmentPath)
@@ -63,6 +64,7 @@ func openHeadSegment(config *Config, strategy *indexingStrategy) (*headSegment, 
 		var resources []io.Closer
 		indexingSegmentPath := config.IndexingSegmentPath(level)
 		file, err := os.OpenFile(indexingSegmentPath, os.O_RDONLY, 0666)
+		ctx.TraceCall("callee!os.OpenFile", err)
 		if err != nil {
 			return nil, err
 		}
@@ -94,7 +96,7 @@ func openHeadSegment(config *Config, strategy *indexingStrategy) (*headSegment, 
 	}, nil
 }
 
-func initIndexedSegment(segmentPath string, strategy *indexingStrategy) error {
+func initIndexedSegment(ctx countlog.Context, config *Config, strategy *indexingStrategy) error {
 	stream := gocodec.NewStream(nil)
 	stream.Marshal(headSegmentVersion{
 		segmentHeader: segmentHeader{segmentType: SegmentTypeIndexed},
@@ -103,22 +105,24 @@ func initIndexedSegment(segmentPath string, strategy *indexingStrategy) error {
 	if stream.Error != nil {
 		return stream.Error
 	}
+	segmentPath := config.HeadSegmentPath()
 	os.MkdirAll(path.Dir(segmentPath), 0777)
 	err := ioutil.WriteFile(segmentPath, stream.Buffer(), 0666)
 	if err != nil {
 		return err
 	}
-	for i := 0; i < 3; i++ {
+	for level := level0; level < 3; level++ {
 		stream.Reset(nil)
 		stream.Marshal(indexingSegmentVersion{
 			segmentHeader: segmentHeader{segmentType: SegmentTypeIndexing},
 			tailSlot:      0,
-			slotIndex:     newSlotIndex(strategy, strategy.hashingStrategy(i)),
+			slotIndex:     newSlotIndex(strategy, strategy.hashingStrategy(level)),
 		})
 		if stream.Error != nil {
 			return stream.Error
 		}
-		err := ioutil.WriteFile(fmt.Sprintf("%s.level%d", segmentPath, i), stream.Buffer(), 0666)
+		err := ioutil.WriteFile(config.IndexingSegmentPath(level), stream.Buffer(), 0666)
+		ctx.TraceCall("callee!ioutil.WriteFile", err)
 		if err != nil {
 			return err
 		}

@@ -1,13 +1,13 @@
 package lstore
 
 import (
-	"context"
 	"github.com/v2pro/plz/countlog"
 	"time"
 	"errors"
+	"context"
 )
 
-type indexerCommand func(ctx context.Context)
+type indexerCommand func(ctx countlog.Context)
 
 type indexer struct {
 	store          *Store
@@ -28,7 +28,8 @@ func (store *Store) newIndexer() *indexer {
 func (indexer *indexer) start() {
 	store := indexer.store
 	indexer.currentVersion = store.latest()
-	store.executor.Go(func(ctx context.Context) {
+	store.executor.Go(func(ctxObj context.Context) {
+		ctx := countlog.Ctx(ctxObj)
 		defer func() {
 			countlog.Info("event!indexer.stop")
 			err := indexer.currentVersion.Close()
@@ -57,7 +58,7 @@ func (indexer *indexer) start() {
 				indexer.currentVersion = store.latest()
 			}
 			if cmd == nil {
-				cmd = func(ctx context.Context) {
+				cmd = func(ctx countlog.Context) {
 					indexer.doIndex(ctx)
 				}
 			}
@@ -77,13 +78,13 @@ func (indexer *indexer) asyncExecute(cmd indexerCommand) error {
 
 func (indexer *indexer) Index() error {
 	resultChan := make(chan error)
-	indexer.asyncExecute(func(ctx context.Context) {
+	indexer.asyncExecute(func(ctx countlog.Context) {
 		resultChan <- indexer.doIndex(ctx)
 	})
 	return <-resultChan
 }
 
-func (indexer *indexer) doIndex(ctx context.Context) (err error) {
+func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 	// version will not change during compaction
 	store := indexer.currentVersion
 	blockManager := indexer.store.blockManager
@@ -102,7 +103,7 @@ func (indexer *indexer) doIndex(ctx context.Context) (err error) {
 			return err
 		}
 	}
-	err = indexer.store.writer.switchIndexedSegment(store.indexedSegment, purgedRawSegmentsCount)
+	err = indexer.store.writer.switchIndexedSegment(ctx, store.indexedSegment, purgedRawSegmentsCount)
 	if err != nil {
 		return err
 	}

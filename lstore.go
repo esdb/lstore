@@ -4,11 +4,12 @@ import (
 	"unsafe"
 	"sync/atomic"
 	"github.com/v2pro/plz/concurrent"
-	"context"
 	"path"
 	"github.com/esdb/lstore/ref"
 	"io"
 	"fmt"
+	"context"
+	"github.com/v2pro/plz/countlog"
 )
 
 const HeadSegmentFileName = "head.segment"
@@ -104,7 +105,8 @@ func (edt EditingStoreVersion) seal() *StoreVersion {
 	return version
 }
 
-func (store *Store) Start() error {
+func (store *Store) Start(ctxObj context.Context) error {
+	ctx := countlog.Ctx(ctxObj)
 	if store.CommandQueueSize == 0 {
 		store.CommandQueueSize = 1024
 	}
@@ -120,7 +122,7 @@ func (store *Store) Start() error {
 	store.blockManager = newBlockManager(&store.blockManagerConfig)
 	store.Config.indexingStrategy = store.blockManager.indexingStrategy
 	store.executor = concurrent.NewUnboundedExecutor()
-	writer, err := store.newWriter()
+	writer, err := store.newWriter(ctx)
 	if err != nil {
 		return err
 	}

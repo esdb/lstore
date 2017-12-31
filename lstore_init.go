@@ -4,15 +4,17 @@ import (
 	"github.com/v2pro/plz/countlog"
 )
 
-func loadInitialVersion(config *Config) (*StoreVersion, error) {
+func loadInitialVersion(ctx countlog.Context, config *Config) (*StoreVersion, error) {
 	version := StoreVersion{config: *config}.edit()
-	indexedSegment, err := openHeadSegment(config, config.indexingStrategy)
+	indexedSegment, err := openHeadSegment(ctx, config, config.indexingStrategy)
+	ctx.TraceCall("callee!store.openHeadSegment", err)
 	if err != nil {
-		countlog.Error("event!lstore.failed to load headSegment", "err", err)
 		return nil, err
 	}
 	version.indexedSegment = indexedSegment
-	if err := loadTailAndRawSegments(config, version); err != nil {
+	err = loadTailAndRawSegments(config, version)
+	ctx.TraceCall("callee!store.loadTailAndRawSegments", err)
+	if err != nil {
 		return nil, err
 	}
 	return version.seal(), nil
