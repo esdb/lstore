@@ -5,6 +5,11 @@ import (
 	"time"
 	"errors"
 	"context"
+	"os"
+	"github.com/edsrzf/mmap-go"
+	"github.com/esdb/gocodec"
+	"io"
+	"github.com/v2pro/plz"
 )
 
 type indexerCommand func(ctx countlog.Context)
@@ -13,16 +18,52 @@ type indexer struct {
 	store          *Store
 	commandQueue   chan indexerCommand
 	currentVersion *StoreVersion
+	head           *headSegmentVersion
+	headFile       *os.File
+	headMMap       mmap.MMap
 }
 
-func (store *Store) newIndexer() *indexer {
+func (store *Store) newIndexer(ctx countlog.Context) (*indexer, error) {
 	indexer := &indexer{
 		store:          store,
 		currentVersion: store.latest(),
 		commandQueue:   make(chan indexerCommand, 1),
 	}
+	if err := indexer.loadHead(ctx); err != nil {
+		return nil, err
+	}
 	indexer.start()
-	return indexer
+	return indexer, nil
+}
+
+func (indexer *indexer) loadHead(ctx countlog.Context) error {
+	file, err := os.OpenFile(indexer.store.HeadSegmentPath(), os.O_RDWR, 0666)
+	ctx.TraceCall("callee!os.OpenFile", err)
+	if err != nil {
+		return err
+	}
+	indexer.headFile = file
+	headMMap, err := mmap.Map(file, mmap.RDWR, 0)
+	ctx.TraceCall("callee!mmap.Map", err)
+	if err != nil {
+		return err
+	}
+	indexer.headMMap = headMMap
+	iter := gocodec.NewIterator(headMMap)
+	head, _ := iter.Unmarshal((*headSegmentVersion)(nil)).(*headSegmentVersion)
+	ctx.TraceCall("callee!iter.Unmarshal", iter.Error)
+	if iter.Error != nil {
+		return iter.Error
+	}
+	indexer.head = head
+	return nil
+}
+
+func (indexer *indexer) Close() error {
+	return plz.CloseAll([]io.Closer{
+		indexer.headFile,
+		plz.WrapCloser(indexer.headMMap.Unmap),
+	})
 }
 
 func (indexer *indexer) start() {
@@ -102,6 +143,10 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 			return err
 		}
 	}
+	// ensure blocks are persisted
+	indexer.head.tailBlockSeq = tailBlockSeq
+	err = indexer.headMMap.Flush()
+	countlog.TraceCall("callee!headMMap.Flush", err, "tailBlockSeq", indexer.head.tailBlockSeq)
 	err = indexer.store.writer.switchIndexedSegment(ctx, store.indexedSegment, purgedRawSegmentsCount)
 	if err != nil {
 		return err

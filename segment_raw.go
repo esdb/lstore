@@ -8,6 +8,7 @@ import (
 	"io"
 	"github.com/esdb/lstore/ref"
 	"fmt"
+	"github.com/v2pro/plz"
 )
 
 type rawSegment struct {
@@ -31,9 +32,7 @@ func openRawSegment(ctx countlog.Context, path string) (*rawSegment, error) {
 		countlog.Error("event!raw.failed to mmap as COPY", "err", err, "path", path)
 		return nil, err
 	}
-	resources = append(resources, ref.NewResource("mmap as COPY", func() error {
-		return readMMap.Unmap()
-	}))
+	resources = append(resources, plz.WrapCloser(readMMap.Unmap))
 	iter := gocodec.NewIterator(readMMap)
 	segmentHeader, _ := iter.Unmarshal((*segmentHeader)(nil)).(*segmentHeader)
 	if iter.Error != nil {

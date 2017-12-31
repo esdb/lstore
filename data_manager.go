@@ -5,9 +5,9 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"os"
 	"github.com/v2pro/plz/countlog"
-	"github.com/esdb/lstore/ref"
 	"fmt"
 	"path"
+	"github.com/v2pro/plz"
 )
 
 type dataManager struct {
@@ -59,7 +59,7 @@ func (mgr *dataManager) Close() error {
 			countlog.Error("event!dataManager.failed to close file", "err", err)
 		}
 	}
-	return ref.NewMultiError(errs)
+	return plz.NewMultiError(errs)
 }
 
 func (mgr *dataManager) writeBuf(seq uint64, buf []byte) error {
@@ -75,7 +75,7 @@ func (mgr *dataManager) writeBuf(seq uint64, buf []byte) error {
 	if len(buf) > 0 {
 		return mgr.writeBuf(seq+uint64(copiedBytesCount), buf)
 	}
-	return nil
+	return writeMMap.Flush()
 }
 
 func (mgr *dataManager) readBuf(seq uint64, remainingSize uint32) ([]byte, error) {

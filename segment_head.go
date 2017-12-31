@@ -11,6 +11,7 @@ import (
 	"io"
 	"github.com/edsrzf/mmap-go"
 	"github.com/v2pro/plz/countlog"
+	"github.com/v2pro/plz"
 )
 
 const level0 level = 0
@@ -73,9 +74,7 @@ func openHeadSegment(ctx countlog.Context, config *Config, strategy *indexingStr
 		if err != nil {
 			return nil, err
 		}
-		resources = append(resources, ref.NewResource("readMMap", func() error {
-			return readMMap.Unmap()
-		}))
+		resources = append(resources, plz.WrapCloser(readMMap.Unmap))
 		iter := gocodec.NewIterator(readMMap)
 		levelVersion, _ := iter.Unmarshal((*indexingSegmentVersion)(nil)).(*indexingSegmentVersion)
 		if iter.Error != nil {

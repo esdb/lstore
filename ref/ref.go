@@ -4,20 +4,8 @@ import (
 	"io"
 	"github.com/v2pro/plz/countlog"
 	"sync/atomic"
+	"github.com/v2pro/plz"
 )
-
-type MultiError []error
-
-func (errs MultiError) Error() string {
-	return "multiple errors"
-}
-
-func NewMultiError(errs []error) error {
-	if len(errs) == 0 {
-		return nil
-	}
-	return MultiError(errs)
-}
 
 type ReferenceCounted struct {
 	resourceName     string
@@ -55,7 +43,7 @@ func (refCnt *ReferenceCounted) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	return NewMultiError(errs)
+	return plz.NewMultiError(errs)
 }
 
 func (refCnt *ReferenceCounted) decreaseReference() bool {
@@ -68,23 +56,4 @@ func (refCnt *ReferenceCounted) decreaseReference() bool {
 			return counter == 1 // last one should close the currentVersion
 		}
 	}
-}
-
-type funcResource struct {
-	resourceName string
-	f            func() error
-}
-
-func (res *funcResource) Close() error {
-	err := res.f()
-	if err != nil {
-		countlog.Error("event!ref.failed to close resource",
-			"resourceName", res.resourceName, "err", err)
-		return err
-	}
-	return nil
-}
-
-func NewResource(resourceName string, f func() error) io.Closer {
-	return &funcResource{resourceName, f}
 }

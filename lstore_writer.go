@@ -12,6 +12,7 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"github.com/esdb/lstore/ref"
 	"math"
+	"github.com/v2pro/plz"
 )
 
 type writerCommand func(ctx countlog.Context)
@@ -41,6 +42,10 @@ func (store *Store) newWriter(ctx countlog.Context) (*writer, error) {
 	}
 	writer.start()
 	return writer, nil
+}
+
+func (writer *writer) Close() error {
+	return plz.Close(plz.WrapCloser(writer.writeMMap.Unmap))
 }
 
 func (writer *writer) load(ctx countlog.Context) error {

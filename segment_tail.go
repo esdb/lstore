@@ -10,6 +10,7 @@ import (
 	"io"
 	"github.com/esdb/lstore/ref"
 	"path"
+	"github.com/v2pro/plz"
 )
 
 var SegmentOverflowError = errors.New("please rotate to new chunk")
@@ -43,9 +44,7 @@ func openTailSegment(path string, maxSize int64, startOffset Offset) (*TailSegme
 		countlog.Error("event!chunk.failed to mmap as RDONLY", "err", err, "path", path)
 		return nil, err
 	}
-	resources = append(resources, ref.NewResource("tail segment readMMap", func() error {
-		return readMMap.Unmap()
-	}))
+	resources = append(resources, plz.WrapCloser(readMMap.Unmap))
 	iter := gocodec.NewIterator(readMMap)
 	segmentHeader, _ := iter.Copy((*segmentHeader)(nil)).(*segmentHeader)
 	if iter.Error != nil {

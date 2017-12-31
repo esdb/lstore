@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"context"
 	"github.com/v2pro/plz/countlog"
+	"github.com/v2pro/plz"
 )
 
 const HeadSegmentFileName = "head.segment"
@@ -127,12 +128,16 @@ func (store *Store) Start(ctxObj context.Context) error {
 		return err
 	}
 	store.writer = writer
-	store.indexer = store.newIndexer()
+	store.indexer, err = store.newIndexer(ctx)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func (store *Store) Stop(ctx context.Context) {
+func (store *Store) Stop(ctx context.Context) error {
 	store.executor.StopAndWait(ctx)
+	return plz.CloseAll([]io.Closer{store.writer, store.indexer})
 }
 
 func (store *Store) latest() *StoreVersion {

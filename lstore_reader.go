@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"github.com/v2pro/plz/countlog"
+	"github.com/v2pro/plz"
 )
 
 // Reader is not thread safe, can only be used from one goroutine
@@ -46,7 +47,7 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 // Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailSegment.tail
 func (reader *Reader) Refresh(ctx context.Context) (bool, error) {
 	latestVersion := reader.store.latest()
-	defer countlog.Close(latestVersion, "ctx", ctx)
+	defer plz.Close(latestVersion, "ctx", ctx)
 	if reader.currentVersion == nil || latestVersion.tailSegment != reader.currentVersion.tailSegment {
 		reader.tailSeq = 0
 		reader.tailRows = newRowsChunk(latestVersion.tailSegment.startOffset)
