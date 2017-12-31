@@ -1,7 +1,6 @@
 package lstore
 
 import (
-	"path"
 	"fmt"
 	"github.com/v2pro/plz/countlog"
 	"context"
@@ -204,7 +203,7 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 		newVersion.rawSegments[i] = oldVersion.rawSegments[i]
 	}
 	conf := oldVersion.config
-	rotatedTo := path.Join(conf.Directory, fmt.Sprintf("%d.segment", oldVersion.tailSegment.tail))
+	rotatedTo := writer.store.RawSegmentPath(Offset(oldVersion.tailSegment.tail))
 	if err = os.Rename(oldVersion.tailSegment.path, rotatedTo); err != nil {
 		return nil, err
 	}
@@ -228,7 +227,9 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 		return nil, err
 	}
 	newVersion.tailSegment.updateTail(newVersion.tailSegment.startOffset)
-	countlog.Debug("event!store.rotated", "tail", newVersion.tailSegment.startOffset)
+	countlog.Debug("event!store.rotated",
+		"tail", newVersion.tailSegment.startOffset,
+			"rotatedTo", rotatedTo)
 	return newVersion.seal(), nil
 }
 

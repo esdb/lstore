@@ -17,8 +17,9 @@ type rawSegment struct {
 	Path string
 }
 
-func openRawSegment(path string) (*rawSegment, error) {
+func openRawSegment(ctx countlog.Context, path string) (*rawSegment, error) {
 	file, err := os.OpenFile(path, os.O_RDONLY, 0666)
+	ctx.TraceCall("callee!os.OpenFile", err)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +42,7 @@ func openRawSegment(path string) (*rawSegment, error) {
 	}
 	segment.segmentHeader = *segmentHeader
 	segment.Path = path
-	segment.rows, err = segment.loadRows(iter)
+	segment.rows, err = segment.loadRows(ctx, iter)
 	if err != nil {
 		countlog.Error("event!raw.failed to unmarshal rows", "err", iter.Error, "path", path)
 		return nil, err
@@ -50,7 +51,7 @@ func openRawSegment(path string) (*rawSegment, error) {
 	return segment, nil
 }
 
-func (segment *rawSegment) loadRows(iter *gocodec.Iterator) (rowsChunk, error) {
+func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator) (rowsChunk, error) {
 	var rows rowsChunk
 	for {
 		iter.Reset(iter.Buffer())
@@ -58,8 +59,9 @@ func (segment *rawSegment) loadRows(iter *gocodec.Iterator) (rowsChunk, error) {
 		if iter.Error == io.EOF {
 			return rows, nil
 		}
+		ctx.TraceCall("callee!iter.Unmarshal", iter.Error)
 		if iter.Error != nil {
-			return nil, iter.Error
+			return nil, fmt.Errorf("load raw segment rows failed: %v", iter.Error.Error())
 		}
 		offset := segment.startOffset + Offset(len(rows))
 		rows = append(rows, Row{Entry: entry, Offset: offset})

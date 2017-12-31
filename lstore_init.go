@@ -12,7 +12,7 @@ func loadInitialVersion(ctx countlog.Context, config *Config) (*StoreVersion, er
 		return nil, err
 	}
 	version.indexedSegment = indexedSegment
-	err = loadTailAndRawSegments(config, version)
+	err = loadTailAndRawSegments(ctx, config, version)
 	ctx.TraceCall("callee!store.loadTailAndRawSegments", err)
 	if err != nil {
 		return nil, err
@@ -20,7 +20,7 @@ func loadInitialVersion(ctx countlog.Context, config *Config) (*StoreVersion, er
 	return version.seal(), nil
 }
 
-func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error {
+func loadTailAndRawSegments(ctx countlog.Context, config *Config, version *EditingStoreVersion) error {
 	tailSegment, err := openTailSegment(config.TailSegmentPath(), config.TailSegmentMaxSize, 0)
 	if err != nil {
 		return err
@@ -29,7 +29,7 @@ func loadTailAndRawSegments(config *Config, version *EditingStoreVersion) error 
 	startOffset := tailSegment.startOffset
 	for startOffset != version.indexedSegment.tailOffset {
 		rawSegmentPath := config.RawSegmentPath(startOffset)
-		rawSegment, err := openRawSegment(rawSegmentPath)
+		rawSegment, err := openRawSegment(ctx, rawSegmentPath)
 		if err != nil {
 			countlog.Error("event!lstore.failed to open raw segment",
 				"err", err, "rawSegmentPath", rawSegmentPath)
