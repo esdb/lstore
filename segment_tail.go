@@ -106,7 +106,10 @@ func (segment *TailSegment) read(reader *Reader) (bool, error) {
 		currentSeq := reader.tailSeq + (bufSize - uint64(len(iter.Buffer())))
 		entry, _ := iter.Copy((*Entry)(nil)).(*Entry)
 		if iter.Error == io.EOF {
+			startSeq := reader.tailSeq
 			reader.tailSeq = currentSeq
+			countlog.Trace("event!tailSegment.read finished",
+				"startSeq", startSeq, "tailSeq", reader.tailSeq)
 			return true, nil
 		}
 		if iter.Error != nil {

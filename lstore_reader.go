@@ -33,7 +33,7 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 		tailRows: rowsChunk{},
 		gocIter:  gocodec.NewIterator(nil),
 	}
-	_, err := reader.Refresh()
+	_, err := reader.Refresh(ctx)
 	ctx.DebugCall("callee!reader.Refresh", err,
 		"caller", "store.NewReader",
 		"tailOffset", reader.tailOffset)
@@ -44,9 +44,9 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 }
 
 // Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailSegment.tail
-func (reader *Reader) Refresh() (bool, error) {
+func (reader *Reader) Refresh(ctx context.Context) (bool, error) {
 	latestVersion := reader.store.latest()
-	defer latestVersion.Close()
+	defer countlog.Close(latestVersion, "ctx", ctx)
 	if reader.currentVersion == nil || latestVersion.tailSegment != reader.currentVersion.tailSegment {
 		reader.tailSeq = 0
 		reader.tailRows = make(rowsChunk, 0, blockLength)

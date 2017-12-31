@@ -66,6 +66,7 @@ func (writer *writer) load(ctx countlog.Context) error {
 	}
 	defer reader.Close()
 	writer.tailRows = reader.tailRows
+	writer.tailSeq = reader.tailSeq
 	tailSegment.updateTail(reader.tailOffset)
 	return nil
 }
@@ -184,6 +185,7 @@ func (writer *writer) tryWrite(ctx countlog.Context, tailSegment *TailSegment, e
 	offset := tailSegment.startOffset + Offset(len(writer.tailRows))
 	writer.tailRows = append(writer.tailRows, Row{Offset: offset, Entry: entry})
 	writer.tailSeq += size
+	countlog.Trace("event!writer.tryWrite", "tailSeq", writer.tailSeq, "offset", offset)
 	// reader will know if read the tail using atomic
 	tailSegment.updateTail(offset + 1)
 	return offset, nil

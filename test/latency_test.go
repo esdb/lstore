@@ -31,7 +31,7 @@ func Test_write_read_latency(t *testing.T) {
 		should.Nil(err)
 		startOffset := lstore.Offset(0)
 		for {
-			hasNew, err := reader.Refresh()
+			hasNew, err := reader.Refresh(context.Background())
 			should.Nil(err)
 			if !hasNew {
 				time.Sleep(time.Millisecond)

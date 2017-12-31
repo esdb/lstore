@@ -21,16 +21,16 @@ func (chunk rowsChunk) search(reader *Reader, startOffset Offset, filters []Filt
 
 func (chunk rowsChunk) String() string {
 	if len(chunk) == 0 {
-		return "rowsChunk[]"
+		return "rowsChunk{}"
 	}
-	desc := []byte("rowsChunk[")
+	desc := []byte("rowsChunk{")
 	for i, row := range chunk {
 		if i != 0 {
 			desc = append(desc, ',')
 		}
 		desc = append(desc, strconv.Itoa(int(row.Offset))...)
 	}
-	desc = append(desc, ']')
+	desc = append(desc, '}')
 	return string(desc)
 }
 
