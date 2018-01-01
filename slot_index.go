@@ -31,6 +31,18 @@ func (idx *slotIndex) copy() *slotIndex {
 	return newVersion
 }
 
+func (idx *slotIndex) updateSlot(slotMask biter.Bits, child *slotIndex) {
+	for i, pbf := range child.pbfs {
+		parentPbf := idx.pbfs[i]
+		for loc, bits := range pbf  {
+			// any child slot is set, the slot is set
+			if bits != 0 {
+				parentPbf[loc] = slotMask
+			}
+		}
+	}
+}
+
 func (idx *slotIndex) searchLarge(filters ...Filter) biter.Bits {
 	result := biter.SetAllBits
 	for _, filter := range filters {
