@@ -6,7 +6,6 @@ import (
 	"github.com/esdb/gocodec"
 	"os"
 	"path"
-	"fmt"
 	"io"
 	"github.com/edsrzf/mmap-go"
 	"github.com/v2pro/plz/countlog"
@@ -18,158 +17,81 @@ const level0 level = 0 // small
 const level1 level = 1 // medium
 const level2 level = 2 // large
 type level int
+
 type headSegmentVersion struct {
 	segmentHeader
-	topLevel         level // minimum 3 level
 	headOffset       Offset
 	tailOffset       Offset
 	tailBlockSeq     blockSeq
 	tailSlotIndexSeq slotIndexSeq
+	topLevel         level        // minimum 3 level
+	levels           []*slotIndex // total 9 levels
 }
 
 type headSegment struct {
 	headSegmentVersion
 	*ref.ReferenceCounted
-	levels []*indexingSegment
 }
 
 type editingHead struct {
 	*headSegmentVersion
-	levels         []*indexingSegment
-	editedLevels   []*slotIndex
 	writeBlock     func(blockSeq, *block) (blockSeq, error)
 	writeSlotIndex func(slotIndexSeq, *slotIndex) (slotIndexSeq, error)
 	strategy       *indexingStrategy
 }
 
-type indexingSegmentVersion struct {
-	segmentHeader
-	slotIndex *slotIndex
-}
-
-type indexingSegment struct {
-	indexingSegmentVersion
-	*ref.ReferenceCounted
-}
-
 func openHeadSegment(ctx countlog.Context, config *Config, strategy *indexingStrategy) (*headSegment, error) {
 	headSegmentPath := config.HeadSegmentPath()
-	buf, err := ioutil.ReadFile(headSegmentPath)
+	file, err := os.OpenFile(headSegmentPath, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
-		if err := initIndexedSegment(ctx, config, strategy); err != nil {
-			return nil, err
-		}
-		buf, err = ioutil.ReadFile(headSegmentPath)
+		file, err = initIndexedSegment(ctx, config, strategy)
 	}
+	ctx.TraceCall("callee!os.OpenFile", err)
 	if err != nil {
 		return nil, err
 	}
-	iter := gocodec.NewIterator(buf)
+	resources := []io.Closer{file}
+	writeMMap, err := mmap.Map(file, mmap.RDWR, 0)
+	ctx.TraceCall("callee!mmap.Map", err)
+	if err != nil {
+		return nil, err
+	}
+	resources = append(resources, plz.WrapCloser(writeMMap.Unmap))
+	iter := gocodec.NewIterator(writeMMap)
 	segment, _ := iter.Unmarshal((*headSegmentVersion)(nil)).(*headSegmentVersion)
+	ctx.TraceCall("callee!iter.Unmarshal", iter.Error)
 	if iter.Error != nil {
 		return nil, iter.Error
 	}
-	var rootResources []io.Closer
-	var levels []*indexingSegment
-	for level := level0; level < segment.topLevel; level++ {
-		var resources []io.Closer
-		indexingSegmentPath := config.IndexingSegmentPath(level)
-		file, err := os.OpenFile(indexingSegmentPath, os.O_RDONLY, 0666)
-		ctx.TraceCall("callee!os.OpenFile", err)
-		if err != nil {
-			return nil, err
-		}
-		resources = append(resources, file)
-		readMMap, err := mmap.Map(file, mmap.COPY, 0)
-		if err != nil {
-			return nil, err
-		}
-		resources = append(resources, plz.WrapCloser(readMMap.Unmap))
-		iter := gocodec.NewIterator(readMMap)
-		levelVersion, _ := iter.Unmarshal((*indexingSegmentVersion)(nil)).(*indexingSegmentVersion)
-		if iter.Error != nil {
-			return nil, iter.Error
-		}
-		level := &indexingSegment{
-			indexingSegmentVersion: *levelVersion,
-			ReferenceCounted: ref.NewReferenceCounted(
-				fmt.Sprintf("indexing segment level %d", level), resources...),
-		}
-		levels = append(levels, level)
-		rootResources = append(rootResources, level)
-	}
 	return &headSegment{
 		headSegmentVersion: *segment,
-		ReferenceCounted:   ref.NewReferenceCounted("indexed segment", rootResources...),
-		levels:             levels,
+		ReferenceCounted:   ref.NewReferenceCounted("indexed segment", resources...),
 	}, nil
 }
 
-func initIndexedSegment(ctx countlog.Context, config *Config, strategy *indexingStrategy) error {
+func initIndexedSegment(ctx countlog.Context, config *Config, strategy *indexingStrategy) (*os.File, error) {
+	levels := make([]*slotIndex, 9)
+	for i := level0; i < level(len(levels)); i++ {
+		levels[i] = newSlotIndex(strategy, i)
+	}
 	stream := gocodec.NewStream(nil)
 	stream.Marshal(headSegmentVersion{
-		segmentHeader: segmentHeader{segmentType: segmentTypeIndexed},
-		topLevel:      3,
+		segmentHeader: segmentHeader{segmentType: segmentTypeHead},
+		topLevel:      2,
+		levels:        levels,
 	})
+	ctx.TraceCall("callee!stream.Marshal", stream.Error)
 	if stream.Error != nil {
-		return stream.Error
+		return nil, stream.Error
 	}
 	segmentPath := config.HeadSegmentPath()
 	os.MkdirAll(path.Dir(segmentPath), 0777)
 	err := ioutil.WriteFile(segmentPath, stream.Buffer(), 0666)
-	if err != nil {
-		return err
-	}
-	for level := level0; level < 3; level++ {
-		stream.Reset(nil)
-		stream.Marshal(indexingSegmentVersion{
-			segmentHeader: segmentHeader{segmentType: segmentTypeIndexing},
-			slotIndex:     newSlotIndex(strategy, level),
-		})
-		if stream.Error != nil {
-			return stream.Error
-		}
-		err := ioutil.WriteFile(config.IndexingSegmentPath(level), stream.Buffer(), 0666)
-		ctx.TraceCall("callee!ioutil.WriteFile", err)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func saveIndexingSegment(ctx countlog.Context, config *Config, level level, slotIndex *slotIndex) error {
-	tmpPath := config.IndexingSegmentTmpPath(level)
-	finalPath := config.IndexingSegmentPath(level)
-	stream := gocodec.NewStream(nil)
-	stream.Marshal(indexingSegmentVersion{
-		segmentHeader: segmentHeader{
-			segmentType: segmentTypeIndexing,
-		},
-		slotIndex: slotIndex,
-	})
-	ctx.TraceCall("callee!stream.Marshal", stream.Error)
-	if stream.Error != nil {
-		return fmt.Errorf("save indexing segment failed: %v", stream.Error.Error())
-	}
-	err := ioutil.WriteFile(tmpPath, stream.Buffer(), 0666)
 	ctx.TraceCall("callee!ioutil.WriteFile", err)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	err = os.Rename(tmpPath, finalPath)
-	ctx.TraceCall("callee!os.Rename", err)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (segment *headSegment) edit() (*slotIndex, *slotIndex, *slotIndex) {
-	level0Copy := segment.levels[level0].slotIndex.copy()
-	level1Copy := segment.levels[level1].slotIndex.copy()
-	level2Copy := segment.levels[level2].slotIndex.copy()
-	return level0Copy, level1Copy, level2Copy
+	return os.OpenFile(segmentPath, os.O_RDWR, 0666)
 }
 
 func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) error {
@@ -209,7 +131,7 @@ func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) error {
 			levelNSlots := level2Slots
 			for j := level(3); j <= editing.topLevel; j++ {
 				levelNSlots = levelNSlots >> 6
-				parentPbf := editing.editedLevels[j].pbfs[i]
+				parentPbf := editing.levels[j].pbfs[i]
 				levelNMask := biter.SetBits[levelNSlots%64]
 				for _, location := range locations {
 					parentPbf[location] |= levelNMask
@@ -243,12 +165,12 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 	level1SlotIndex := editing.editLevel(level1)
 	shouldExpand = level1Slot == 0
 	if !shouldExpand {
-		level1SlotIndex.children[level1Slot - 1] = level0SlotIndexSeq
-		editing.editedLevels[level0] = newSlotIndex(editing.strategy, level0)
+		level1SlotIndex.children[level1Slot-1] = level0SlotIndexSeq
+		editing.levels[level0] = newSlotIndex(editing.strategy, level0)
 		return level0Slot, level1Slot, level2Slot, level2Slots, nil
 	}
 	level1SlotIndex.children[63] = level0SlotIndexSeq
-	editing.editedLevels[level0] = newSlotIndex(editing.strategy, level0)
+	editing.levels[level0] = newSlotIndex(editing.strategy, level0)
 	level1SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
 	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level1SlotIndex)
 	ctx.TraceCall("callee!editing.writeSlotIndex", err)
@@ -258,12 +180,12 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 	level2SlotIndex := editing.editLevel(level2)
 	shouldExpand = level2Slot == 0
 	if !shouldExpand {
-		level2SlotIndex.children[level2Slot - 1] = level1SlotIndexSeq
-		editing.editedLevels[level1] = newSlotIndex(editing.strategy, level1)
+		level2SlotIndex.children[level2Slot-1] = level1SlotIndexSeq
+		editing.levels[level1] = newSlotIndex(editing.strategy, level1)
 		return level0Slot, level1Slot, level2Slot, level2Slots, nil
 	}
 	level2SlotIndex.children[63] = level1SlotIndexSeq
-	editing.editedLevels[level1] = newSlotIndex(editing.strategy, level1)
+	editing.levels[level1] = newSlotIndex(editing.strategy, level1)
 	level2SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
 	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level2SlotIndex)
 	ctx.TraceCall("callee!editing.writeSlotIndex", err)
@@ -279,12 +201,12 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 	level3Slot := level3Slots % 64
 	shouldExpand = level3Slot == 0
 	if !shouldExpand {
-		level3SlotIndex.children[level3Slot - 1] = level2SlotIndexSeq
-		editing.editedLevels[level2] = newSlotIndex(editing.strategy, level2)
+		level3SlotIndex.children[level3Slot-1] = level2SlotIndexSeq
+		editing.levels[level2] = newSlotIndex(editing.strategy, level2)
 		return level0Slot, level1Slot, level2Slot, level2Slots, nil
 	}
 	level3SlotIndex.children[63] = level2SlotIndexSeq
-	editing.editedLevels[level2] = newSlotIndex(editing.strategy, level2)
+	editing.levels[level2] = newSlotIndex(editing.strategy, level2)
 	level3SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
 	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level3SlotIndex)
 	ctx.TraceCall("callee!editing.writeSlotIndex", err)
@@ -300,12 +222,12 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 	level4Slot := level4Slots % 64
 	shouldExpand = level4Slot == 0
 	if !shouldExpand {
-		level4SlotIndex.children[level4Slot - 1] = level3SlotIndexSeq
-		editing.editedLevels[3] = newSlotIndex(editing.strategy, 3)
+		level4SlotIndex.children[level4Slot-1] = level3SlotIndexSeq
+		editing.levels[3] = newSlotIndex(editing.strategy, 3)
 		return level0Slot, level1Slot, level2Slot, level2Slots, nil
 	}
 	level4SlotIndex.children[63] = level3SlotIndexSeq
-	editing.editedLevels[3] = newSlotIndex(editing.strategy, 3)
+	editing.levels[3] = newSlotIndex(editing.strategy, 3)
 	level4SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
 	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level4SlotIndex)
 	ctx.TraceCall("callee!editing.writeSlotIndex", err)
@@ -321,12 +243,12 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 	level5Slot := level5Slots % 64
 	shouldExpand = level5Slot == 0
 	if !shouldExpand {
-		level5SlotIndex.children[level5Slot - 1] = level4SlotIndexSeq
-		editing.editedLevels[4] = newSlotIndex(editing.strategy, 4)
+		level5SlotIndex.children[level5Slot-1] = level4SlotIndexSeq
+		editing.levels[4] = newSlotIndex(editing.strategy, 4)
 		return level0Slot, level1Slot, level2Slot, level2Slots, nil
 	}
 	level5SlotIndex.children[63] = level4SlotIndexSeq
-	editing.editedLevels[4] = newSlotIndex(editing.strategy, 4)
+	editing.levels[4] = newSlotIndex(editing.strategy, 4)
 	level5SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
 	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level5SlotIndex)
 	ctx.TraceCall("callee!editing.writeSlotIndex", err)
@@ -342,12 +264,12 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 	level6Slot := level6Slots % 64
 	shouldExpand = level6Slot == 0
 	if !shouldExpand {
-		level6SlotIndex.children[level6Slot - 1] = level5SlotIndexSeq
-		editing.editedLevels[5] = newSlotIndex(editing.strategy, 5)
+		level6SlotIndex.children[level6Slot-1] = level5SlotIndexSeq
+		editing.levels[5] = newSlotIndex(editing.strategy, 5)
 		return level0Slot, level1Slot, level2Slot, level2Slots, nil
 	}
 	level6SlotIndex.children[63] = level5SlotIndexSeq
-	editing.editedLevels[5] = newSlotIndex(editing.strategy, 5)
+	editing.levels[5] = newSlotIndex(editing.strategy, 5)
 	level6SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
 	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level6SlotIndex)
 	ctx.TraceCall("callee!editing.writeSlotIndex", err)
@@ -363,12 +285,12 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 	level7Slot := level7Slots % 64
 	shouldExpand = level7Slot == 0
 	if !shouldExpand {
-		level7SlotIndex.children[level7Slot - 1] = level6SlotIndexSeq
-		editing.editedLevels[6] = newSlotIndex(editing.strategy, 6)
+		level7SlotIndex.children[level7Slot-1] = level6SlotIndexSeq
+		editing.levels[6] = newSlotIndex(editing.strategy, 6)
 		return level0Slot, level1Slot, level2Slot, level2Slots, nil
 	}
 	level7SlotIndex.children[63] = level6SlotIndexSeq
-	editing.editedLevels[6] = newSlotIndex(editing.strategy, 6)
+	editing.levels[6] = newSlotIndex(editing.strategy, 6)
 	level7SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
 	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level7SlotIndex)
 	ctx.TraceCall("callee!editing.writeSlotIndex", err)
@@ -384,8 +306,8 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 	level8Slot := level8Slots % 64
 	shouldExpand = level8Slot == 0
 	if !shouldExpand {
-		level8SlotIndex.children[level8Slot - 1] = level7SlotIndexSeq
-		editing.editedLevels[7] = newSlotIndex(editing.strategy, 7)
+		level8SlotIndex.children[level8Slot-1] = level7SlotIndexSeq
+		editing.levels[7] = newSlotIndex(editing.strategy, 7)
 		return level0Slot, level1Slot, level2Slot, level2Slots, nil
 	}
 	panic("bloom filter tree exceed capacity")
@@ -396,11 +318,7 @@ func (editing *editingHead) editLevel(level level) *slotIndex {
 	if level > editing.topLevel {
 		editing.topLevel = level
 	}
-	if int(level) < len(editing.editedLevels) {
-		return editing.editedLevels[level]
-	}
-	editing.editedLevels = append(editing.editedLevels, editing.levels[len(editing.editedLevels)].slotIndex.copy())
-	return editing.editLevel(level)
+	return editing.levels[level]
 }
 
 func (segment *headSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {

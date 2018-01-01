@@ -6,9 +6,5 @@ type segmentHeader struct {
 	startOffset Offset
 }
 
-// 1 tail / multiple raw
-const segmentTypeRowBased segmentType = 1
-
-// 1 root indexed / 8 indexing
-const segmentTypeIndexing segmentType = 2
-const segmentTypeIndexed segmentType = 3
+const segmentTypeTail segmentType = 1
+const segmentTypeHead segmentType = 2

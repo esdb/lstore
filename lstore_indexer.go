@@ -10,7 +10,6 @@ import (
 	"github.com/esdb/gocodec"
 	"io"
 	"github.com/v2pro/plz"
-	"github.com/esdb/biter"
 )
 
 type indexerCommand func(ctx countlog.Context)
@@ -127,73 +126,30 @@ func (indexer *indexer) Index() error {
 }
 
 func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
-	// version will not change during compaction
-	store := indexer.currentVersion
-	blockManager := indexer.store.blockManager
-	strategy := indexer.store.indexingStrategy
-	countlog.Trace("event!indexer.run")
-	if len(store.rawSegments) == 0 {
-		return nil
-	}
-	level0SlotIndex, level1SlotIndex, level2SlotIndex := store.headSegment.edit()
-	tailBlockSeq := indexer.head.tailBlockSeq
-	tailOffset := indexer.head.tailOffset
-	purgedRawSegmentsCount := 0
-	for _, rawSegment := range store.rawSegments {
-		purgedRawSegmentsCount++
-		// TODO: ensure rawSegment is actually blockLength
-		blk := newBlock(rawSegment.rows.startOffset, rawSegment.rows.rows)
-		tailBlockSeq, _, err = blockManager.writeBlock(tailBlockSeq, blk)
-		if err != nil {
-			return err
-		}
-		slots := int(tailOffset) >> 8
-		blkHash := blk.Hash(strategy)
-		level0Slot := slots % 64
-		if len(level0SlotIndex.children) != level0Slot {
-			countlog.Error("event!indexer.slot assignment not aligned",
-				"level0Slot", level0Slot,
-				"childrenCount", len(level0SlotIndex.children))
-			return errors.New("internal error: slot assignment not aligned")
-		}
-		level0SlotMask := biter.SetBits[level0Slot]
-		level0SlotIndex.children = append(level0SlotIndex.children, uint64(tailBlockSeq))
-		slots = slots >> 6
-		level1Slot := slots % 64
-		level1SlotMask := biter.SetBits[level1Slot]
-		slots = slots >> 6
-		level2Slot := slots % 64
-		level2SlotMask := biter.SetBits[level2Slot]
-		for i, hashColumn := range blkHash {
-			level0Pbfs := level0SlotIndex.pbfs[i]
-			level1Pbfs := level1SlotIndex.pbfs[i]
-			level2Pbfs := level2SlotIndex.pbfs[i]
-			for _, hashedElem := range hashColumn {
-				level0Pbfs.Put(level0SlotMask, strategy.smallHashingStrategy.HashStage2(hashedElem))
-				level1Pbfs.Put(level1SlotMask, strategy.mediumHashingStrategy.HashStage2(hashedElem))
-				level2Pbfs.Put(level2SlotMask, strategy.largeHashingStrategy.HashStage2(hashedElem))
-			}
-		}
-		tailOffset += Offset(blockLength)
-	}
-	// ensure blocks are persisted
-	indexer.head.tailBlockSeq = tailBlockSeq
-	err = indexer.headMMap.Flush()
-	countlog.TraceCall("callee!headMMap.Flush", err, "tailBlockSeq", indexer.head.tailBlockSeq)
-	err = indexer.saveIndices(ctx, level0SlotIndex, level1SlotIndex, level2SlotIndex)
-	countlog.TraceCall("callee!indexer.saveIndices", err)
-	err = indexer.store.writer.switchIndexedSegment(ctx, store.headSegment, purgedRawSegmentsCount)
-	if err != nil {
-		return err
-	}
+	//// version will not change during compaction
+	//store := indexer.currentVersion
+	//blockManager := indexer.store.blockManager
+	//strategy := indexer.store.indexingStrategy
+	//countlog.Trace("event!indexer.run")
+	//if len(store.rawSegments) == 0 {
+	//	return nil
+	//}
+	//tailBlockSeq := indexer.head.tailBlockSeq
+	//tailOffset := indexer.head.tailOffset
+	//purgedRawSegmentsCount := 0
+	//for _, rawSegment := range store.rawSegments {
+	//	purgedRawSegmentsCount++
+	//	// TODO: ensure rawSegment is actually blockLength
+	//}
+	//// ensure blocks are persisted
+	//indexer.head.tailBlockSeq = tailBlockSeq
+	//err = indexer.headMMap.Flush()
+	//countlog.TraceCall("callee!headMMap.Flush", err, "tailBlockSeq", indexer.head.tailBlockSeq)
+	//err = indexer.saveIndices(ctx, level0SlotIndex, level1SlotIndex, level2SlotIndex)
+	//countlog.TraceCall("callee!indexer.saveIndices", err)
+	//err = indexer.store.writer.switchIndexedSegment(ctx, store.headSegment, purgedRawSegmentsCount)
+	//if err != nil {
+	//	return err
+	//}
 	return nil
-}
-
-func (indexer *indexer) saveIndices(ctx countlog.Context,
-	level0SlotIndex *slotIndex, level1SlotIndex *slotIndex, level2SlotIndex *slotIndex) error {
-	return plz.MergeErrors(
-		saveIndexingSegment(ctx, &indexer.store.Config, 0, level0SlotIndex),
-		saveIndexingSegment(ctx, &indexer.store.Config, 1, level1SlotIndex),
-		saveIndexingSegment(ctx, &indexer.store.Config, 2, level2SlotIndex),
-	)
 }
