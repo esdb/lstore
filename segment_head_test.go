@@ -378,3 +378,37 @@ func Test_add_64x64x64x64x64_plus_1_blocks(t *testing.T) {
 	result = level5SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[1], result)
 }
+
+func Test_add_64x64x64x64x64x64_plus_1_blocks(t *testing.T) {
+	blockLength = 2
+	blockLengthInPowerOfTwo = 1
+	should := require.New(t)
+	editing := testEditingHead()
+	editing.tailOffset = Offset(64 * 64 * 64 * 64 * 64 * 64 * blockLength)
+	editing.addBlock(ctx, newBlock(0, []*Entry{
+		blobEntry("final block"),
+	}))
+	should.Equal(level(6), editing.topLevel)
+	strategy := editing.strategy
+	level0SlotIndex := editing.editedLevels[0]
+	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "final block"))
+	should.Equal(biter.SetBits[0], result)
+	level1SlotIndex := editing.editedLevels[1]
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "final block"))
+	should.Equal(biter.SetBits[0], result)
+	level2SlotIndex := editing.editedLevels[2]
+	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
+	should.Equal(biter.SetBits[0], result)
+	level3SlotIndex := editing.editedLevels[3]
+	result = level3SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
+	should.Equal(biter.SetBits[0], result)
+	level4SlotIndex := editing.editedLevels[4]
+	result = level4SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
+	should.Equal(biter.SetBits[0], result)
+	level5SlotIndex := editing.editedLevels[5]
+	result = level5SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
+	should.Equal(biter.SetBits[0], result)
+	level6SlotIndex := editing.editedLevels[6]
+	result = level6SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
+	should.Equal(biter.SetBits[1], result)
+}

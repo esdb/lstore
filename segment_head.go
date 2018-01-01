@@ -319,8 +319,34 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 	}
 	level5Slots := level4Slots >> 6
 	level5Slot := level5Slots % 64
-	level5SlotIndex.children[level5Slot - 1] = level4SlotIndexSeq
+	shouldExpand = level5Slot == 0
+	if !shouldExpand {
+		level5SlotIndex.children[level5Slot - 1] = level4SlotIndexSeq
+		editing.editedLevels[4] = newSlotIndex(editing.strategy, 4)
+		return level0Slot, level1Slot, level2Slot, level2Slots, nil
+	}
+	level5SlotIndex.children[63] = level4SlotIndexSeq
 	editing.editedLevels[4] = newSlotIndex(editing.strategy, 4)
+	level5SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
+	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level5SlotIndex)
+	ctx.TraceCall("callee!editing.writeSlotIndex", err)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	justMovedTopLevel = editing.topLevel < 6
+	level6SlotIndex := editing.editLevel(6)
+	if justMovedTopLevel {
+		level6SlotIndex.updateSlot(biter.SetBits[0], level5SlotIndex)
+	}
+	level6Slots := level5Slots >> 6
+	level6Slot := level6Slots % 64
+	shouldExpand = level6Slot == 0
+	if !shouldExpand {
+		level6SlotIndex.children[level6Slot - 1] = level5SlotIndexSeq
+		editing.editedLevels[5] = newSlotIndex(editing.strategy, 5)
+		return level0Slot, level1Slot, level2Slot, level2Slots, nil
+	}
+	panic("bloom filter tree exceed capacity")
 	return level0Slot, level1Slot, level2Slot, level2Slots, nil
 }
 
