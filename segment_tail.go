@@ -71,7 +71,7 @@ func createTailSegment(filename string, maxSize int64, startOffset Offset) (*os.
 		return nil, err
 	}
 	stream := gocodec.NewStream(nil)
-	stream.Marshal(segmentHeader{segmentType: SegmentTypeRowBased, startOffset: startOffset})
+	stream.Marshal(segmentHeader{segmentType: segmentTypeRowBased, startOffset: startOffset})
 	if stream.Error != nil {
 		return nil, stream.Error
 	}

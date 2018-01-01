@@ -59,7 +59,7 @@ func (mgr *dataManager) Close() error {
 			countlog.Error("event!dataManager.failed to close file", "err", err)
 		}
 	}
-	return plz.NewMultiError(errs)
+	return plz.MergeErrors(errs...)
 }
 
 func (mgr *dataManager) writeBuf(seq uint64, buf []byte) error {

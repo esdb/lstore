@@ -11,7 +11,7 @@ func loadInitialVersion(ctx countlog.Context, config *Config) (*StoreVersion, er
 	if err != nil {
 		return nil, err
 	}
-	version.indexedSegment = indexedSegment
+	version.headSegment = indexedSegment
 	err = loadTailAndRawSegments(ctx, config, version)
 	ctx.TraceCall("callee!store.loadTailAndRawSegments", err)
 	if err != nil {
@@ -27,7 +27,7 @@ func loadTailAndRawSegments(ctx countlog.Context, config *Config, version *Editi
 	}
 	var reversedRawSegments []*rawSegment
 	startOffset := tailSegment.startOffset
-	for startOffset != version.indexedSegment.tailOffset {
+	for startOffset != version.headSegment.tailOffset {
 		rawSegmentPath := config.RawSegmentPath(startOffset)
 		rawSegment, err := openRawSegment(ctx, rawSegmentPath)
 		if err != nil {

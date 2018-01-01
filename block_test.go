@@ -10,17 +10,14 @@ func Test_create_block(t *testing.T) {
 	strategy := newIndexingStrategy(&indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
-	blk := newBlock([]Row{
-		{Seq: 1, Entry: &Entry{
-			IntValues: []int64{1, 2},
-			BlobValues: []Blob{"hello"},
-		}},
-		{Seq: 2, Entry: &Entry{
-			IntValues: []int64{3, 4},
-			BlobValues: []Blob{"world"},
-		}},
-	})
-	should.Equal([]RowSeq{1, 2}, blk.seqColumn)
+	blk := newBlock(0, []*Entry{{
+		IntValues:  []int64{1, 2},
+		BlobValues: []Blob{"hello"},
+	}, {
+		IntValues:  []int64{3, 4},
+		BlobValues: []Blob{"world"},
+	}})
+	should.Equal(0, blk.startOffset)
 	should.Equal(intColumn{1, 3}, blk.intColumns[0])
 	should.Equal(intColumn{2, 4}, blk.intColumns[1])
 	should.Equal(blobColumn{"hello", "world"}, blk.blobColumns[0])
@@ -39,7 +36,6 @@ func Benchmark_column_based_block_scan(b *testing.B) {
 	}
 	columnSize := 256
 	blk := &block{
-		seqColumn:       make([]RowSeq, columnSize),
 		intColumns:      []intColumn{make(intColumn, columnSize)},
 		blobHashColumns: []blobHashColumn{make(blobHashColumn, columnSize)},
 		blobColumns:     []blobColumn{make(blobColumn, columnSize)},

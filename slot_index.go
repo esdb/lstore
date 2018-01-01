@@ -21,12 +21,13 @@ func newSlotIndex(indexingStrategy *indexingStrategy,
 	return &slotIndex{pbfs, nil}
 }
 
-func (idx *slotIndex) copy() slotIndex {
-	newVersion := slotIndex{}
+func (idx *slotIndex) copy() *slotIndex {
+	newVersion := &slotIndex{}
 	newVersion.pbfs = make([]pbloom.ParallelBloomFilter, len(idx.pbfs))
 	for i := 0; i < len(newVersion.pbfs); i++ {
 		newVersion.pbfs[i] = append(pbloom.ParallelBloomFilter(nil), idx.pbfs[i]...)
 	}
+	newVersion.children = append([]uint64(nil), idx.children...)
 	return newVersion
 }
 

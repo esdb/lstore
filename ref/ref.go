@@ -14,7 +14,7 @@ type ReferenceCounted struct {
 }
 
 func NewReferenceCounted(resourceName string, resources ...io.Closer) *ReferenceCounted {
-	return &ReferenceCounted{resourceName: resourceName, referenceCounter: 1, resources: resources}
+	return &ReferenceCounted{resourceName: resourceName, referenceCounter: 0, resources: resources}
 }
 
 func (refCnt *ReferenceCounted) Acquire() bool {
@@ -43,7 +43,7 @@ func (refCnt *ReferenceCounted) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	return plz.NewMultiError(errs)
+	return plz.MergeErrors(errs...)
 }
 
 func (refCnt *ReferenceCounted) decreaseReference() bool {

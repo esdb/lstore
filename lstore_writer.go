@@ -258,7 +258,7 @@ func (writer *writer) switchIndexedSegment(
 		oldVersion := writer.currentVersion
 		newVersion := oldVersion.edit()
 		newVersion.rawSegments = oldVersion.rawSegments[purgedRawSegmentsCount:]
-		newVersion.indexedSegment = newIndexedSegment
+		newVersion.headSegment = newIndexedSegment
 		writer.updateCurrentVersion(newVersion.seal())
 		resultChan <- nil
 		return

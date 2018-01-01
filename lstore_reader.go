@@ -97,7 +97,7 @@ func (reader *Reader) Search(ctx context.Context, req SearchRequest) RowIterator
 func scanForward(reader *Reader, filters []Filter) chunkIterator {
 	store := reader.currentVersion
 	blockManager := reader.store.blockManager
-	iter1 := store.indexedSegment.scanForward(blockManager, filters)
+	iter1 := store.headSegment.scanForward(blockManager, filters)
 	var chunks []chunk
 	for _, rawSegment := range store.rawSegments {
 		chunks = append(chunks, rawSegment.rows)

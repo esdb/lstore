@@ -24,28 +24,28 @@ func Test_write_block_to_file_head(t *testing.T) {
 	should := require.New(t)
 	mgr := testBlockManager(30)
 	defer mgr.Close()
-	size, _, err := mgr.writeBlock(0, &block{seqColumn: []RowSeq{1}})
+	size, _, err := mgr.writeBlock(0, &block{startOffset: 1})
 	should.Nil(err)
 	should.True(size > 0)
 	mgr.blockCache.Purge()
 	blk, err := mgr.readBlock(0)
 	should.Nil(err)
-	should.Equal([]RowSeq{1}, blk.seqColumn)
+	should.Equal(Offset(1), blk.startOffset)
 }
 
 func Test_block_cache(t *testing.T) {
 	should := require.New(t)
 	mgr := testBlockManager(30)
 	defer mgr.Close()
-	size, _, err := mgr.writeBlock(0, &block{seqColumn: []RowSeq{1}})
+	size, _, err := mgr.writeBlock(0, &block{startOffset: 1})
 	should.Nil(err)
 	should.True(size > 0)
 	blk, err := mgr.readBlock(0)
 	should.Nil(err)
-	should.Equal([]RowSeq{1}, blk.seqColumn)
+	should.Equal(Offset(1), blk.startOffset)
 	blk, err = mgr.readBlock(0)
 	should.Nil(err)
-	should.Equal([]RowSeq{1}, blk.seqColumn)
+	should.Equal(Offset(1), blk.startOffset)
 
 }
 
@@ -57,9 +57,7 @@ func Test_block_hash_cache(t *testing.T) {
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	mgr.indexingStrategy = strategy
-	blk := newBlock([]Row{
-		{Seq: 0, Entry: &Entry{BlobValues: []Blob{"hello"}}},
-	})
+	blk := newBlock(0, []*Entry{{BlobValues: []Blob{"hello"}}})
 	mgr.writeBlock(0, blk)
 	blkHash, err := mgr.readBlockHash(0)
 	should.Nil(err)
@@ -79,24 +77,24 @@ func Test_write_block_to_file_body(t *testing.T) {
 	should := require.New(t)
 	mgr := testBlockManager(14)
 	defer mgr.Close()
-	size, _, err := mgr.writeBlock(2 << 14 + 777, &block{seqColumn: []RowSeq{1}})
+	size, _, err := mgr.writeBlock(2 << 14 + 777, &block{startOffset: 1})
 	should.Nil(err)
 	should.True(size > 0)
 	mgr.blockCache.Purge()
 	blk, err := mgr.readBlock(2 << 14 + 777)
 	should.Nil(err)
-	should.Equal([]RowSeq{1}, blk.seqColumn)
+	should.Equal(Offset(1), blk.startOffset)
 }
 
 func Test_write_block_to_file_tail_cutting_off_header(t *testing.T) {
 	should := require.New(t)
 	mgr := testBlockManager(3)
 	defer mgr.Close()
-	size, _, err := mgr.writeBlock(0, &block{seqColumn: []RowSeq{1}})
+	size, _, err := mgr.writeBlock(0, &block{startOffset: 1})
 	should.Nil(err)
 	should.True(size > 0)
 	mgr.blockCache.Purge()
 	blk, err := mgr.readBlock(0)
 	should.Nil(err)
-	should.Equal([]RowSeq{1}, blk.seqColumn)
+	should.Equal(Offset(1), blk.startOffset)
 }

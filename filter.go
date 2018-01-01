@@ -73,9 +73,8 @@ type blobValueFilter struct {
 	bigBloom      pbloom.BloomElement
 }
 
-func (store *Store) NewBlobValueFilter(
+func (strategy *indexingStrategy) NewBlobValueFilter(
 	column int, value Blob) Filter {
-	strategy := store.blockManager.indexingStrategy
 	indexedColumn := strategy.lookupBlobColumn(column)
 	hashed := strategy.smallHashingStrategy.HashStage1(*(*[]byte)((unsafe.Pointer)(&value)))
 	return &blobValueFilter{
