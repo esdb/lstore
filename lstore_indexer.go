@@ -147,10 +147,10 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 		if err != nil {
 			return err
 		}
-		slots := tailOffset >> 8
+		slots := int(tailOffset) >> 8
 		blkHash := blk.Hash(strategy)
 		level0Slot := slots % 64
-		if Offset(len(level0SlotIndex.children)) != level0Slot {
+		if len(level0SlotIndex.children) != level0Slot {
 			countlog.Error("event!indexer.slot assignment not aligned",
 				"level0Slot", level0Slot,
 				"childrenCount", len(level0SlotIndex.children))

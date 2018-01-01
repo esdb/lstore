@@ -31,7 +31,7 @@ func testEditingHead() *editingHead {
 	for level := level0; level < 9; level++ {
 		levels = append(levels, &indexingSegment{
 			indexingSegmentVersion: indexingSegmentVersion{
-				slotIndex: newSlotIndex(strategy, strategy.hashingStrategy(level)),
+				slotIndex: newSlotIndex(strategy, level),
 			},
 		})
 	}
@@ -40,6 +40,9 @@ func testEditingHead() *editingHead {
 		headSegmentVersion: &headSegmentVersion{},
 		writeBlock: func(seq blockSeq, block *block) (blockSeq, error) {
 			return seq + 6, nil
+		},
+		writeSlotIndex: func(seq slotIndexSeq, index *slotIndex) (slotIndexSeq, error) {
+			return seq + 7, nil
 		},
 		levels: levels,
 	}
@@ -91,16 +94,40 @@ func Test_add_two_blocks(t *testing.T) {
 func Test_add_64_blocks(t *testing.T) {
 	should := require.New(t)
 	editing := testEditingHead()
-	for i := 0; i< 64; i++ {
+	for i := 0; i < 64; i++ {
 		editing.addBlock(ctx, newBlock(0, []*Entry{
 			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
 		}))
 	}
-	should.Equal(blockSeq(6 * 64), editing.tailBlockSeq)
+	should.Equal(blockSeq(6*64), editing.tailBlockSeq)
 	level0SlotIndex := editing.editedLevels[0]
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello0"))
-	should.Equal(biter.SetBits[0], result & biter.SetBits[0])
+	should.Equal(biter.SetBits[0], result&biter.SetBits[0])
 	result = level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello63"))
-	should.Equal(biter.SetBits[63], result & biter.SetBits[63])
+	should.Equal(biter.SetBits[63], result&biter.SetBits[63])
+}
+
+func Test_add_65_blocks(t *testing.T) {
+	should := require.New(t)
+	editing := testEditingHead()
+	for i := 0; i < 65; i++ {
+		editing.addBlock(ctx, newBlock(0, []*Entry{
+			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
+		}))
+	}
+	should.Equal(blockSeq(6*65), editing.tailBlockSeq)
+	should.Equal(slotIndexSeq(7), editing.tailSlotIndexSeq)
+	should.Equal([]uint64{7}, editing.editedLevels[1].children)
+	level0SlotIndex := editing.editedLevels[0]
+	strategy := editing.strategy
+	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello0"))
+	should.Equal(biter.Bits(0), result, "level0 moved on, forget the old values")
+	result = level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello64"))
+	should.Equal(biter.SetBits[0], result)
+	level1SlotIndex := editing.editedLevels[1]
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello0"))
+	should.Equal(biter.SetBits[0], result, "level1 still remembers")
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello64"))
+	should.Equal(biter.SetBits[1], result)
 }

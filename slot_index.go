@@ -8,12 +8,12 @@ import (
 type slotIndexSeq uint64
 
 type slotIndex struct {
-	pbfs []pbloom.ParallelBloomFilter // 64 slots
-	children []uint64 // 64 slots, can be blockSeq or slotIndexSeq
+	pbfs     []pbloom.ParallelBloomFilter // 64 slots
+	children []uint64                     // 64 slots, can be blockSeq or slotIndexSeq
 }
 
-func newSlotIndex(indexingStrategy *indexingStrategy,
-	hashingStrategy *pbloom.HashingStrategy) *slotIndex {
+func newSlotIndex(indexingStrategy *indexingStrategy, level level) *slotIndex {
+	hashingStrategy := indexingStrategy.hashingStrategy(level)
 	pbfs := make([]pbloom.ParallelBloomFilter, indexingStrategy.bloomFilterIndexedColumnsCount())
 	for i := 0; i < len(pbfs); i++ {
 		pbfs[i] = hashingStrategy.New()

@@ -39,6 +39,7 @@ type editingHead struct {
 	levels       []*indexingSegment
 	editedLevels []*slotIndex
 	writeBlock   func(blockSeq, *block) (blockSeq, error)
+	writeSlotIndex func(slotIndexSeq, *slotIndex) (slotIndexSeq, error)
 	strategy     *indexingStrategy
 }
 
@@ -124,7 +125,7 @@ func initIndexedSegment(ctx countlog.Context, config *Config, strategy *indexing
 		stream.Reset(nil)
 		stream.Marshal(indexingSegmentVersion{
 			segmentHeader: segmentHeader{segmentType: segmentTypeIndexing},
-			slotIndex:     newSlotIndex(strategy, strategy.hashingStrategy(level)),
+			slotIndex:     newSlotIndex(strategy, level),
 		})
 		if stream.Error != nil {
 			return stream.Error
@@ -180,25 +181,13 @@ func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) error {
 	if err != nil {
 		return err
 	}
+	level0SlotMask, level1SlotMask, level2SlotMask, err := editing.expand(ctx)
+	if err != nil {
+		return err
+	}
 	level0SlotIndex := editing.editLevel(level0)
 	level1SlotIndex := editing.editLevel(level1)
 	level2SlotIndex := editing.editLevel(level2)
-	slots := editing.tailOffset >> 8
-	level0Slot := slots % 64
-	if Offset(len(level0SlotIndex.children)) != level0Slot {
-		countlog.Error("event!indexer.slot assignment inconsistent",
-			"totalSlots", slots,
-			"level0Slot", level0Slot,
-			"childrenCount", len(level0SlotIndex.children))
-		return errors.New("internal error: slot assignment inconsistent")
-	}
-	level0SlotMask := biter.SetBits[level0Slot]
-	slots = slots >> 6
-	level1Slot := slots % 64
-	level1SlotMask := biter.SetBits[level1Slot]
-	slots = slots >> 6
-	level2Slot := slots % 64
-	level2SlotMask := biter.SetBits[level2Slot]
 	level0SlotIndex.children = append(level0SlotIndex.children, uint64(blockSeq))
 	blkHash := blk.Hash(editing.strategy)
 	smallHashingStrategy := editing.strategy.smallHashingStrategy
@@ -216,6 +205,48 @@ func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) error {
 	}
 	editing.tailOffset += blockLength
 	return nil
+}
+
+func (editing *editingHead) expand(ctx countlog.Context) (biter.Bits, biter.Bits, biter.Bits, error) {
+	level0SlotIndex := editing.editLevel(level0)
+	level0Slots := int(editing.tailOffset) >> 8
+	level0Slot := level0Slots % 64
+	level0SlotMask := biter.SetBits[level0Slot]
+	level1Slots := level0Slots >> 6
+	level1Slot := level1Slots % 64
+	level1SlotMask := biter.SetBits[level1Slot]
+	level2Slots := level1Slots >> 6
+	level2Slot := level2Slots % 64
+	level2SlotMask := biter.SetBits[level2Slot]
+	shouldExpand := level0Slot == 0 && len(level0SlotIndex.children) == 64
+	if !shouldExpand {
+		if len(level0SlotIndex.children) != level0Slot {
+			countlog.Error("event!indexer.slot assignment inconsistent",
+				"level0Slots", level0Slots,
+				"level0Slot", level0Slot,
+				"childrenCount", len(level0SlotIndex.children))
+			return 0, 0, 0, errors.New("internal error: slot assignment inconsistent")
+		}
+		return level0SlotMask, level1SlotMask, level2SlotMask, nil
+	}
+	var err error
+	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level0SlotIndex)
+	ctx.TraceCall("callee!editing.writeSlotIndex", err)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	level1SlotIndex := editing.editLevel(level1)
+	if len(level1SlotIndex.children) + 1 != level1Slot {
+		countlog.Error("event!indexer.slot assignment inconsistent",
+			"level0Slots", level0Slots,
+			"level1Slots", level1Slots,
+			"level1Slot", level1Slot,
+			"childrenCount", len(level1SlotIndex.children))
+		return 0, 0, 0, errors.New("internal error: slot assignment inconsistent")
+	}
+	level1SlotIndex.children = append(level1SlotIndex.children, uint64(editing.tailSlotIndexSeq))
+	editing.editedLevels[level0] = newSlotIndex(editing.strategy, level0)
+	return level0SlotMask, level1SlotMask, level2SlotMask, nil
 }
 
 func (editing *editingHead) editLevel(level level) *slotIndex {
