@@ -56,7 +56,7 @@ func Test_add_first_block(t *testing.T) {
 	}))
 	should.Equal(blockSeq(6), editing.tailBlockSeq)
 	level0SlotIndex := editing.editedLevels[0]
-	should.Equal([]uint64{0}, level0SlotIndex.children)
+	should.Equal([]uint64{0}, level0SlotIndex.children[:1])
 	strategy := editing.strategy
 	filterHello := strategy.NewBlobValueFilter(0, "hello")
 	result := level0SlotIndex.searchSmall(filterHello)
@@ -81,7 +81,7 @@ func Test_add_two_blocks(t *testing.T) {
 	}))
 	should.Equal(blockSeq(12), editing.tailBlockSeq)
 	level0SlotIndex := editing.editedLevels[0]
-	should.Equal([]uint64{0, 6}, level0SlotIndex.children)
+	should.Equal([]uint64{0, 6}, level0SlotIndex.children[:2])
 	strategy := editing.strategy
 	filterHello := strategy.NewBlobValueFilter(0, "hello")
 	result := level0SlotIndex.searchSmall(filterHello)
@@ -100,6 +100,7 @@ func Test_add_64_blocks(t *testing.T) {
 		}))
 	}
 	should.Equal(blockSeq(6*64), editing.tailBlockSeq)
+	should.Equal(slotIndexSeq(0), editing.tailSlotIndexSeq)
 	level0SlotIndex := editing.editedLevels[0]
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello0"))
@@ -118,7 +119,7 @@ func Test_add_65_blocks(t *testing.T) {
 	}
 	should.Equal(blockSeq(6*65), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(7), editing.tailSlotIndexSeq)
-	should.Equal([]uint64{7}, editing.editedLevels[1].children)
+	should.Equal([]uint64{0}, editing.editedLevels[1].children[:1])
 	level0SlotIndex := editing.editedLevels[0]
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello0"))
@@ -142,7 +143,7 @@ func Test_add_66_blocks(t *testing.T) {
 	}
 	should.Equal(blockSeq(6*66), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(7), editing.tailSlotIndexSeq)
-	should.Equal([]uint64{7}, editing.editedLevels[1].children)
+	should.Equal([]uint64{0}, editing.editedLevels[1].children[:1])
 	level0SlotIndex := editing.editedLevels[0]
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello65"))
@@ -150,8 +151,32 @@ func Test_add_66_blocks(t *testing.T) {
 	level1SlotIndex := editing.editedLevels[1]
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello65"))
 	should.Equal(biter.SetBits[1], result)
-	should.Equal(2, len(editing.editedLevels[0].children))
-	should.Equal(1, len(editing.editedLevels[1].children))
+}
+
+func Test_add_129_blocks(t *testing.T) {
+	should := require.New(t)
+	editing := testEditingHead()
+	for i := 0; i < 129; i++ {
+		editing.addBlock(ctx, newBlock(0, []*Entry{
+			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
+		}))
+	}
+	should.Equal(blockSeq(6*129), editing.tailBlockSeq)
+	should.Equal(slotIndexSeq(14), editing.tailSlotIndexSeq)
+	should.Equal([]uint64{0, 7}, editing.editedLevels[1].children[:2])
+	level0SlotIndex := editing.editedLevels[0]
+	strategy := editing.strategy
+	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello128"))
+	should.Equal(biter.SetBits[0], result)
+	level1SlotIndex := editing.editedLevels[1]
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello63"))
+	should.Equal(biter.SetBits[0], result)
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello64"))
+	should.Equal(biter.SetBits[1], result)
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello127"))
+	should.Equal(biter.SetBits[1], result)
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello128"))
+	should.Equal(biter.SetBits[2], result)
 }
 
 func Test_add_64x64_blocks(t *testing.T) {
@@ -173,8 +198,6 @@ func Test_add_64x64_blocks(t *testing.T) {
 	level1SlotIndex := editing.editedLevels[1]
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello4095"))
 	should.Equal(biter.SetBits[63], result)
-	should.Equal(64, len(editing.editedLevels[0].children))
-	should.Equal(63, len(editing.editedLevels[1].children))
 }
 
 func Test_add_64x64_plus_1_blocks(t *testing.T) {
@@ -304,10 +327,6 @@ func Test_add_64x64x64x64_plus_1_blocks(t *testing.T) {
 	should := require.New(t)
 	editing := testEditingHead()
 	editing.tailOffset = Offset(64 * 64 * 64 * 64 * blockLength)
-	editing.editLevel(level0).children = make([]uint64, 64)
-	editing.editLevel(level1).children = make([]uint64, 63)
-	editing.editLevel(level2).children = make([]uint64, 63)
-	editing.editLevel(3).children = make([]uint64, 63)
 	editing.addBlock(ctx, newBlock(0, []*Entry{
 		blobEntry("final block"),
 	}))
