@@ -31,7 +31,7 @@ func (idx *slotIndex) copy() *slotIndex {
 	return newVersion
 }
 
-func (idx *slotIndex) searchLarge(filters []Filter) biter.Bits {
+func (idx *slotIndex) searchLarge(filters ...Filter) biter.Bits {
 	result := biter.SetAllBits
 	for _, filter := range filters {
 		result &= filter.searchLargeIndex(idx)
@@ -39,7 +39,7 @@ func (idx *slotIndex) searchLarge(filters []Filter) biter.Bits {
 	return result
 }
 
-func (idx *slotIndex) searchMedium(filters []Filter) biter.Bits {
+func (idx *slotIndex) searchMedium(filters ...Filter) biter.Bits {
 	result := biter.SetAllBits
 	for _, filter := range filters {
 		result &= filter.searchMediumIndex(idx)
@@ -47,7 +47,7 @@ func (idx *slotIndex) searchMedium(filters []Filter) biter.Bits {
 	return result
 }
 
-func (idx *slotIndex) searchSmall(filters []Filter) biter.Bits {
+func (idx *slotIndex) searchSmall(filters ...Filter) biter.Bits {
 	result := biter.SetAllBits
 	for _, filter := range filters {
 		result &= filter.searchSmallIndex(idx)

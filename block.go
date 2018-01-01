@@ -116,7 +116,7 @@ func (strategy *indexingStrategy) hashingStrategy(level level) *pbloom.HashingSt
 }
 
 func newBlock(startOffset Offset, rows []*Entry) *block {
-	rowsCount := len(rows)
+	rowsCount := blockLength
 	intColumnsCount := len(rows[0].IntValues)
 	intColumns := make([]intColumn, intColumnsCount)
 	for i := 0; i < intColumnsCount; i++ {

@@ -12,6 +12,7 @@ import (
 	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/plz"
 	"github.com/esdb/biter"
+	"errors"
 )
 
 const level0 level = 0 // small
@@ -171,21 +172,50 @@ func (segment *headSegment) edit() (*slotIndex, *slotIndex, *slotIndex) {
 	return level0Copy, level1Copy, level2Copy
 }
 
-func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) {
+func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) error {
 	var err error
 	blockSeq := editing.tailBlockSeq
 	editing.tailBlockSeq, err = editing.writeBlock(blockSeq, blk)
 	ctx.TraceCall("callee!editing.writeBlock", err)
+	if err != nil {
+		return err
+	}
 	level0SlotIndex := editing.editLevel(level0)
+	level1SlotIndex := editing.editLevel(level1)
+	level2SlotIndex := editing.editLevel(level2)
+	slots := editing.tailOffset >> 8
+	level0Slot := slots % 64
+	if Offset(len(level0SlotIndex.children)) != level0Slot {
+		countlog.Error("event!indexer.slot assignment inconsistent",
+			"totalSlots", slots,
+			"level0Slot", level0Slot,
+			"childrenCount", len(level0SlotIndex.children))
+		return errors.New("internal error: slot assignment inconsistent")
+	}
+	level0SlotMask := biter.SetBits[level0Slot]
+	slots = slots >> 6
+	level1Slot := slots % 64
+	level1SlotMask := biter.SetBits[level1Slot]
+	slots = slots >> 6
+	level2Slot := slots % 64
+	level2SlotMask := biter.SetBits[level2Slot]
 	level0SlotIndex.children = append(level0SlotIndex.children, uint64(blockSeq))
 	blkHash := blk.Hash(editing.strategy)
 	smallHashingStrategy := editing.strategy.smallHashingStrategy
+	mediumHashingStrategy := editing.strategy.mediumHashingStrategy
+	largeHashingStrategy := editing.strategy.largeHashingStrategy
 	for i, hashColumn := range blkHash {
-		pbf := level0SlotIndex.pbfs[i]
+		pbf0 := level0SlotIndex.pbfs[i]
+		pbf1 := level1SlotIndex.pbfs[i]
+		pbf2 := level2SlotIndex.pbfs[i]
 		for _, hashedElement := range hashColumn {
-			pbf.Put(biter.SetBits[0], smallHashingStrategy.HashStage2(hashedElement))
+			pbf0.Put(level0SlotMask, smallHashingStrategy.HashStage2(hashedElement))
+			pbf1.Put(level1SlotMask, mediumHashingStrategy.HashStage2(hashedElement))
+			pbf2.Put(level2SlotMask, largeHashingStrategy.HashStage2(hashedElement))
 		}
 	}
+	editing.tailOffset += blockLength
+	return nil
 }
 
 func (editing *editingHead) editLevel(level level) *slotIndex {

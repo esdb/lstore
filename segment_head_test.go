@@ -8,7 +8,6 @@ import (
 	"github.com/esdb/biter"
 )
 
-
 func intEntry(values ...int64) *Entry {
 	return &Entry{EntryType: EntryTypeData, IntValues: values}
 }
@@ -36,7 +35,7 @@ func testEditingHead() *editingHead {
 		})
 	}
 	return &editingHead{
-		strategy: strategy,
+		strategy:           strategy,
 		headSegmentVersion: &headSegmentVersion{},
 		writeBlock: func(seq blockSeq, block *block) (blockSeq, error) {
 			return seq + 6, nil
@@ -55,7 +54,35 @@ func Test_add_first_block(t *testing.T) {
 	level0SlotIndex := editing.editedLevels[0]
 	should.Equal([]uint64{0}, level0SlotIndex.children)
 	strategy := editing.strategy
-	filter := strategy.NewBlobValueFilter(0, "hello")
-	result := level0SlotIndex.searchSmall([]Filter{filter})
+	filterHello := strategy.NewBlobValueFilter(0, "hello")
+	result := level0SlotIndex.searchSmall(filterHello)
 	should.Equal(biter.SetBits[0], result)
+	result = editing.editedLevels[1].searchMedium(filterHello)
+	should.Equal(biter.SetBits[0], result)
+	result = editing.editedLevels[2].searchLarge(filterHello)
+	should.Equal(biter.SetBits[0], result)
+	filter123 := strategy.NewBlobValueFilter(0, "123")
+	result = editing.editedLevels[2].searchLarge(filter123)
+	should.Equal(biter.Bits(0), result)
+}
+
+func Test_add_two_blocks(t *testing.T) {
+	should := require.New(t)
+	editing := testEditingHead()
+	editing.addBlock(ctx, newBlock(0, []*Entry{
+		blobEntry("hello"),
+	}))
+	editing.addBlock(ctx, newBlock(0, []*Entry{
+		blobEntry("world"),
+	}))
+	should.Equal(blockSeq(12), editing.tailBlockSeq)
+	level0SlotIndex := editing.editedLevels[0]
+	should.Equal([]uint64{0, 6}, level0SlotIndex.children)
+	strategy := editing.strategy
+	filterHello := strategy.NewBlobValueFilter(0, "hello")
+	result := level0SlotIndex.searchSmall(filterHello)
+	should.Equal(biter.SetBits[0], result)
+	filterWorld := strategy.NewBlobValueFilter(0, "world")
+	result = level0SlotIndex.searchSmall(filterWorld)
+	should.Equal(biter.SetBits[1], result)
 }
