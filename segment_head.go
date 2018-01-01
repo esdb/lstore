@@ -273,13 +273,33 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 	justMovedTopLevel := editing.topLevel < 3
 	level3SlotIndex := editing.editLevel(3)
 	if justMovedTopLevel {
-		slot0Mask := biter.SetBits[0]
-		level3SlotIndex.updateSlot(slot0Mask, level2SlotIndex)
+		level3SlotIndex.updateSlot(biter.SetBits[0], level2SlotIndex)
 	}
 	level3Slots := level2Slots >> 6
 	level3Slot := level3Slots % 64
-	level3SlotIndex.children[level3Slot] = level2SlotIndexSeq
+	shouldExpand = level3Slot == 0
+	if !shouldExpand {
+		level2SlotIndex.children[level3Slot - 1] = level2SlotIndexSeq
+		editing.editedLevels[level2] = newSlotIndex(editing.strategy, level2)
+		return level0Slot, level1Slot, level2Slot, level2Slots, nil
+	}
+	level3SlotIndex.children[63] = level2SlotIndexSeq
 	editing.editedLevels[level2] = newSlotIndex(editing.strategy, level2)
+	level3SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
+	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level3SlotIndex)
+	ctx.TraceCall("callee!editing.writeSlotIndex", err)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	justMovedTopLevel = editing.topLevel < 4
+	level4SlotIndex := editing.editLevel(4)
+	if justMovedTopLevel {
+		level4SlotIndex.updateSlot(biter.SetBits[0], level3SlotIndex)
+	}
+	level4Slots := level3Slots >> 6
+	level4Slot := level4Slots % 64
+	level3SlotIndex.children[level4Slot - 1] = level3SlotIndexSeq
+	editing.editedLevels[3] = newSlotIndex(editing.strategy, 3)
 	return level0Slot, level1Slot, level2Slot, level2Slots, nil
 }
 

@@ -321,7 +321,6 @@ func Test_add_64x64x64x2_plus_1_blocks(t *testing.T) {
 }
 
 func Test_add_64x64x64x64_plus_1_blocks(t *testing.T) {
-	t.Skip()
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
@@ -346,5 +345,5 @@ func Test_add_64x64x64x64_plus_1_blocks(t *testing.T) {
 	should.Equal(biter.SetBits[0], result)
 	level4SlotIndex := editing.editedLevels[4]
 	result = level4SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
-	should.Equal(biter.SetBits[0], result)
+	should.Equal(biter.SetBits[1], result)
 }
