@@ -346,6 +346,27 @@ func (editing *editingHead) nextSlot(ctx countlog.Context) (int, int, int, int, 
 		editing.editedLevels[5] = newSlotIndex(editing.strategy, 5)
 		return level0Slot, level1Slot, level2Slot, level2Slots, nil
 	}
+	level6SlotIndex.children[63] = level5SlotIndexSeq
+	editing.editedLevels[5] = newSlotIndex(editing.strategy, 5)
+	level6SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
+	editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level6SlotIndex)
+	ctx.TraceCall("callee!editing.writeSlotIndex", err)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	justMovedTopLevel = editing.topLevel < 7
+	level7SlotIndex := editing.editLevel(7)
+	if justMovedTopLevel {
+		level7SlotIndex.updateSlot(biter.SetBits[0], level6SlotIndex)
+	}
+	level7Slots := level6Slots >> 6
+	level7Slot := level7Slots % 64
+	shouldExpand = level7Slot == 0
+	if !shouldExpand {
+		level7SlotIndex.children[level7Slot - 1] = level6SlotIndexSeq
+		editing.editedLevels[6] = newSlotIndex(editing.strategy, 6)
+		return level0Slot, level1Slot, level2Slot, level2Slots, nil
+	}
 	panic("bloom filter tree exceed capacity")
 	return level0Slot, level1Slot, level2Slot, level2Slots, nil
 }
