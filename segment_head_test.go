@@ -131,3 +131,76 @@ func Test_add_65_blocks(t *testing.T) {
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello64"))
 	should.Equal(biter.SetBits[1], result)
 }
+
+func Test_add_66_blocks(t *testing.T) {
+	should := require.New(t)
+	editing := testEditingHead()
+	for i := 0; i < 66; i++ {
+		editing.addBlock(ctx, newBlock(0, []*Entry{
+			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
+		}))
+	}
+	should.Equal(blockSeq(6*66), editing.tailBlockSeq)
+	should.Equal(slotIndexSeq(7), editing.tailSlotIndexSeq)
+	should.Equal([]uint64{7}, editing.editedLevels[1].children)
+	level0SlotIndex := editing.editedLevels[0]
+	strategy := editing.strategy
+	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello65"))
+	should.Equal(biter.SetBits[1], result)
+	level1SlotIndex := editing.editedLevels[1]
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello65"))
+	should.Equal(biter.SetBits[1], result)
+}
+
+func Test_add_4096_blocks(t *testing.T) {
+	blockLength = 2
+	blockLengthInPowerOfTwo = 1
+	should := require.New(t)
+	editing := testEditingHead()
+	for i := 0; i < 4096; i++ {
+		editing.addBlock(ctx, newBlock(0, []*Entry{
+			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
+		}))
+	}
+	should.Equal(blockSeq(6*4096), editing.tailBlockSeq)
+	should.Equal(slotIndexSeq(7*63), editing.tailSlotIndexSeq)
+	level0SlotIndex := editing.editedLevels[0]
+	strategy := editing.strategy
+	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello4095"))
+	should.Equal(biter.SetBits[63], result)
+	level1SlotIndex := editing.editedLevels[1]
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello4095"))
+	should.Equal(biter.SetBits[63], result)
+}
+
+func Test_add_4097_blocks(t *testing.T) {
+	blockLength = 2
+	blockLengthInPowerOfTwo = 1
+	should := require.New(t)
+	editing := testEditingHead()
+	for i := 0; i < 4097; i++ {
+		editing.addBlock(ctx, newBlock(0, []*Entry{
+			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
+		}))
+	}
+	should.Equal(blockSeq(6*4097), editing.tailBlockSeq)
+	should.Equal(slotIndexSeq(7*65), editing.tailSlotIndexSeq)
+	level0SlotIndex := editing.editedLevels[0]
+	strategy := editing.strategy
+	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello4096"))
+	should.Equal(biter.SetBits[0], result)
+	result = level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello4095"))
+	should.Equal(biter.Bits(0), result, "level0 forget")
+	level1SlotIndex := editing.editedLevels[1]
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello4096"))
+	should.Equal(biter.SetBits[0], result)
+	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello4095"))
+	should.Equal(biter.Bits(0), result, "level1 forget")
+	level2SlotIndex := editing.editedLevels[2]
+	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello0"))
+	should.Equal(biter.SetBits[0], result, "level2 still remembers")
+	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello4095"))
+	should.Equal(biter.SetBits[0], result, "level2 still remembers")
+	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello4096"))
+	should.Equal(biter.SetBits[1], result, "level2 still remembers")
+}

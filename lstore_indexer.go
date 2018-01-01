@@ -174,7 +174,7 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 				level2Pbfs.Put(level2SlotMask, strategy.largeHashingStrategy.HashStage2(hashedElem))
 			}
 		}
-		tailOffset += blockLength
+		tailOffset += Offset(blockLength)
 	}
 	// ensure blocks are persisted
 	indexer.head.tailBlockSeq = tailBlockSeq

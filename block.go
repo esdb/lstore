@@ -13,7 +13,8 @@ type intColumn []int64
 type blobColumn []Blob
 type blobHashColumn []uint32
 
-const blockLength = 256
+var blockLength = 256
+var blockLengthInPowerOfTwo = uint8(8)
 
 type block struct {
 	startOffset Offset
