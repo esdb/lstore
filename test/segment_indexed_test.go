@@ -25,7 +25,7 @@ func Test_indexed_segment(t *testing.T) {
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		LimitSize: 2,
 		Filters: []lstore.Filter{
-			store.NewBlobValueFilter(0, "hello"),
+			store.IndexingStrategy.NewBlobValueFilter(0, "hello"),
 		},
 	})
 	rows, err := iter()
@@ -55,7 +55,7 @@ func Test_reopen_indexed_segment(t *testing.T) {
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		LimitSize: 2,
 		Filters: []lstore.Filter{
-			store.NewBlobValueFilter(0, "hello"),
+			store.IndexingStrategy.NewBlobValueFilter(0, "hello"),
 		},
 	})
 	rows, err := iter()
@@ -82,7 +82,7 @@ func Test_a_lot_indexed_segment(t *testing.T) {
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		LimitSize: 2,
 		Filters: []lstore.Filter{
-			store.NewBlobValueFilter(0, "hello"),
+			store.IndexingStrategy.NewBlobValueFilter(0, "hello"),
 		},
 	})
 	rows, err := iter()
@@ -111,7 +111,7 @@ func Test_compacted_segment(t *testing.T) {
 	iter := reader.Search(context.Background(), lstore.SearchRequest{
 		LimitSize: 2,
 		Filters: []lstore.Filter{
-			store.NewBlobValueFilter(0, "hello"),
+			store.IndexingStrategy.NewBlobValueFilter(0, "hello"),
 		},
 	})
 	rows, err := iter()

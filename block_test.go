@@ -7,7 +7,7 @@ import (
 
 func Test_create_block(t *testing.T) {
 	should := require.New(t)
-	strategy := newIndexingStrategy(&indexingStrategyConfig{
+	strategy := NewIndexingStrategy(&IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	blk := newBlock(0, []*Entry{{

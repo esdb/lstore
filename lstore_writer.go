@@ -234,7 +234,7 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 	newVersion.tailSegment.updateTail(newVersion.tailSegment.startOffset)
 	countlog.Debug("event!store.rotated",
 		"tail", newVersion.tailSegment.startOffset,
-			"rotatedTo", rotatedTo)
+		"rotatedTo", rotatedTo)
 	return newVersion.seal(), nil
 }
 
@@ -251,23 +251,18 @@ func (writer *writer) mapFile(tailSegment *TailSegment) error {
 	return nil
 }
 
-func (writer *writer) switchIndexedSegment(
-	ctx countlog.Context, newIndexedSegment *headSegment, purgedRawSegmentsCount int) error {
+func (writer *writer) purgeRawSegments(
+	ctx countlog.Context, purgedRawSegmentsCount int) error {
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
 		newVersion := oldVersion.edit()
 		newVersion.rawSegments = oldVersion.rawSegments[purgedRawSegmentsCount:]
-		newVersion.headSegment = newIndexedSegment
 		writer.updateCurrentVersion(newVersion.seal())
 		resultChan <- nil
 		return
 	})
-	countlog.Debug("event!writer.switched indexed segment",
-		"purgedRawSegmentsCount", purgedRawSegmentsCount,
-		"tailOffset", newIndexedSegment.tailOffset,
-		"tailBlockSeq", newIndexedSegment.tailBlockSeq,
-		"tailSlotIndexSeq", newIndexedSegment.tailSlotIndexSeq,
-		"topLevel", newIndexedSegment.topLevel)
+	countlog.Debug("event!writer.purged raw segments",
+		"count", purgedRawSegmentsCount)
 	return <-resultChan
 }

@@ -24,7 +24,7 @@ func intBlobEntry(intValue int64, blobValue Blob) *Entry {
 var ctx = countlog.Ctx(context.Background())
 
 func testEditingHead() *editingHead {
-	strategy := newIndexingStrategy(&indexingStrategyConfig{
+	strategy := NewIndexingStrategy(&IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	levels := make([]*slotIndex, 9)

@@ -6,7 +6,7 @@ import (
 
 func loadInitialVersion(ctx countlog.Context, config *Config) (*StoreVersion, error) {
 	version := StoreVersion{config: *config}.edit()
-	indexedSegment, err := openHeadSegment(ctx, config, config.indexingStrategy)
+	indexedSegment, err := openHeadSegment(ctx, config, config.IndexingStrategy)
 	ctx.TraceCall("callee!store.openHeadSegment", err)
 	if err != nil {
 		return nil, err

@@ -19,22 +19,15 @@ const TailSegmentTmpFileName = "tail.segment.tmp"
 
 type Config struct {
 	blockManagerConfig
+	slotIndexManagerConfig
 	Directory          string
 	CommandQueueSize   int
 	TailSegmentMaxSize int64
-	indexingStrategy   *indexingStrategy
+	IndexingStrategy   *IndexingStrategy
 }
 
 func (conf *Config) HeadSegmentPath() string {
 	return path.Join(conf.Directory, HeadSegmentFileName)
-}
-
-func (conf *Config) IndexingSegmentPath(level level) string {
-	return path.Join(conf.Directory, fmt.Sprintf("indexing-level%d.segment", level))
-}
-
-func (conf *Config) IndexingSegmentTmpPath(level level) string {
-	return path.Join(conf.Directory, fmt.Sprintf("indexing-level%d.segment.tmp", level))
 }
 
 func (conf *Config) RawSegmentPath(tailOffset Offset) string {
@@ -56,6 +49,7 @@ type Store struct {
 	*writer
 	*indexer
 	blockManager   *blockManager
+	slotIndexManager *slotIndexManager
 	currentVersion unsafe.Pointer
 	executor       *concurrent.UnboundedExecutor // owns writer and indexer
 }
@@ -121,23 +115,21 @@ func (store *Store) Start(ctxObj context.Context) error {
 		store.BlockDirectory = store.Directory + "/block"
 	}
 	store.blockManager = newBlockManager(&store.blockManagerConfig)
-	store.Config.indexingStrategy = store.blockManager.indexingStrategy
+	store.slotIndexManager = newSlotIndexManager(&store.slotIndexManagerConfig)
+	store.Config.IndexingStrategy = store.blockManager.indexingStrategy
 	store.executor = concurrent.NewUnboundedExecutor()
 	writer, err := store.newWriter(ctx)
 	if err != nil {
 		return err
 	}
 	store.writer = writer
-	store.indexer, err = store.newIndexer(ctx)
-	if err != nil {
-		return err
-	}
+	store.indexer = store.newIndexer(ctx)
 	return nil
 }
 
 func (store *Store) Stop(ctx context.Context) error {
 	store.executor.StopAndWait(ctx)
-	return plz.CloseAll([]io.Closer{store.writer, store.indexer})
+	return plz.Close(store.writer)
 }
 
 func (store *Store) latest() *StoreVersion {

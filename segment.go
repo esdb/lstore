@@ -1,6 +1,7 @@
 package lstore
 
 type segmentType uint8
+
 type segmentHeader struct {
 	segmentType segmentType
 	startOffset Offset

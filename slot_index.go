@@ -12,7 +12,7 @@ type slotIndex struct {
 	children []uint64 // 64 slots, can be blockSeq or slotIndexSeq
 }
 
-func newSlotIndex(indexingStrategy *indexingStrategy, level level) *slotIndex {
+func newSlotIndex(indexingStrategy *IndexingStrategy, level level) *slotIndex {
 	hashingStrategy := indexingStrategy.hashingStrategy(level)
 	pbfs := make([]pbloom.ParallelBloomFilter, indexingStrategy.bloomFilterIndexedColumnsCount())
 	for i := 0; i < len(pbfs); i++ {

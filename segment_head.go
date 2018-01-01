@@ -29,18 +29,19 @@ type headSegmentVersion struct {
 }
 
 type headSegment struct {
-	headSegmentVersion
+	*headSegmentVersion
 	*ref.ReferenceCounted
+	writeMMap mmap.MMap
 }
 
 type editingHead struct {
 	*headSegmentVersion
 	writeBlock     func(blockSeq, *block) (blockSeq, error)
 	writeSlotIndex func(slotIndexSeq, *slotIndex) (slotIndexSeq, error)
-	strategy       *indexingStrategy
+	strategy       *IndexingStrategy
 }
 
-func openHeadSegment(ctx countlog.Context, config *Config, strategy *indexingStrategy) (*headSegment, error) {
+func openHeadSegment(ctx countlog.Context, config *Config, strategy *IndexingStrategy) (*headSegment, error) {
 	headSegmentPath := config.HeadSegmentPath()
 	file, err := os.OpenFile(headSegmentPath, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
@@ -63,13 +64,15 @@ func openHeadSegment(ctx countlog.Context, config *Config, strategy *indexingStr
 	if iter.Error != nil {
 		return nil, iter.Error
 	}
+	gocodec.UpdateChecksum(writeMMap)
 	return &headSegment{
-		headSegmentVersion: *segment,
+		headSegmentVersion: segment,
 		ReferenceCounted:   ref.NewReferenceCounted("indexed segment", resources...),
+		writeMMap:          writeMMap,
 	}, nil
 }
 
-func initIndexedSegment(ctx countlog.Context, config *Config, strategy *indexingStrategy) (*os.File, error) {
+func initIndexedSegment(ctx countlog.Context, config *Config, strategy *IndexingStrategy) (*os.File, error) {
 	levels := make([]*slotIndex, 9)
 	for i := level0; i < level(len(levels)); i++ {
 		levels[i] = newSlotIndex(strategy, i)
