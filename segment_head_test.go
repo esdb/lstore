@@ -6,6 +6,7 @@ import (
 	"github.com/v2pro/plz/countlog"
 	"context"
 	"github.com/esdb/biter"
+	"fmt"
 )
 
 func intEntry(values ...int64) *Entry {
@@ -85,4 +86,21 @@ func Test_add_two_blocks(t *testing.T) {
 	filterWorld := strategy.NewBlobValueFilter(0, "world")
 	result = level0SlotIndex.searchSmall(filterWorld)
 	should.Equal(biter.SetBits[1], result)
+}
+
+func Test_add_64_blocks(t *testing.T) {
+	should := require.New(t)
+	editing := testEditingHead()
+	for i := 0; i< 64; i++ {
+		editing.addBlock(ctx, newBlock(0, []*Entry{
+			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
+		}))
+	}
+	should.Equal(blockSeq(6 * 64), editing.tailBlockSeq)
+	level0SlotIndex := editing.editedLevels[0]
+	strategy := editing.strategy
+	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello0"))
+	should.Equal(biter.SetBits[0], result & biter.SetBits[0])
+	result = level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello63"))
+	should.Equal(biter.SetBits[63], result & biter.SetBits[63])
 }
