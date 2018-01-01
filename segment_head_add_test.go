@@ -23,7 +23,7 @@ func intBlobEntry(intValue int64, blobValue Blob) *Entry {
 
 var ctx = countlog.Ctx(context.Background())
 
-func testEditingHead() *editingHead {
+func fakeEditingHead() *editingHead {
 	strategy := NewIndexingStrategy(&IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
@@ -48,7 +48,7 @@ func testEditingHead() *editingHead {
 
 func Test_add_first_block(t *testing.T) {
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	editing.addBlock(ctx, newBlock(0, []*Entry{
 		blobEntry("hello"),
 	}))
@@ -70,7 +70,7 @@ func Test_add_first_block(t *testing.T) {
 
 func Test_add_two_blocks(t *testing.T) {
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	editing.addBlock(ctx, newBlock(0, []*Entry{
 		blobEntry("hello"),
 	}))
@@ -91,7 +91,7 @@ func Test_add_two_blocks(t *testing.T) {
 
 func Test_add_64_blocks(t *testing.T) {
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	for i := 0; i < 64; i++ {
 		editing.addBlock(ctx, newBlock(0, []*Entry{
 			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
@@ -109,7 +109,7 @@ func Test_add_64_blocks(t *testing.T) {
 
 func Test_add_65_blocks(t *testing.T) {
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	for i := 0; i < 65; i++ {
 		editing.addBlock(ctx, newBlock(0, []*Entry{
 			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
@@ -133,7 +133,7 @@ func Test_add_65_blocks(t *testing.T) {
 
 func Test_add_66_blocks(t *testing.T) {
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	for i := 0; i < 66; i++ {
 		editing.addBlock(ctx, newBlock(0, []*Entry{
 			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
@@ -153,7 +153,7 @@ func Test_add_66_blocks(t *testing.T) {
 
 func Test_add_129_blocks(t *testing.T) {
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	for i := 0; i < 129; i++ {
 		editing.addBlock(ctx, newBlock(0, []*Entry{
 			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
@@ -181,7 +181,7 @@ func Test_add_64x64_blocks(t *testing.T) {
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	for i := 0; i < 4096; i++ {
 		editing.addBlock(ctx, newBlock(0, []*Entry{
 			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
@@ -202,7 +202,7 @@ func Test_add_64x64_plus_1_blocks(t *testing.T) {
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	for i := 0; i < 4097; i++ {
 		editing.addBlock(ctx, newBlock(0, []*Entry{
 			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
@@ -234,7 +234,7 @@ func Test_add_64x64x64_blocks(t *testing.T) {
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	for i := 0; i < 64*64*64; i++ {
 		editing.addBlock(ctx, newBlock(0, []*Entry{
 			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
@@ -258,7 +258,7 @@ func Test_add_64x64x64_plus_1_blocks(t *testing.T) {
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	for i := 0; i < 64*64*64+1; i++ {
 		editing.addBlock(ctx, newBlock(0, []*Entry{
 			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
@@ -288,7 +288,7 @@ func Test_add_64x64x64x2_plus_1_blocks(t *testing.T) {
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	for i := 0; i < 64*64*64*2+1; i++ {
 		editing.addBlock(ctx, newBlock(0, []*Entry{
 			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
@@ -322,7 +322,7 @@ func Test_add_64x64x64x64_plus_1_blocks(t *testing.T) {
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	editing.tailOffset = Offset(64 * 64 * 64 * 64 * blockLength)
 	editing.addBlock(ctx, newBlock(0, []*Entry{
 		blobEntry("final block"),
@@ -350,7 +350,7 @@ func Test_add_64x64x64x64x64_plus_1_blocks(t *testing.T) {
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	editing.tailOffset = Offset(64 * 64 * 64 * 64 * 64 * blockLength)
 	editing.addBlock(ctx, newBlock(0, []*Entry{
 		blobEntry("final block"),
@@ -381,7 +381,7 @@ func Test_add_64x64x64x64x64x64_plus_1_blocks(t *testing.T) {
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	editing.tailOffset = Offset(64 * 64 * 64 * 64 * 64 * 64 * blockLength)
 	editing.addBlock(ctx, newBlock(0, []*Entry{
 		blobEntry("final block"),
@@ -415,7 +415,7 @@ func Test_add_64x64x64x64x64x64x64_plus_1_blocks(t *testing.T) {
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	editing.tailOffset = Offset(64 * 64 * 64 * 64 * 64 * 64 * 64 * blockLength)
 	editing.addBlock(ctx, newBlock(0, []*Entry{
 		blobEntry("final block"),
@@ -461,7 +461,7 @@ func Test_add_64x64x64x64x64x64x64x64_plus_1_blocks(t *testing.T) {
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
-	editing := testEditingHead()
+	editing := fakeEditingHead()
 	editing.tailOffset = Offset(64 * 64 * 64 * 64 * 64 * 64 * 64 * 64 * blockLength)
 	editing.addBlock(ctx, newBlock(0, []*Entry{
 		blobEntry("final block"),

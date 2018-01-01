@@ -2,6 +2,7 @@ package lstore
 
 import (
 	"strconv"
+	"github.com/v2pro/plz/countlog"
 )
 
 type rowsChunk struct {
@@ -16,7 +17,7 @@ func newRowsChunk(startOffset Offset) rowsChunk {
 	}
 }
 
-func (chunk rowsChunk) search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error) {
+func (chunk rowsChunk) search(ctx countlog.Context, collector []Row, startOffset Offset, filters ...Filter) ([]Row, error) {
 	for i, entry := range chunk.rows {
 		offset := chunk.startOffset + Offset(i)
 		if offset < startOffset {

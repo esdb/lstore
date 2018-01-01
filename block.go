@@ -4,6 +4,7 @@ import (
 	"unsafe"
 	"github.com/esdb/pbloom"
 	"fmt"
+	"github.com/v2pro/plz/countlog"
 )
 
 // the sequence number for compressed block
@@ -174,7 +175,7 @@ func (blk *block) Hash(strategy *IndexingStrategy) blockHash {
 	return blockHash
 }
 
-func (blk *block) search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error) {
+func (blk *block) search(ctx countlog.Context, collector []Row, startOffset Offset, filters ...Filter) ([]Row, error) {
 	mask := make([]bool, blockLength)
 	for i := 0; i < blockLength; i++ {
 		// TODO: test block startOffset

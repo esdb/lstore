@@ -41,6 +41,6 @@ func Benchmark_column_based_block_scan(b *testing.B) {
 		blobColumns:     []blobColumn{make(blobColumn, columnSize)},
 	}
 	for i := 0; i < b.N; i++ {
-		blk.search(nil, 0, filters, nil)
+		blk.search(nil, nil, 0, filters...)
 	}
 }

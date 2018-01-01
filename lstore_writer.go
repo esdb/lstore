@@ -174,7 +174,7 @@ func (writer *writer) Write(ctxObj context.Context, entry *Entry) (Offset, error
 	}
 }
 
-func (writer *writer) tryWrite(ctx countlog.Context, tailSegment *TailSegment, entry *Entry) (Offset, error) {
+func (writer *writer) tryWrite(ctx countlog.Context, tailSegment *tailSegment, entry *Entry) (Offset, error) {
 	buf := writer.writeBuf
 	stream := ctx.Value("stream").(*gocodec.Stream)
 	stream.Reset(buf[writer.tailSeq:writer.tailSeq])
@@ -238,7 +238,7 @@ func (writer *writer) rotate(oldVersion *StoreVersion) (*StoreVersion, error) {
 	return newVersion.seal(), nil
 }
 
-func (writer *writer) mapFile(tailSegment *TailSegment) error {
+func (writer *writer) mapFile(tailSegment *tailSegment) error {
 	writeMMap, err := mmap.Map(tailSegment.file, mmap.RDWR, 0)
 	if err != nil {
 		countlog.Error("event!chunk.failed to mmap as RDWR", "err", err, "path", tailSegment.path)

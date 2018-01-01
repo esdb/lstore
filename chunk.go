@@ -1,9 +1,12 @@
 package lstore
 
-import "io"
+import (
+	"io"
+	"github.com/v2pro/plz/countlog"
+)
 
 type chunk interface {
-	search(reader *Reader, startOffset Offset, filters []Filter, collector []Row) ([]Row, error)
+	search(ctx countlog.Context, collector []Row, startOffset Offset, filters ...Filter) ([]Row, error)
 }
 
 type chunkIterator func() (chunk, error)

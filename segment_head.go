@@ -24,8 +24,8 @@ type headSegmentVersion struct {
 	tailOffset       Offset
 	tailBlockSeq     blockSeq
 	tailSlotIndexSeq slotIndexSeq
-	topLevel         level        // minimum 3 level
-	levels           []*slotIndex // total 9 levels
+	topLevel         level         // minimum 3 level
+	levels           [] *slotIndex // total 9 levels
 }
 
 type headSegment struct {
@@ -110,13 +110,14 @@ func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) error {
 	level1SlotIndex := editing.editLevel(level1)
 	level2SlotIndex := editing.editLevel(level2)
 	blockSeq := editing.tailBlockSeq
+	// hash will update block, so call it before write
+	blkHash := blk.Hash(editing.strategy)
 	editing.tailBlockSeq, err = editing.writeBlock(blockSeq, blk)
 	ctx.TraceCall("callee!editing.writeBlock", err)
 	if err != nil {
 		return err
 	}
 	level0SlotIndex.children[level0Slot] = uint64(blockSeq)
-	blkHash := blk.Hash(editing.strategy)
 	smallHashingStrategy := editing.strategy.smallHashingStrategy
 	mediumHashingStrategy := editing.strategy.mediumHashingStrategy
 	largeHashingStrategy := editing.strategy.largeHashingStrategy
@@ -324,6 +325,26 @@ func (editing *editingHead) editLevel(level level) *slotIndex {
 	return editing.levels[level]
 }
 
-func (segment *headSegment) scanForward(blockManager *blockManager, filters []Filter) chunkIterator {
-	return iterateChunks(nil)
+func (segment *headSegmentVersion) scanForward(
+	ctx countlog.Context, blockManager *blockManager, slotIndexManager *slotIndexManager,
+	filters ...Filter) chunkIterator {
+	var iters []func() biter.Slot
+	for level := segment.topLevel; level >= 0; level-- {
+		result := segment.levels[level].search(level, filters...)
+		if result == 0 {
+			return iterateChunks(nil)
+		}
+		iter := result.ScanForward()
+		iters = append(iters, iter)
+	}
+	return func() (chunk, error) {
+		level := len(iters) - 1
+		slot := iters[level]()
+		blkSeq := blockSeq(segment.levels[level].children[slot])
+		blk, err := blockManager.readBlock(blkSeq)
+		if err != nil {
+			return nil, err
+		}
+		return blk, nil
+	}
 }

@@ -15,7 +15,7 @@ import (
 
 var SegmentOverflowError = errors.New("please rotate to new chunk")
 
-type TailSegment struct {
+type tailSegment struct {
 	segmentHeader
 	*ref.ReferenceCounted
 	path     string
@@ -25,7 +25,7 @@ type TailSegment struct {
 	tail     uint64 // offset, writer use atomic to notify readers
 }
 
-func openTailSegment(path string, maxSize int64, startOffset Offset) (*TailSegment, error) {
+func openTailSegment(path string, maxSize int64, startOffset Offset) (*tailSegment, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
 		file, err = createTailSegment(path, maxSize, startOffset)
@@ -36,7 +36,7 @@ func openTailSegment(path string, maxSize int64, startOffset Offset) (*TailSegme
 		return nil, err
 	}
 	resources := []io.Closer{file}
-	segment := &TailSegment{}
+	segment := &tailSegment{}
 	segment.file = file
 	readMMap, err := mmap.Map(file, mmap.RDONLY, 0)
 	if err != nil {
@@ -82,15 +82,15 @@ func createTailSegment(filename string, maxSize int64, startOffset Offset) (*os.
 	return os.OpenFile(filename, os.O_RDWR, 0666)
 }
 
-func (segment *TailSegment) updateTail(tail Offset) {
+func (segment *tailSegment) updateTail(tail Offset) {
 	atomic.StoreUint64(&segment.tail, uint64(tail))
 }
 
-func (segment *TailSegment) getTail() Offset {
+func (segment *tailSegment) getTail() Offset {
 	return Offset(atomic.LoadUint64(&segment.tail))
 }
 
-func (segment *TailSegment) read(reader *Reader) (bool, error) {
+func (segment *tailSegment) read(reader *Reader) (bool, error) {
 	iter := reader.gocIter
 	if reader.tailOffset == segment.getTail() {
 		// tail not moved

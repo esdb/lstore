@@ -60,7 +60,7 @@ type StoreVersion struct {
 	*ref.ReferenceCounted
 	headSegment *headSegment
 	rawSegments []*rawSegment
-	tailSegment *TailSegment
+	tailSegment *tailSegment
 }
 
 func (version StoreVersion) edit() *EditingStoreVersion {

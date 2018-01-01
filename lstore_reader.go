@@ -69,14 +69,15 @@ func (reader *Reader) Close() error {
 	return reader.currentVersion.Close()
 }
 
-func (reader *Reader) Search(ctx context.Context, req SearchRequest) RowIterator {
+func (reader *Reader) Search(ctxObj context.Context, req SearchRequest) RowIterator {
+	ctx := countlog.Ctx(ctxObj)
 	if req.BatchSizeHint == 0 {
 		req.BatchSizeHint = 64
 	}
-	chunkIter := scanForward(reader, req.Filters)
+	chunkIter := reader.scanForward(ctx, req.Filters)
 	remaining := req.LimitSize
 	return func() ([]Row, error) {
-		batch, err := searchChunks(reader, chunkIter, req)
+		batch, err := searchChunks(ctx, chunkIter, req)
 		if err != nil {
 			return nil, err
 		}
@@ -94,10 +95,11 @@ func (reader *Reader) Search(ctx context.Context, req SearchRequest) RowIterator
 }
 
 // scanForward speed up by tree of bloomfilter (for int,blob) and min max (for int)
-func scanForward(reader *Reader, filters []Filter) chunkIterator {
+func (reader *Reader) scanForward(ctx countlog.Context, filters []Filter) chunkIterator {
 	store := reader.currentVersion
 	blockManager := reader.store.blockManager
-	iter1 := store.headSegment.scanForward(blockManager, filters)
+	slotIndexManager := reader.store.slotIndexManager
+	iter1 := store.headSegment.scanForward(ctx, blockManager, slotIndexManager, filters...)
 	var chunks []chunk
 	for _, rawSegment := range store.rawSegments {
 		chunks = append(chunks, rawSegment.rows)
@@ -109,7 +111,7 @@ func scanForward(reader *Reader, filters []Filter) chunkIterator {
 
 // searchChunks speed up by column based disk layout (for compacted segments)
 // and in memory cache (for raw segments and tail segment)
-func searchChunks(reader *Reader, chunkIter chunkIterator, req SearchRequest) ([]Row, error) {
+func searchChunks(ctx countlog.Context, chunkIter chunkIterator, req SearchRequest) ([]Row, error) {
 	var batch []Row
 	for {
 		chunk, err := chunkIter()
@@ -120,7 +122,7 @@ func searchChunks(reader *Reader, chunkIter chunkIterator, req SearchRequest) ([
 			return nil, err
 		}
 		countlog.Debug("event!reader.iterate chunk", "chunk", chunk)
-		batch, err = chunk.search(reader, req.StartOffset, req.Filters, batch)
+		batch, err = chunk.search(ctx, batch, req.StartOffset, req.Filters...)
 		if err != nil {
 			return nil, err
 		}

@@ -9,7 +9,7 @@ type slotIndexSeq uint64
 
 type slotIndex struct {
 	pbfs     []pbloom.ParallelBloomFilter // 64 slots
-	children []uint64 // 64 slots, can be blockSeq or slotIndexSeq
+	children []uint64                     // 64 slots, can be blockSeq or slotIndexSeq
 }
 
 func newSlotIndex(indexingStrategy *IndexingStrategy, level level) *slotIndex {
@@ -40,6 +40,17 @@ func (idx *slotIndex) updateSlot(slotMask biter.Bits, child *slotIndex) {
 				parentPbf[loc] = slotMask
 			}
 		}
+	}
+}
+
+func (idx *slotIndex) search(level level, filters ...Filter) biter.Bits {
+	switch level {
+	case level0:
+		return idx.searchSmall(filters...)
+	case level1:
+		return idx.searchMedium(filters...)
+	default:
+		return idx.searchLarge(filters...)
 	}
 }
 
