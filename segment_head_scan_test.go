@@ -15,15 +15,16 @@ func realEditingHead() (*editingHead, *blockManager, *slotIndexManager) {
 		levels[i] = newSlotIndex(strategy, i)
 	}
 	blockManager := newBlockManager(&blockManagerConfig{})
-	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{}, strategy)
+	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{IndexDirectory: "/tmp/store/index"}, strategy)
+	headSegment, err := openHeadSegment(ctx, "/tmp/store/head.segment", slotIndexManager)
+	if err != nil {
+		panic(err)
+	}
 	return &editingHead{
-		strategy: strategy,
-		headSegmentVersion: &headSegmentVersion{
-			topLevel: 2,
-			levels:   levels,
-		},
-		writeBlock: blockManager.writeBlock,
-		writeSlotIndex: slotIndexManager.writeSlotIndex,
+		strategy:           strategy,
+		headSegmentVersion: headSegment.headSegmentVersion,
+		writeBlock:         blockManager.writeBlock,
+		slotIndexManager:   slotIndexManager,
 	}, blockManager, slotIndexManager
 }
 
@@ -40,7 +41,7 @@ func Test_scan_forward(t *testing.T) {
 	iter := editing.headSegmentVersion.scanForward(ctx, blockManager, slotIndexManager, filter)
 	chunk, err := iter()
 	should.Nil(err)
-	rows, err := chunk.search(ctx, nil,0, filter)
+	rows, err := chunk.search(ctx, nil, 0, filter)
 	should.Nil(err)
 	fmt.Println(chunk)
 	should.Equal(1, len(rows))

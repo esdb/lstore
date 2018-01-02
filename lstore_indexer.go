@@ -94,7 +94,7 @@ func (indexer *indexer) edit() (*editingHead) {
 		headSegmentVersion: store.headSegment.headSegmentVersion,
 		strategy:           strategy,
 		writeBlock:         blockManager.writeBlock,
-		writeSlotIndex:     slotIndexManager.writeSlotIndex,
+		slotIndexManager:   slotIndexManager,
 	}
 	return editingHead
 }

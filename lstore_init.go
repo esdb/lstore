@@ -4,9 +4,9 @@ import (
 	"github.com/v2pro/plz/countlog"
 )
 
-func loadInitialVersion(ctx countlog.Context, config *Config) (*StoreVersion, error) {
+func loadInitialVersion(ctx countlog.Context, config *Config, slotIndexManager *slotIndexManager) (*StoreVersion, error) {
 	version := StoreVersion{config: *config}.edit()
-	indexedSegment, err := openHeadSegment(ctx, config, config.IndexingStrategy)
+	indexedSegment, err := openHeadSegment(ctx, config.HeadSegmentPath(), slotIndexManager)
 	ctx.TraceCall("callee!store.openHeadSegment", err)
 	if err != nil {
 		return nil, err

@@ -43,24 +43,25 @@ func (mgr *slotIndexManager) Close() error {
 	return mgr.dataManager.Close()
 }
 
-func (mgr *slotIndexManager) newSlotIndex(seq slotIndexSeq, level level) (slotIndexSeq, *slotIndex, error) {
-	newSeq, buf, err := mgr.dataManager.allocateBuf(uint64(seq), mgr.getSlotIndexSize(level))
+func (mgr *slotIndexManager) newSlotIndex(seq slotIndexSeq, level level) (slotIndexSeq, slotIndexSeq, *slotIndex, error) {
+	size := mgr.getSlotIndexSize(level)
+	newSeq, buf, err := mgr.dataManager.allocateBuf(uint64(seq), size)
 	if err != nil {
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 	obj := newSlotIndex(mgr.strategy, level)
 	stream := gocodec.NewStream(buf[:0])
 	stream.Marshal(*obj)
 	if stream.Error != nil {
-		return 0, nil, stream.Error
+		return 0, 0, nil, stream.Error
 	}
 	iter := gocodec.NewIterator(buf)
 	// re-construct the object on the mmap heap
 	obj, _ = iter.Unmarshal((*slotIndex)(nil)).(*slotIndex)
 	if iter.Error != nil {
-		return 0, nil, iter.Error
+		return 0, 0, nil, iter.Error
 	}
-	return slotIndexSeq(newSeq), obj, nil
+	return slotIndexSeq(newSeq), slotIndexSeq(newSeq) + slotIndexSeq(size), obj, nil
 }
 
 func (mgr *slotIndexManager) getSlotIndexSize(level level) uint32 {
@@ -95,7 +96,7 @@ func (mgr *slotIndexManager) writeSlotIndex(seq slotIndexSeq, idx *slotIndex) (s
 	return seq + slotIndexSeq(size) + 4, nil
 }
 
-func (mgr *slotIndexManager) readSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
+func (mgr *slotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
 	size := mgr.getSlotIndexSize(level)
 	buf, err := mgr.dataManager.mapWritableBuf(uint64(seq), size)
 	if err != nil {

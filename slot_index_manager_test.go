@@ -23,13 +23,13 @@ func Test_write_slot_index_to_file_head(t *testing.T) {
 	should := require.New(t)
 	mgr := testSlotIndexManager(30)
 	defer mgr.Close()
-	seq, slotIndex, err := mgr.newSlotIndex(0, level0)
+	seq, _, slotIndex, err := mgr.newSlotIndex(0, level0)
 	should.Equal(slotIndexSeq(0), seq)
 	should.Nil(err)
 	slotIndex.children[0] = 123
 	mgr.flush(0, level0)
 	mgr.indexCache.Purge()
-	idx, err := mgr.readSlotIndex(0, level0)
+	idx, err := mgr.mapWritableSlotIndex(0, level0)
 	should.Nil(err)
 	should.Equal(uint64(123), idx.children[0])
 }

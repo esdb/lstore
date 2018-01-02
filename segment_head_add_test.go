@@ -27,23 +27,29 @@ func fakeEditingHead() *editingHead {
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
-	levels := make([]*slotIndex, levelsCount)
-	for i := level0; i < level(len(levels)); i++ {
-		levels[i] = newSlotIndex(strategy, i)
+	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{
+		IndexDirectory: "/tmp/store/index",
+	}, strategy)
+	headSegment, err := openHeadSegment(ctx, "/tmp/store/head.segment", slotIndexManager)
+	if err != nil {
+		panic(err)
 	}
 	return &editingHead{
-		strategy: strategy,
-		headSegmentVersion: &headSegmentVersion{
-			topLevel: 2,
-			levels:   levels,
-		},
+		strategy:           strategy,
+		headSegmentVersion: headSegment.headSegmentVersion,
 		writeBlock: func(seq blockSeq, block *block) (blockSeq, blockSeq, error) {
 			return seq, seq + 6, nil
 		},
-		writeSlotIndex: func(seq slotIndexSeq, index *slotIndex) (slotIndexSeq, error) {
-			return seq + 7, nil
-		},
+		slotIndexManager: slotIndexManager,
 	}
+}
+
+func getLevel(editing *editingHead, level level) *slotIndex {
+	slotIndex, err := editing.slotIndexManager.mapWritableSlotIndex(editing.levels[level], level)
+	if err != nil {
+		panic(err)
+	}
+	return slotIndex
 }
 
 func Test_add_first_block(t *testing.T) {
@@ -53,18 +59,19 @@ func Test_add_first_block(t *testing.T) {
 		blobEntry("hello"),
 	}))
 	should.Equal(blockSeq(6), editing.tailBlockSeq)
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex, err := editing.editLevel(level0)
+	should.Nil(err)
 	should.Equal([]uint64{0}, level0SlotIndex.children[:1])
 	strategy := editing.strategy
 	filterHello := strategy.NewBlobValueFilter(0, "hello")
 	result := level0SlotIndex.searchSmall(filterHello)
 	should.Equal(biter.SetBits[0], result)
-	result = editing.levels[1].searchMedium(filterHello)
+	result = getLevel(editing, 1).searchMedium(filterHello)
 	should.Equal(biter.SetBits[0], result)
-	result = editing.levels[2].searchLarge(filterHello)
+	result = getLevel(editing, 2).searchLarge(filterHello)
 	should.Equal(biter.SetBits[0], result)
 	filter123 := strategy.NewBlobValueFilter(0, "123")
-	result = editing.levels[2].searchLarge(filter123)
+	result = getLevel(editing, 2).searchLarge(filter123)
 	should.Equal(biter.Bits(0), result)
 }
 
@@ -78,7 +85,7 @@ func Test_add_two_blocks(t *testing.T) {
 		blobEntry("world"),
 	}))
 	should.Equal(blockSeq(12), editing.tailBlockSeq)
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	should.Equal([]uint64{0, 6}, level0SlotIndex.children[:2])
 	strategy := editing.strategy
 	filterHello := strategy.NewBlobValueFilter(0, "hello")
@@ -99,7 +106,7 @@ func Test_add_64_blocks(t *testing.T) {
 	}
 	should.Equal(blockSeq(6*64), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(0), editing.tailSlotIndexSeq)
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello0"))
 	should.Equal(biter.SetBits[0], result&biter.SetBits[0])
@@ -117,14 +124,14 @@ func Test_add_65_blocks(t *testing.T) {
 	}
 	should.Equal(blockSeq(6*65), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(7), editing.tailSlotIndexSeq)
-	should.Equal([]uint64{0}, editing.levels[1].children[:1])
-	level0SlotIndex := editing.levels[0]
+	should.Equal([]uint64{0}, getLevel(editing, 1).children[:1])
+	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello0"))
 	should.Equal(biter.Bits(0), result, "level0 moved on, forget the old values")
 	result = level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello64"))
 	should.Equal(biter.SetBits[0], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello0"))
 	should.Equal(biter.SetBits[0], result, "level1 still remembers")
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello64"))
@@ -141,12 +148,12 @@ func Test_add_66_blocks(t *testing.T) {
 	}
 	should.Equal(blockSeq(6*66), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(7), editing.tailSlotIndexSeq)
-	should.Equal([]uint64{0}, editing.levels[1].children[:1])
-	level0SlotIndex := editing.levels[0]
+	should.Equal([]uint64{0}, getLevel(editing, 1).children[:1])
+	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello65"))
 	should.Equal(biter.SetBits[1], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello65"))
 	should.Equal(biter.SetBits[1], result)
 }
@@ -161,12 +168,12 @@ func Test_add_129_blocks(t *testing.T) {
 	}
 	should.Equal(blockSeq(6*129), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(14), editing.tailSlotIndexSeq)
-	should.Equal([]uint64{0, 7}, editing.levels[1].children[:2])
-	level0SlotIndex := editing.levels[0]
+	should.Equal([]uint64{0, 7}, getLevel(editing, 1).children[:2])
+	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello128"))
 	should.Equal(biter.SetBits[0], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello63"))
 	should.Equal(biter.SetBits[0], result)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello64"))
@@ -189,11 +196,11 @@ func Test_add_64x64_blocks(t *testing.T) {
 	}
 	should.Equal(blockSeq(6*4096), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(7*63), editing.tailSlotIndexSeq)
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello4095"))
 	should.Equal(biter.SetBits[63], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello4095"))
 	should.Equal(biter.SetBits[63], result)
 }
@@ -210,18 +217,18 @@ func Test_add_64x64_plus_1_blocks(t *testing.T) {
 	}
 	should.Equal(blockSeq(6*4097), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(7*65), editing.tailSlotIndexSeq)
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello4096"))
 	should.Equal(biter.SetBits[0], result)
 	result = level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello4095"))
 	should.Equal(biter.Bits(0), result, "level0 forget")
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello4096"))
 	should.Equal(biter.SetBits[0], result)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello4095"))
 	should.Equal(biter.Bits(0), result, "level1 forget")
-	level2SlotIndex := editing.levels[2]
+	level2SlotIndex := getLevel(editing, 2)
 	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello0"))
 	should.Equal(biter.SetBits[0], result, "level2 still remembers")
 	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello4095"))
@@ -243,13 +250,13 @@ func Test_add_64x64x64_blocks(t *testing.T) {
 	should.Equal(blockSeq(6*64*64*64), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(7*4158), editing.tailSlotIndexSeq)
 	strategy := editing.strategy
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello262143"))
 	should.Equal(biter.SetBits[63], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello262143"))
 	should.Equal(biter.SetBits[63], result)
-	level2SlotIndex := editing.levels[2]
+	level2SlotIndex := getLevel(editing, 2)
 	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello262143"))
 	should.Equal(biter.SetBits[63], result)
 }
@@ -267,17 +274,17 @@ func Test_add_64x64x64_plus_1_blocks(t *testing.T) {
 	should.Equal(blockSeq(6*(64*64*64+1)), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(7*4161), editing.tailSlotIndexSeq)
 	strategy := editing.strategy
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello262144"))
 	should.Equal(biter.SetBits[0], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello262144"))
 	should.Equal(biter.SetBits[0], result)
-	level2SlotIndex := editing.levels[2]
+	level2SlotIndex := getLevel(editing, 2)
 	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello262144"))
 	should.Equal(biter.SetBits[0], result)
 	should.Equal(level(3), editing.topLevel)
-	level3SlotIndex := editing.levels[3]
+	level3SlotIndex := getLevel(editing, 3)
 	result = level3SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello262143"))
 	should.Equal(biter.SetBits[0], result)
 	result = level3SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello262144"))
@@ -297,17 +304,17 @@ func Test_add_64x64x64x2_plus_1_blocks(t *testing.T) {
 	should.Equal(blockSeq(6*(64*64*64*2+1)), editing.tailBlockSeq)
 	should.Equal(slotIndexSeq(7*8322), editing.tailSlotIndexSeq)
 	strategy := editing.strategy
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello524288"))
 	should.Equal(biter.SetBits[0], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "hello524288"))
 	should.Equal(biter.SetBits[0], result)
-	level2SlotIndex := editing.levels[2]
+	level2SlotIndex := getLevel(editing, 2)
 	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello524288"))
 	should.Equal(biter.SetBits[0], result)
 	should.Equal(level(3), editing.topLevel)
-	level3SlotIndex := editing.levels[3]
+	level3SlotIndex := getLevel(editing, 3)
 	result = level3SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello262143"))
 	should.Equal(biter.SetBits[0], result)
 	result = level3SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "hello262144"))
@@ -329,19 +336,19 @@ func Test_add_64x64x64x64_plus_1_blocks(t *testing.T) {
 	}))
 	should.Equal(level(4), editing.topLevel)
 	strategy := editing.strategy
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level2SlotIndex := editing.levels[2]
+	level2SlotIndex := getLevel(editing, 2)
 	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level3SlotIndex := editing.levels[3]
+	level3SlotIndex := getLevel(editing, 3)
 	result = level3SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level4SlotIndex := editing.levels[4]
+	level4SlotIndex := getLevel(editing, 4)
 	result = level4SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[1], result)
 }
@@ -357,22 +364,22 @@ func Test_add_64x64x64x64x64_plus_1_blocks(t *testing.T) {
 	}))
 	should.Equal(level(5), editing.topLevel)
 	strategy := editing.strategy
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level2SlotIndex := editing.levels[2]
+	level2SlotIndex := getLevel(editing, 2)
 	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level3SlotIndex := editing.levels[3]
+	level3SlotIndex := getLevel(editing, 3)
 	result = level3SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level4SlotIndex := editing.levels[4]
+	level4SlotIndex := getLevel(editing, 4)
 	result = level4SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level5SlotIndex := editing.levels[5]
+	level5SlotIndex := getLevel(editing, 5)
 	result = level5SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[1], result)
 }
@@ -388,25 +395,25 @@ func Test_add_64x64x64x64x64x64_plus_1_blocks(t *testing.T) {
 	}))
 	should.Equal(level(6), editing.topLevel)
 	strategy := editing.strategy
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level2SlotIndex := editing.levels[2]
+	level2SlotIndex := getLevel(editing, 2)
 	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level3SlotIndex := editing.levels[3]
+	level3SlotIndex := getLevel(editing, 3)
 	result = level3SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level4SlotIndex := editing.levels[4]
+	level4SlotIndex := getLevel(editing, 4)
 	result = level4SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level5SlotIndex := editing.levels[5]
+	level5SlotIndex := getLevel(editing, 5)
 	result = level5SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level6SlotIndex := editing.levels[6]
+	level6SlotIndex := getLevel(editing, 6)
 	result = level6SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[1], result)
 }
@@ -425,32 +432,32 @@ func Test_add_64x64x64x64x64x64x64_plus_1_blocks(t *testing.T) {
 	}))
 	should.Equal(level(7), editing.topLevel)
 	strategy := editing.strategy
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
 	result = level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "final final block"))
 	should.Equal(biter.SetBits[1], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "final final block"))
 	should.Equal(biter.SetBits[0], result)
-	level2SlotIndex := editing.levels[2]
+	level2SlotIndex := getLevel(editing, 2)
 	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level3SlotIndex := editing.levels[3]
+	level3SlotIndex := getLevel(editing, 3)
 	result = level3SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level4SlotIndex := editing.levels[4]
+	level4SlotIndex := getLevel(editing, 4)
 	result = level4SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level5SlotIndex := editing.levels[5]
+	level5SlotIndex := getLevel(editing, 5)
 	result = level5SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level6SlotIndex := editing.levels[6]
+	level6SlotIndex := getLevel(editing, 6)
 	result = level6SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level7SlotIndex := editing.levels[7]
+	level7SlotIndex := getLevel(editing, 7)
 	result = level7SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[1], result)
 	result = level7SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final final block"))
@@ -468,31 +475,31 @@ func Test_add_64x64x64x64x64x64x64x64_plus_1_blocks(t *testing.T) {
 	}))
 	should.Equal(level(8), editing.topLevel)
 	strategy := editing.strategy
-	level0SlotIndex := editing.levels[0]
+	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level1SlotIndex := editing.levels[1]
+	level1SlotIndex := getLevel(editing, 1)
 	result = level1SlotIndex.searchMedium(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level2SlotIndex := editing.levels[2]
+	level2SlotIndex := getLevel(editing, 2)
 	result = level2SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level3SlotIndex := editing.levels[3]
+	level3SlotIndex := getLevel(editing, 3)
 	result = level3SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level4SlotIndex := editing.levels[4]
+	level4SlotIndex := getLevel(editing, 4)
 	result = level4SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level5SlotIndex := editing.levels[5]
+	level5SlotIndex := getLevel(editing, 5)
 	result = level5SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level6SlotIndex := editing.levels[6]
+	level6SlotIndex := getLevel(editing, 6)
 	result = level6SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level7SlotIndex := editing.levels[7]
+	level7SlotIndex := getLevel(editing, 7)
 	result = level7SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[0], result)
-	level8SlotIndex := editing.levels[8]
+	level8SlotIndex := getLevel(editing, 8)
 	result = level8SlotIndex.searchLarge(strategy.NewBlobValueFilter(0, "final block"))
 	should.Equal(biter.SetBits[1], result)
 }
