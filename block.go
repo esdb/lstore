@@ -175,7 +175,7 @@ func (blk *block) Hash(strategy *IndexingStrategy) blockHash {
 	return blockHash
 }
 
-func (blk *block) search(ctx countlog.Context, collector []Row, startOffset Offset, filters ...Filter) ([]Row, error) {
+func (blk *block) search(ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
 	mask := make([]bool, blockLength)
 	for i := 0; i < blockLength; i++ {
 		// TODO: test block startOffset
@@ -199,8 +199,11 @@ func (blk *block) search(ctx countlog.Context, collector []Row, startOffset Offs
 			blobValues[j] = blk.blobColumns[j][i]
 		}
 		// TODO: set Offset properly
-		collector = append(collector, Row{Offset: 0, Entry: &Entry{
-			EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues}})
+		err := cb.HandleRow(0, &Entry{
+			EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues})
+		if err != nil {
+			return err
+		}
 	}
-	return collector, nil
+	return nil
 }

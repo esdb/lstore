@@ -62,7 +62,7 @@ func (mgr *fakeBlockManager) readBlock(seq blockSeq) (*block, error) {
 }
 
 func getLevel(editing *headSegment, level level) *slotIndex {
-	return editing.editingLevels[level]
+	return editing.levelObjs[level]
 }
 
 func Test_add_first_block(t *testing.T) {
@@ -72,7 +72,7 @@ func Test_add_first_block(t *testing.T) {
 		blobEntry("hello"),
 	}))
 	should.Equal(blockSeq(6), editing.tailBlockSeq)
-	level0SlotIndex := editing.editingLevels[level0]
+	level0SlotIndex := editing.levelObjs[level0]
 	should.Equal([]uint64{0}, level0SlotIndex.children[:1])
 	strategy := editing.strategy
 	filterHello := strategy.NewBlobValueFilter(0, "hello")

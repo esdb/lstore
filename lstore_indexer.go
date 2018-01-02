@@ -114,6 +114,13 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 	if err != nil {
 		return err
 	}
+	for level := level0; level <= headSegment.topLevel; level++ {
+		err = indexer.store.slotIndexManager.updateChecksum(headSegment.levels[level], level)
+		ctx.TraceCall("callee!slotIndexManager.updateChecksum", err)
+		if err != nil {
+			return err
+		}
+	}
 	err = indexer.store.writer.purgeRawSegments(ctx, purgedRawSegmentsCount)
 	if err != nil {
 		return err

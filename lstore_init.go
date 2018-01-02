@@ -27,12 +27,13 @@ func loadTailAndRawSegments(ctx countlog.Context, config *Config, version *Editi
 	}
 	var reversedRawSegments []*rawSegment
 	startOffset := tailSegment.startOffset
-	for startOffset != version.headSegment.tailOffset {
+	for startOffset > version.headSegment.tailOffset {
 		rawSegmentPath := config.RawSegmentPath(startOffset)
 		rawSegment, err := openRawSegment(ctx, rawSegmentPath)
 		if err != nil {
 			countlog.Error("event!lstore.failed to open raw segment",
-				"err", err, "rawSegmentPath", rawSegmentPath)
+				"err", err, "rawSegmentPath", rawSegmentPath,
+				"headSegmentTailOffset", version.headSegment.tailOffset)
 			return err
 		}
 		reversedRawSegments = append(reversedRawSegments, rawSegment)
