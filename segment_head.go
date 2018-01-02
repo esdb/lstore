@@ -281,8 +281,7 @@ func (segment *headSegment) rotate(level level, slot biter.Slot) (err error) {
 	return
 }
 
-func (segment *headSegmentVersion) scanForward(
-	ctx countlog.Context, blockManager *mmapBlockManager, slotIndexManager *mmapSlotIndexManager,
-	filters ...Filter) chunkIterator {
-	return iterateChunks(nil)
+func (segment *headSegment) searchForward(
+	ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
+	return nil
 }

@@ -6,7 +6,7 @@ import (
 )
 
 type chunk interface {
-	search(ctx countlog.Context, collector []Row, startOffset Offset, filters ...Filter) ([]Row, error)
+	searchForward(ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error
 }
 
 type chunkIterator func() (chunk, error)

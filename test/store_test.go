@@ -21,6 +21,8 @@ func bigTestStore() *lstore.Store {
 	store := &lstore.Store{}
 	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 200 * 1024 * 1024
+	store.IndexingStrategy = lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
+	})
 	os.RemoveAll(store.Directory)
 	err := store.Start(context.Background())
 	if err != nil {
@@ -33,6 +35,8 @@ func tinyTestStore() *lstore.Store {
 	store := &lstore.Store{}
 	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 140
+	store.IndexingStrategy = lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
+	})
 	os.RemoveAll(store.Directory)
 	err := store.Start(context.Background())
 	if err != nil {
@@ -45,7 +49,9 @@ func smallTestStore() *lstore.Store {
 	store := &lstore.Store{}
 	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 280
-	store.BloomFilterIndexedBlobColumns = []int{0}
+	store.IndexingStrategy = lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
+		BloomFilterIndexedBlobColumns: []int{0},
+	})
 	os.RemoveAll(store.Directory)
 	err := store.Start(context.Background())
 	if err != nil {

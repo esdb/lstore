@@ -17,17 +17,19 @@ func newRowsChunk(startOffset Offset) rowsChunk {
 	}
 }
 
-func (chunk rowsChunk) search(ctx countlog.Context, collector []Row, startOffset Offset, filters ...Filter) ([]Row, error) {
+func (chunk rowsChunk) search(ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
 	for i, entry := range chunk.rows {
 		offset := chunk.startOffset + Offset(i)
 		if offset < startOffset {
 			continue
 		}
 		if rowMatches(entry, filters) {
-			collector = append(collector, Row{Entry: entry, Offset: offset})
+			if err := cb.HandleRow(offset, entry); err != nil {
+				return err
+			}
 		}
 	}
-	return collector, nil
+	return nil
 }
 
 func (chunk rowsChunk) String() string {

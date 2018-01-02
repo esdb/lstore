@@ -3,9 +3,9 @@ package lstore
 import (
 	"github.com/esdb/gocodec"
 	"context"
-	"io"
 	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/plz"
+	"errors"
 )
 
 // Reader is not thread safe, can only be used from one goroutine
@@ -18,14 +18,12 @@ type Reader struct {
 	gocIter        *gocodec.Iterator
 }
 
-type SearchRequest struct {
-	StartOffset   Offset
-	BatchSizeHint int
-	LimitSize     int
-	Filters       []Filter
-}
+// SearchAborted should be returned if you want to end the search from callback
+var SearchAborted = errors.New("search aborted")
 
-type RowIterator func() ([]Row, error)
+type SearchCallback interface {
+	HandleRow(offset Offset, entry *Entry) error
+}
 
 func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 	ctx := countlog.Ctx(ctxObj)
@@ -69,65 +67,29 @@ func (reader *Reader) Close() error {
 	return reader.currentVersion.Close()
 }
 
-func (reader *Reader) Search(ctxObj context.Context, req SearchRequest) RowIterator {
+func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
 	ctx := countlog.Ctx(ctxObj)
-	if req.BatchSizeHint == 0 {
-		req.BatchSizeHint = 64
-	}
-	chunkIter := reader.scanForward(ctx, req.Filters)
-	remaining := req.LimitSize
-	return func() ([]Row, error) {
-		batch, err := searchChunks(ctx, chunkIter, req)
-		if err != nil {
-			return nil, err
-		}
-		if req.LimitSize > 0 {
-			if remaining == 0 {
-				return nil, io.EOF
-			}
-			if remaining < len(batch) {
-				batch = batch[:remaining]
-			}
-			remaining -= len(batch)
-		}
-		return batch, nil
-	}
-}
-
-// scanForward speed up by tree of bloomfilter (for int,blob) and min max (for int)
-func (reader *Reader) scanForward(ctx countlog.Context, filters []Filter) chunkIterator {
 	store := reader.currentVersion
-	blockManager := reader.store.blockManager
-	slotIndexManager := reader.store.slotIndexManager
-	iter1 := store.headSegment.scanForward(ctx, blockManager, slotIndexManager, filters...)
-	var chunks []chunk
-	for _, rawSegment := range store.rawSegments {
-		chunks = append(chunks, rawSegment.rows)
+	if err := store.headSegment.searchForward(ctx, startOffset, filters, cb); err != nil {
+		return err
 	}
-	chunks = append(chunks, reader.tailRows)
-	iter2 := iterateChunks(chunks)
-	return chainChunkIterator(iter1, iter2)
+	for _, rawSegment := range store.rawSegments {
+		if err := rawSegment.rows.search(ctx, startOffset, filters, cb); err != nil {
+			return err
+		}
+	}
+	return reader.tailRows.search(ctx, startOffset, filters, cb)
 }
 
-// searchChunks speed up by column based disk layout (for compacted segments)
-// and in memory cache (for raw segments and tail segment)
-func searchChunks(ctx countlog.Context, chunkIter chunkIterator, req SearchRequest) ([]Row, error) {
-	var batch []Row
-	for {
-		chunk, err := chunkIter()
-		if err != nil {
-			if err == io.EOF && len(batch) > 0 {
-				return batch, nil
-			}
-			return nil, err
-		}
-		countlog.Debug("event!reader.iterate chunk", "chunk", chunk)
-		batch, err = chunk.search(ctx, batch, req.StartOffset, req.Filters...)
-		if err != nil {
-			return nil, err
-		}
-		if len(batch) >= req.BatchSizeHint {
-			return batch, err
-		}
+type ResultCollector struct {
+	LimitSize int
+	Rows      []Row
+}
+
+func (collector *ResultCollector) HandleRow(offset Offset, entry *Entry) error {
+	collector.Rows = append(collector.Rows, Row{Offset: offset, Entry: entry})
+	if len(collector.Rows) >= collector.LimitSize {
+		return SearchAborted
 	}
+	return nil
 }
