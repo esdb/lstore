@@ -48,10 +48,10 @@ type Store struct {
 	Config
 	*writer
 	*indexer
-	blockManager   *blockManager
+	blockManager     *blockManager
 	slotIndexManager *slotIndexManager
-	currentVersion unsafe.Pointer
-	executor       *concurrent.UnboundedExecutor // owns writer and indexer
+	currentVersion   unsafe.Pointer
+	executor         *concurrent.UnboundedExecutor // owns writer and indexer
 }
 
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
@@ -112,7 +112,10 @@ func (store *Store) Start(ctxObj context.Context) error {
 		store.TailSegmentMaxSize = 200 * 1024 * 1024
 	}
 	if store.BlockDirectory == "" {
-		store.BlockDirectory = store.Directory + "/block"
+		store.BlockDirectory = path.Join(store.Directory, "block")
+	}
+	if store.IndexDirectory == "" {
+		store.IndexDirectory = path.Join(store.Directory, "index")
 	}
 	store.blockManager = newBlockManager(&store.blockManagerConfig)
 	store.slotIndexManager = newSlotIndexManager(&store.slotIndexManagerConfig)

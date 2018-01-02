@@ -26,7 +26,7 @@ func newDataManager(directory string, fileSizeInPowerOfTwo uint8) *dataManager {
 	return &dataManager{
 		directory:            directory,
 		fileSizeInPowerOfTwo: fileSizeInPowerOfTwo,
-		fileSize:             2 << fileSizeInPowerOfTwo,
+		fileSize:             1 << fileSizeInPowerOfTwo,
 		mapMutex:             &sync.Mutex{},
 		files:                map[uint64]*os.File{},
 		readMMaps:            map[uint64]mmap.MMap{},
@@ -62,20 +62,20 @@ func (mgr *dataManager) Close() error {
 	return plz.MergeErrors(errs...)
 }
 
-func (mgr *dataManager) writeBuf(seq uint64, buf []byte) error {
+func (mgr *dataManager) writeBuf(seq uint64, buf []byte) (uint64, error) {
 	fileBlockSeq := seq >> mgr.fileSizeInPowerOfTwo
 	relativeOffset := int(seq - (fileBlockSeq << mgr.fileSizeInPowerOfTwo))
 	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	dst := writeMMap[relativeOffset:]
-	copiedBytesCount := copy(dst, buf)
-	buf = buf[copiedBytesCount:]
-	if len(buf) > 0 {
-		return mgr.writeBuf(seq+uint64(copiedBytesCount), buf)
+	if len(dst) < len(buf) {
+		// write the buf to next file
+		return mgr.writeBuf(seq + uint64(len(dst)), buf)
 	}
-	return writeMMap.Flush()
+	copy(dst, buf)
+	return seq, writeMMap.Flush()
 }
 
 func (mgr *dataManager) readBuf(seq uint64, remainingSize uint32) ([]byte, error) {

@@ -36,7 +36,7 @@ type headSegment struct {
 
 type editingHead struct {
 	*headSegmentVersion
-	writeBlock     func(blockSeq, *block) (blockSeq, error)
+	writeBlock     func(blockSeq, *block) (blockSeq, blockSeq, error)
 	writeSlotIndex func(slotIndexSeq, *slotIndex) (slotIndexSeq, error)
 	strategy       *IndexingStrategy
 }
@@ -112,7 +112,7 @@ func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) error {
 	blockSeq := editing.tailBlockSeq
 	// hash will update block, so call it before write
 	blkHash := blk.Hash(editing.strategy)
-	editing.tailBlockSeq, err = editing.writeBlock(blockSeq, blk)
+	blockSeq, editing.tailBlockSeq, err = editing.writeBlock(blockSeq, blk)
 	ctx.TraceCall("callee!editing.writeBlock", err)
 	if err != nil {
 		return err

@@ -37,8 +37,8 @@ func fakeEditingHead() *editingHead {
 			topLevel: 2,
 			levels:   levels,
 		},
-		writeBlock: func(seq blockSeq, block *block) (blockSeq, error) {
-			return seq + 6, nil
+		writeBlock: func(seq blockSeq, block *block) (blockSeq, blockSeq, error) {
+			return seq, seq + 6, nil
 		},
 		writeSlotIndex: func(seq slotIndexSeq, index *slotIndex) (slotIndexSeq, error) {
 			return seq + 7, nil

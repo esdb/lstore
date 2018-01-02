@@ -47,11 +47,11 @@ func (mgr *slotIndexManager) writeSlotIndex(seq slotIndexSeq, idx *slotIndex) (s
 		return 0, stream.Error
 	}
 	header := (*(*[4]byte)(unsafe.Pointer(&size)))[:]
-	err := mgr.dataManager.writeBuf(uint64(seq), header)
+	_, err := mgr.dataManager.writeBuf(uint64(seq), header)
 	if err != nil {
 		return 0, err
 	}
-	err = mgr.dataManager.writeBuf(uint64(seq)+4, stream.Buffer())
+	_, err = mgr.dataManager.writeBuf(uint64(seq)+4, stream.Buffer())
 	if err != nil {
 		return 0, err
 	}
