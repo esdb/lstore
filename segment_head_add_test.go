@@ -7,7 +7,17 @@ import (
 	"context"
 	"github.com/esdb/biter"
 	"fmt"
+	"os"
+	"github.com/v2pro/plz/concurrent"
+	"github.com/v2pro/plz"
 )
+
+func TestMain(m *testing.M) {
+	defer concurrent.GlobalUnboundedExecutor.StopAndWaitForever()
+	plz.LogLevel = countlog.LevelTrace
+	plz.PlugAndPlay()
+	m.Run()
+}
 
 func intEntry(values ...int64) *Entry {
 	return &Entry{EntryType: EntryTypeData, IntValues: values}
@@ -27,6 +37,8 @@ func fakeEditingHead() *editingHead {
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
+	os.RemoveAll("/tmp/store")
+	os.Mkdir("/tmp/store", 0777)
 	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{
 		IndexDirectory: "/tmp/store/index",
 	}, strategy)
@@ -41,15 +53,12 @@ func fakeEditingHead() *editingHead {
 			return seq, seq + 6, nil
 		},
 		slotIndexManager: slotIndexManager,
+		editingLevels:    headSegment.editingLevels,
 	}
 }
 
 func getLevel(editing *editingHead, level level) *slotIndex {
-	slotIndex, err := editing.slotIndexManager.mapWritableSlotIndex(editing.levels[level], level)
-	if err != nil {
-		panic(err)
-	}
-	return slotIndex
+	return editing.editingLevels[level]
 }
 
 func Test_add_first_block(t *testing.T) {
@@ -59,8 +68,7 @@ func Test_add_first_block(t *testing.T) {
 		blobEntry("hello"),
 	}))
 	should.Equal(blockSeq(6), editing.tailBlockSeq)
-	level0SlotIndex, err := editing.editLevel(level0)
-	should.Nil(err)
+	level0SlotIndex := editing.editingLevels[level0]
 	should.Equal([]uint64{0}, level0SlotIndex.children[:1])
 	strategy := editing.strategy
 	filterHello := strategy.NewBlobValueFilter(0, "hello")
@@ -78,9 +86,9 @@ func Test_add_first_block(t *testing.T) {
 func Test_add_two_blocks(t *testing.T) {
 	should := require.New(t)
 	editing := fakeEditingHead()
-	editing.addBlock(ctx, newBlock(0, []*Entry{
+	should.Nil(editing.addBlock(ctx, newBlock(0, []*Entry{
 		blobEntry("hello"),
-	}))
+	})))
 	editing.addBlock(ctx, newBlock(0, []*Entry{
 		blobEntry("world"),
 	}))
@@ -105,7 +113,6 @@ func Test_add_64_blocks(t *testing.T) {
 		}))
 	}
 	should.Equal(blockSeq(6*64), editing.tailBlockSeq)
-	should.Equal(slotIndexSeq(0), editing.tailSlotIndexSeq)
 	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello0"))
@@ -123,7 +130,6 @@ func Test_add_65_blocks(t *testing.T) {
 		}))
 	}
 	should.Equal(blockSeq(6*65), editing.tailBlockSeq)
-	should.Equal(slotIndexSeq(7), editing.tailSlotIndexSeq)
 	should.Equal([]uint64{0}, getLevel(editing, 1).children[:1])
 	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
@@ -147,7 +153,6 @@ func Test_add_66_blocks(t *testing.T) {
 		}))
 	}
 	should.Equal(blockSeq(6*66), editing.tailBlockSeq)
-	should.Equal(slotIndexSeq(7), editing.tailSlotIndexSeq)
 	should.Equal([]uint64{0}, getLevel(editing, 1).children[:1])
 	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
@@ -167,8 +172,6 @@ func Test_add_129_blocks(t *testing.T) {
 		}))
 	}
 	should.Equal(blockSeq(6*129), editing.tailBlockSeq)
-	should.Equal(slotIndexSeq(14), editing.tailSlotIndexSeq)
-	should.Equal([]uint64{0, 7}, getLevel(editing, 1).children[:2])
 	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello128"))
@@ -195,7 +198,6 @@ func Test_add_64x64_blocks(t *testing.T) {
 		}))
 	}
 	should.Equal(blockSeq(6*4096), editing.tailBlockSeq)
-	should.Equal(slotIndexSeq(7*63), editing.tailSlotIndexSeq)
 	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello4095"))
@@ -216,7 +218,6 @@ func Test_add_64x64_plus_1_blocks(t *testing.T) {
 		}))
 	}
 	should.Equal(blockSeq(6*4097), editing.tailBlockSeq)
-	should.Equal(slotIndexSeq(7*65), editing.tailSlotIndexSeq)
 	level0SlotIndex := getLevel(editing, 0)
 	strategy := editing.strategy
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello4096"))
@@ -248,7 +249,6 @@ func Test_add_64x64x64_blocks(t *testing.T) {
 		}))
 	}
 	should.Equal(blockSeq(6*64*64*64), editing.tailBlockSeq)
-	should.Equal(slotIndexSeq(7*4158), editing.tailSlotIndexSeq)
 	strategy := editing.strategy
 	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello262143"))
@@ -272,7 +272,6 @@ func Test_add_64x64x64_plus_1_blocks(t *testing.T) {
 		}))
 	}
 	should.Equal(blockSeq(6*(64*64*64+1)), editing.tailBlockSeq)
-	should.Equal(slotIndexSeq(7*4161), editing.tailSlotIndexSeq)
 	strategy := editing.strategy
 	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello262144"))
@@ -302,7 +301,6 @@ func Test_add_64x64x64x2_plus_1_blocks(t *testing.T) {
 		}))
 	}
 	should.Equal(blockSeq(6*(64*64*64*2+1)), editing.tailBlockSeq)
-	should.Equal(slotIndexSeq(7*8322), editing.tailSlotIndexSeq)
 	strategy := editing.strategy
 	level0SlotIndex := getLevel(editing, 0)
 	result := level0SlotIndex.searchSmall(strategy.NewBlobValueFilter(0, "hello524288"))

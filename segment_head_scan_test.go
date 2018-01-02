@@ -25,6 +25,7 @@ func realEditingHead() (*editingHead, *blockManager, *slotIndexManager) {
 		headSegmentVersion: headSegment.headSegmentVersion,
 		writeBlock:         blockManager.writeBlock,
 		slotIndexManager:   slotIndexManager,
+		editingLevels: make([]*slotIndex, levelsCount),
 	}, blockManager, slotIndexManager
 }
 

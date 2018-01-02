@@ -95,6 +95,7 @@ func (indexer *indexer) edit() (*editingHead) {
 		strategy:           strategy,
 		writeBlock:         blockManager.writeBlock,
 		slotIndexManager:   slotIndexManager,
+		editingLevels: make([]*slotIndex, levelsCount),
 	}
 	return editingHead
 }

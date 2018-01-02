@@ -32,7 +32,8 @@ type headSegmentVersion struct {
 type headSegment struct {
 	*headSegmentVersion
 	*ref.ReferenceCounted
-	writeMMap mmap.MMap
+	writeMMap     mmap.MMap
+	editingLevels []*slotIndex
 }
 
 // TODO: merge editingHead into headSegment
@@ -41,11 +42,7 @@ type editingHead struct {
 	writeBlock       func(blockSeq, *block) (blockSeq, blockSeq, error)
 	slotIndexManager *slotIndexManager
 	strategy         *IndexingStrategy
-}
-
-type editingLevel struct {
-	slotIndex *slotIndex
-	slot      biter.Slot
+	editingLevels    []*slotIndex
 }
 
 func openHeadSegment(ctx countlog.Context, segmentPath string, slotIndexManager *slotIndexManager) (*headSegment, error) {
@@ -71,10 +68,20 @@ func openHeadSegment(ctx countlog.Context, segmentPath string, slotIndexManager 
 		return nil, iter.Error
 	}
 	gocodec.UpdateChecksum(writeMMap)
+	if err := writeMMap.Flush(); err != nil {
+		return nil, err
+	}
+	editingLevels := make([]*slotIndex, levelsCount)
+	for i := level0; i <= segment.topLevel; i++ {
+		if editingLevels[i], err = slotIndexManager.mapWritableSlotIndex(segment.levels[i], i); err != nil {
+			return nil, err
+		}
+	}
 	return &headSegment{
 		headSegmentVersion: segment,
 		ReferenceCounted:   ref.NewReferenceCounted("indexed segment", resources...),
 		writeMMap:          writeMMap,
+		editingLevels:      editingLevels,
 	}, nil
 }
 
@@ -87,16 +94,13 @@ func initHeadSegment(ctx countlog.Context, segmentPath string, slotIndexManager 
 		if err != nil {
 			return nil, err
 		}
-		err = slotIndexManager.flush(levels[i], i)
-		if err != nil {
-			return nil, err
-		}
 	}
 	stream := gocodec.NewStream(nil)
 	stream.Marshal(headSegmentVersion{
-		segmentHeader: segmentHeader{segmentType: segmentTypeHead},
-		topLevel:      level2,
-		levels:        levels,
+		segmentHeader:    segmentHeader{segmentType: segmentTypeHead},
+		topLevel:         level2,
+		levels:           levels,
+		tailSlotIndexSeq: tailSlotIndexSeq,
 	})
 	ctx.TraceCall("callee!stream.Marshal", stream.Error)
 	if stream.Error != nil {
@@ -113,25 +117,25 @@ func initHeadSegment(ctx countlog.Context, segmentPath string, slotIndexManager 
 
 func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) error {
 	var err error
-	editingLevels, err := editing.nextSlot(ctx)
-	level0SlotMask := biter.SetBits[editingLevels[level0].slot]
-	level1SlotMask := biter.SetBits[editingLevels[level1].slot]
-	level2SlotMask := biter.SetBits[editingLevels[level2].slot]
+	slots, err := editing.nextSlot(ctx)
+	level0SlotMask := biter.SetBits[slots[level0]]
+	level1SlotMask := biter.SetBits[slots[level1]]
+	level2SlotMask := biter.SetBits[slots[level2]]
 	if err != nil {
 		return err
 	}
 	// hash will update block, so call it before write
 	blkHash := blk.Hash(editing.strategy)
 	var blockSeq blockSeq
-	blockSeq, editing.tailBlockSeq, err = editing.writeBlock(blockSeq, blk)
+	blockSeq, editing.tailBlockSeq, err = editing.writeBlock(editing.tailBlockSeq, blk)
 	ctx.TraceCall("callee!editing.writeBlock", err)
 	if err != nil {
 		return err
 	}
-	level0SlotIndex := editingLevels[0].slotIndex
-	level1SlotIndex := editingLevels[1].slotIndex
-	level2SlotIndex := editingLevels[2].slotIndex
-	level0SlotIndex.children[editingLevels[0].slot] = uint64(blockSeq)
+	level0SlotIndex := editing.editingLevels[0]
+	level1SlotIndex := editing.editingLevels[1]
+	level2SlotIndex := editing.editingLevels[2]
+	level0SlotIndex.children[slots[0]] = uint64(blockSeq)
 	smallHashingStrategy := editing.strategy.smallHashingStrategy
 	mediumHashingStrategy := editing.strategy.mediumHashingStrategy
 	largeHashingStrategy := editing.strategy.largeHashingStrategy
@@ -147,8 +151,8 @@ func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) error {
 			pbf2.Put(level2SlotMask, locations)
 			// from level3 to levelN, they are derived from level2
 			for j := level(3); j <= editing.topLevel; j++ {
-				parentPbf := editingLevels[j].slotIndex.pbfs[i]
-				levelNMask := biter.SetBits[editingLevels[j].slot]
+				parentPbf := editing.editingLevels[j].pbfs[i]
+				levelNMask := biter.SetBits[slots[j]]
 				for _, location := range locations {
 					parentPbf[location] |= levelNMask
 				}
@@ -159,204 +163,125 @@ func (editing *editingHead) addBlock(ctx countlog.Context, blk *block) error {
 	return nil
 }
 
-func (editing *editingHead) nextSlot(ctx countlog.Context) ([levelsCount]editingLevel, error) {
-	var editingLevels [levelsCount]editingLevel
-	level0SlotIndex, err := editing.editLevel(level0)
-	if err != nil {
-		return editingLevels, err
+func (editing *editingHead) nextSlot(ctx countlog.Context) ([]biter.Slot, error) {
+	slots := make([]biter.Slot, 9)
+	cnt := int(editing.tailOffset) >> blockLengthInPowerOfTwo
+	level0Slot := biter.Slot(cnt % 64)
+	cnt = cnt >> 6
+	level1Slot := biter.Slot(cnt % 64)
+	cnt = cnt >> 6
+	level2Slot := biter.Slot(cnt % 64)
+	cnt = cnt >> 6
+	level3Slot := biter.Slot(cnt % 64)
+	cnt = cnt >> 6
+	level4Slot := biter.Slot(cnt % 64)
+	cnt = cnt >> 6
+	level5Slot := biter.Slot(cnt % 64)
+	cnt = cnt >> 6
+	level6Slot := biter.Slot(cnt % 64)
+	cnt = cnt >> 6
+	level7Slot := biter.Slot(cnt % 64)
+	cnt = cnt >> 6
+	level8Slot := biter.Slot(cnt % 64)
+	slots = []biter.Slot{level0Slot, level1Slot, level2Slot, level3Slot, level4Slot,
+		level5Slot, level6Slot, level7Slot, level8Slot}
+	if level0Slot != 0 || editing.tailOffset == 0 {
+		return slots, nil
 	}
-	level1SlotIndex, err := editing.editLevel(level1)
-	if err != nil {
-		return editingLevels, err
+	if level1Slot != 0 {
+		if err := editing.rotate(level0, level1Slot-1); err != nil {
+			return nil, err
+		}
+		return slots, nil
 	}
-	level2SlotIndex, err := editing.editLevel(level2)
-	if err != nil {
-		return editingLevels, err
+	if err := editing.rotate(level0, 63); err != nil {
+		return nil, err
 	}
-	level0Slots := int(editing.tailOffset) >> blockLengthInPowerOfTwo
-	level0Slot := biter.Slot(level0Slots % 64)
-	level1Slots := level0Slots >> 6
-	level1Slot := biter.Slot(level1Slots % 64)
-	level2Slots := level1Slots >> 6
-	level2Slot := biter.Slot(level2Slots % 64)
-	editingLevels[level0] = editingLevel{level0SlotIndex, level0Slot}
-	editingLevels[level1] = editingLevel{level1SlotIndex, level1Slot}
-	editingLevels[level2] = editingLevel{level2SlotIndex, level2Slot}
-	shouldExpand := level0Slot == 0 && level0Slots > 0
-	if !shouldExpand {
-		return editingLevels, nil
+	if level2Slot != 0 {
+		if err := editing.rotate(level1, level2Slot-1); err != nil {
+			return nil, err
+		}
+		return slots, nil
 	}
-	//var err error
-	//level0SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
-	//editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level0SlotIndex)
-	//ctx.TraceCall("callee!editing.writeSlotIndex", err)
-	//if err != nil {
-	//	return 0, 0, 0, 0, err
-	//}
-	//level1SlotIndex := editing.editLevel(level1)
-	//shouldExpand = level1Slot == 0
-	//if !shouldExpand {
-	//	level1SlotIndex.children[level1Slot-1] = level0SlotIndexSeq
-	//	editing.levels[level0] = newSlotIndex(editing.strategy, level0)
-	//	return level0Slot, level1Slot, level2Slot, level2Slots, nil
-	//}
-	//level1SlotIndex.children[63] = level0SlotIndexSeq
-	//editing.levels[level0] = newSlotIndex(editing.strategy, level0)
-	//level1SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
-	//editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level1SlotIndex)
-	//ctx.TraceCall("callee!editing.writeSlotIndex", err)
-	//if err != nil {
-	//	return 0, 0, 0, 0, err
-	//}
-	//level2SlotIndex := editing.editLevel(level2)
-	//shouldExpand = level2Slot == 0
-	//if !shouldExpand {
-	//	level2SlotIndex.children[level2Slot-1] = level1SlotIndexSeq
-	//	editing.levels[level1] = newSlotIndex(editing.strategy, level1)
-	//	return level0Slot, level1Slot, level2Slot, level2Slots, nil
-	//}
-	//level2SlotIndex.children[63] = level1SlotIndexSeq
-	//editing.levels[level1] = newSlotIndex(editing.strategy, level1)
-	//level2SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
-	//editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level2SlotIndex)
-	//ctx.TraceCall("callee!editing.writeSlotIndex", err)
-	//if err != nil {
-	//	return 0, 0, 0, 0, err
-	//}
-	//justMovedTopLevel := editing.topLevel < 3
-	//level3SlotIndex := editing.editLevel(3)
-	//if justMovedTopLevel {
-	//	level3SlotIndex.updateSlot(biter.SetBits[0], level2SlotIndex)
-	//}
-	//level3Slots := level2Slots >> 6
-	//level3Slot := level3Slots % 64
-	//shouldExpand = level3Slot == 0
-	//if !shouldExpand {
-	//	level3SlotIndex.children[level3Slot-1] = level2SlotIndexSeq
-	//	editing.levels[level2] = newSlotIndex(editing.strategy, level2)
-	//	return level0Slot, level1Slot, level2Slot, level2Slots, nil
-	//}
-	//level3SlotIndex.children[63] = level2SlotIndexSeq
-	//editing.levels[level2] = newSlotIndex(editing.strategy, level2)
-	//level3SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
-	//editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level3SlotIndex)
-	//ctx.TraceCall("callee!editing.writeSlotIndex", err)
-	//if err != nil {
-	//	return 0, 0, 0, 0, err
-	//}
-	//justMovedTopLevel = editing.topLevel < 4
-	//level4SlotIndex := editing.editLevel(4)
-	//if justMovedTopLevel {
-	//	level4SlotIndex.updateSlot(biter.SetBits[0], level3SlotIndex)
-	//}
-	//level4Slots := level3Slots >> 6
-	//level4Slot := level4Slots % 64
-	//shouldExpand = level4Slot == 0
-	//if !shouldExpand {
-	//	level4SlotIndex.children[level4Slot-1] = level3SlotIndexSeq
-	//	editing.levels[3] = newSlotIndex(editing.strategy, 3)
-	//	return level0Slot, level1Slot, level2Slot, level2Slots, nil
-	//}
-	//level4SlotIndex.children[63] = level3SlotIndexSeq
-	//editing.levels[3] = newSlotIndex(editing.strategy, 3)
-	//level4SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
-	//editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level4SlotIndex)
-	//ctx.TraceCall("callee!editing.writeSlotIndex", err)
-	//if err != nil {
-	//	return 0, 0, 0, 0, err
-	//}
-	//justMovedTopLevel = editing.topLevel < 5
-	//level5SlotIndex := editing.editLevel(5)
-	//if justMovedTopLevel {
-	//	level5SlotIndex.updateSlot(biter.SetBits[0], level4SlotIndex)
-	//}
-	//level5Slots := level4Slots >> 6
-	//level5Slot := level5Slots % 64
-	//shouldExpand = level5Slot == 0
-	//if !shouldExpand {
-	//	level5SlotIndex.children[level5Slot-1] = level4SlotIndexSeq
-	//	editing.levels[4] = newSlotIndex(editing.strategy, 4)
-	//	return level0Slot, level1Slot, level2Slot, level2Slots, nil
-	//}
-	//level5SlotIndex.children[63] = level4SlotIndexSeq
-	//editing.levels[4] = newSlotIndex(editing.strategy, 4)
-	//level5SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
-	//editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level5SlotIndex)
-	//ctx.TraceCall("callee!editing.writeSlotIndex", err)
-	//if err != nil {
-	//	return 0, 0, 0, 0, err
-	//}
-	//justMovedTopLevel = editing.topLevel < 6
-	//level6SlotIndex := editing.editLevel(6)
-	//if justMovedTopLevel {
-	//	level6SlotIndex.updateSlot(biter.SetBits[0], level5SlotIndex)
-	//}
-	//level6Slots := level5Slots >> 6
-	//level6Slot := level6Slots % 64
-	//shouldExpand = level6Slot == 0
-	//if !shouldExpand {
-	//	level6SlotIndex.children[level6Slot-1] = level5SlotIndexSeq
-	//	editing.levels[5] = newSlotIndex(editing.strategy, 5)
-	//	return level0Slot, level1Slot, level2Slot, level2Slots, nil
-	//}
-	//level6SlotIndex.children[63] = level5SlotIndexSeq
-	//editing.levels[5] = newSlotIndex(editing.strategy, 5)
-	//level6SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
-	//editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level6SlotIndex)
-	//ctx.TraceCall("callee!editing.writeSlotIndex", err)
-	//if err != nil {
-	//	return 0, 0, 0, 0, err
-	//}
-	//justMovedTopLevel = editing.topLevel < 7
-	//level7SlotIndex := editing.editLevel(7)
-	//if justMovedTopLevel {
-	//	level7SlotIndex.updateSlot(biter.SetBits[0], level6SlotIndex)
-	//}
-	//level7Slots := level6Slots >> 6
-	//level7Slot := level7Slots % 64
-	//shouldExpand = level7Slot == 0
-	//if !shouldExpand {
-	//	level7SlotIndex.children[level7Slot-1] = level6SlotIndexSeq
-	//	editing.levels[6] = newSlotIndex(editing.strategy, 6)
-	//	return level0Slot, level1Slot, level2Slot, level2Slots, nil
-	//}
-	//level7SlotIndex.children[63] = level6SlotIndexSeq
-	//editing.levels[6] = newSlotIndex(editing.strategy, 6)
-	//level7SlotIndexSeq := uint64(editing.tailSlotIndexSeq)
-	//editing.tailSlotIndexSeq, err = editing.writeSlotIndex(editing.tailSlotIndexSeq, level7SlotIndex)
-	//ctx.TraceCall("callee!editing.writeSlotIndex", err)
-	//if err != nil {
-	//	return 0, 0, 0, 0, err
-	//}
-	//justMovedTopLevel = editing.topLevel < 8
-	//level8SlotIndex := editing.editLevel(8)
-	//if justMovedTopLevel {
-	//	level8SlotIndex.updateSlot(biter.SetBits[0], level7SlotIndex)
-	//}
-	//level8Slots := level7Slots >> 6
-	//level8Slot := level8Slots % 64
-	//shouldExpand = level8Slot == 0
-	//if !shouldExpand {
-	//	level8SlotIndex.children[level8Slot-1] = level7SlotIndexSeq
-	//	editing.levels[7] = newSlotIndex(editing.strategy, 7)
-	//	return level0Slot, level1Slot, level2Slot, level2Slots, nil
-	//}
+	if err := editing.rotate(level1, 63); err != nil {
+		return nil, err
+	}
+	if level3Slot != 0 {
+		if err := editing.rotate(level2, level3Slot-1); err != nil {
+			return nil, err
+		}
+		return slots, nil
+	}
+	if err := editing.rotate(level2, 63); err != nil {
+		return nil, err
+	}
+	if level4Slot != 0 {
+		if err := editing.rotate(3, level4Slot-1); err != nil {
+			return nil, err
+		}
+		return slots, nil
+	}
+	if err := editing.rotate(3, 63); err != nil {
+		return nil, err
+	}
+	if level5Slot != 0 {
+		if err := editing.rotate(4, level5Slot-1); err != nil {
+			return nil, err
+		}
+		return slots, nil
+	}
+	if err := editing.rotate(4, 63); err != nil {
+		return nil, err
+	}
+	if level6Slot != 0 {
+		if err := editing.rotate(5, level6Slot-1); err != nil {
+			return nil, err
+		}
+		return slots, nil
+	}
+	if err := editing.rotate(5, 63); err != nil {
+		return nil, err
+	}
+	if level7Slot != 0 {
+		if err := editing.rotate(6, level7Slot-1); err != nil {
+			return nil, err
+		}
+		return slots, nil
+	}
+	if err := editing.rotate(6, 63); err != nil {
+		return nil, err
+	}
+	if level8Slot != 0 {
+		if err := editing.rotate(7, level8Slot-1); err != nil {
+			return nil, err
+		}
+		return slots, nil
+	}
 	panic("bloom filter tree exceed capacity")
 }
 
-func (editing *editingHead) editLevel(level level) (*slotIndex, error) {
-	if level > editing.topLevel {
-		editing.topLevel = level
+func (editing *editingHead) rotate(level level, slot biter.Slot) (err error) {
+	if level+1 > editing.topLevel {
+		editing.topLevel = level + 1
 		slotIndexSeq, nextSlotIndexSeq, slotIndex, err := editing.slotIndexManager.newSlotIndex(
 			editing.tailSlotIndexSeq, level)
-		editing.tailSlotIndexSeq = nextSlotIndexSeq
 		if err != nil {
-			return nil, err
+			return err
 		}
-		editing.levels[level] = slotIndexSeq
-		return slotIndex, nil
+		editing.tailSlotIndexSeq = nextSlotIndexSeq
+		editing.levels[level+1] = slotIndexSeq
+		editing.editingLevels[level+1] = slotIndex
+		slotIndex.updateSlot(biter.SetBits[0], editing.editingLevels[level])
 	}
-	return editing.slotIndexManager.mapWritableSlotIndex(editing.levels[level], level)
+	parentLevel := editing.editingLevels[level+1]
+	parentLevel.children[slot] = uint64(editing.levels[level])
+	slotIndexManager := editing.slotIndexManager
+	if err := slotIndexManager.updateChecksum(editing.levels[level], level); err != nil {
+		return err
+	}
+	editing.levels[level], editing.tailSlotIndexSeq, editing.editingLevels[level], err = slotIndexManager.newSlotIndex(
+		editing.tailSlotIndexSeq, level)
+	return
 }
 
 func (segment *headSegmentVersion) scanForward(

@@ -3,7 +3,7 @@ package lstore
 import (
 	"github.com/hashicorp/golang-lru"
 	"github.com/esdb/gocodec"
-	"unsafe"
+	"fmt"
 )
 
 type slotIndexManagerConfig struct {
@@ -59,8 +59,10 @@ func (mgr *slotIndexManager) newSlotIndex(seq slotIndexSeq, level level) (slotIn
 	// re-construct the object on the mmap heap
 	obj, _ = iter.Unmarshal((*slotIndex)(nil)).(*slotIndex)
 	if iter.Error != nil {
-		return 0, 0, nil, iter.Error
+		return 0, 0, nil, fmt.Errorf("newSlotIndex failed: %s", iter.Error.Error())
 	}
+	gocodec.UpdateChecksum(buf)
+	mgr.indexCache.Add(slotIndexSeq(newSeq), obj)
 	return slotIndexSeq(newSeq), slotIndexSeq(newSeq) + slotIndexSeq(size), obj, nil
 }
 
@@ -77,26 +79,11 @@ func (mgr *slotIndexManager) getSlotIndexSize(level level) uint32 {
 	return size
 }
 
-func (mgr *slotIndexManager) writeSlotIndex(seq slotIndexSeq, idx *slotIndex) (slotIndexSeq, error) {
-	stream := gocodec.NewStream(nil)
-	stream.Reset(nil)
-	size := uint32(stream.Marshal(*idx))
-	if stream.Error != nil {
-		return 0, stream.Error
-	}
-	header := (*(*[4]byte)(unsafe.Pointer(&size)))[:]
-	_, err := mgr.dataManager.writeBuf(uint64(seq), header)
-	if err != nil {
-		return 0, err
-	}
-	_, err = mgr.dataManager.writeBuf(uint64(seq)+4, stream.Buffer())
-	if err != nil {
-		return 0, err
-	}
-	return seq + slotIndexSeq(size) + 4, nil
-}
-
 func (mgr *slotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
+	cache, found := mgr.indexCache.Get(seq)
+	if found {
+		return cache.(*slotIndex), nil
+	}
 	size := mgr.getSlotIndexSize(level)
 	buf, err := mgr.dataManager.mapWritableBuf(uint64(seq), size)
 	if err != nil {
@@ -105,17 +92,17 @@ func (mgr *slotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level level)
 	iter := gocodec.NewIterator(buf)
 	idx, _ := iter.Unmarshal((*slotIndex)(nil)).(*slotIndex)
 	if iter.Error != nil {
-		return nil, iter.Error
+		return nil, fmt.Errorf("mapWritableSlotIndex failed: %s", iter.Error.Error())
 	}
 	gocodec.UpdateChecksum(buf)
 	return idx, nil
 }
 
-func (mgr *slotIndexManager) flush(seq slotIndexSeq, level level) error {
+func (mgr *slotIndexManager) updateChecksum(seq slotIndexSeq, level level) error {
 	buf, err := mgr.dataManager.mapWritableBuf(uint64(seq), mgr.getSlotIndexSize(level))
 	if err != nil {
 		return err
 	}
 	gocodec.UpdateChecksum(buf)
-	return mgr.dataManager.flush(uint64(seq))
+	return nil
 }

@@ -27,7 +27,7 @@ func Test_write_slot_index_to_file_head(t *testing.T) {
 	should.Equal(slotIndexSeq(0), seq)
 	should.Nil(err)
 	slotIndex.children[0] = 123
-	mgr.flush(0, level0)
+	mgr.updateChecksum(0, level0)
 	mgr.indexCache.Purge()
 	idx, err := mgr.mapWritableSlotIndex(0, level0)
 	should.Nil(err)
