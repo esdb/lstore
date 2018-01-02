@@ -88,7 +88,7 @@ type ResultCollector struct {
 
 func (collector *ResultCollector) HandleRow(offset Offset, entry *Entry) error {
 	collector.Rows = append(collector.Rows, Row{Offset: offset, Entry: entry})
-	if len(collector.Rows) >= collector.LimitSize {
+	if len(collector.Rows) == collector.LimitSize {
 		return SearchAborted
 	}
 	return nil
