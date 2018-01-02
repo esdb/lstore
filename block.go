@@ -55,7 +55,7 @@ type IndexingStrategy struct {
 	minMaxIndexedColumns          []int
 }
 
-func NewIndexingStrategy(config *IndexingStrategyConfig) *IndexingStrategy {
+func NewIndexingStrategy(config IndexingStrategyConfig) *IndexingStrategy {
 	bloomFilterIndexedBlobColumns := make([]bloomFilterIndexedColumn, len(config.BloomFilterIndexedBlobColumns))
 	for i := 0; i < len(bloomFilterIndexedBlobColumns); i++ {
 		bloomFilterIndexedBlobColumns[i] = bloomFilterIndexedColumn{

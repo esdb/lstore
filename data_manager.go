@@ -78,7 +78,22 @@ func (mgr *dataManager) writeBuf(seq uint64, buf []byte) (uint64, error) {
 	return seq, writeMMap.Flush()
 }
 
-func (mgr *dataManager) readBuf(seq uint64, remainingSize uint32) ([]byte, error) {
+func (mgr *dataManager) allocateBuf(seq uint64, size uint32) (uint64, []byte, error) {
+	fileBlockSeq := seq >> mgr.fileSizeInPowerOfTwo
+	relativeOffset := int(seq - (fileBlockSeq << mgr.fileSizeInPowerOfTwo))
+	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
+	if err != nil {
+		return 0, nil, err
+	}
+	dst := writeMMap[relativeOffset:]
+	if uint32(len(dst)) < size {
+		// allocate the buf to next file
+		return mgr.allocateBuf(seq + uint64(len(dst)), size)
+	}
+	return seq, dst[:size], nil
+}
+
+func (mgr *dataManager) readBuf(seq uint64, size uint32) ([]byte, error) {
 	fileBlockSeq := seq >> mgr.fileSizeInPowerOfTwo
 	relativeOffset := seq - (fileBlockSeq << mgr.fileSizeInPowerOfTwo)
 	readMMap, err := mgr.openReadMMap(fileBlockSeq)
@@ -86,15 +101,33 @@ func (mgr *dataManager) readBuf(seq uint64, remainingSize uint32) ([]byte, error
 		return nil, err
 	}
 	buf := readMMap[relativeOffset:]
-	if uint32(len(buf)) < remainingSize {
-		remainingSize -= uint32(len(buf))
-		moreBuf, err := mgr.readBuf(seq+uint64(len(buf)), remainingSize)
-		if err != nil {
-			return nil, err
-		}
-		return append(buf, moreBuf...), nil
+	if uint32(len(buf)) < size {
+		panic("size overflow the data file")
 	}
-	return buf[:remainingSize], nil
+	return buf[:size], nil
+}
+
+func (mgr *dataManager) mapWritableBuf(seq uint64, size uint32) ([]byte, error) {
+	fileBlockSeq := seq >> mgr.fileSizeInPowerOfTwo
+	relativeOffset := seq - (fileBlockSeq << mgr.fileSizeInPowerOfTwo)
+	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
+	if err != nil {
+		return nil, err
+	}
+	buf := writeMMap[relativeOffset:]
+	if uint32(len(buf)) < size {
+		panic("size overflow the data file")
+	}
+	return buf[:size], nil
+}
+
+func (mgr *dataManager) flush(seq uint64) (error) {
+	fileBlockSeq := seq >> mgr.fileSizeInPowerOfTwo
+	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
+	if err != nil {
+		return err
+	}
+	return writeMMap.Flush()
 }
 
 func (mgr *dataManager) openReadMMap(fileBlockSeq uint64) (mmap.MMap, error) {
@@ -104,7 +137,11 @@ func (mgr *dataManager) openReadMMap(fileBlockSeq uint64) (mmap.MMap, error) {
 	if err != nil {
 		return nil, err
 	}
-	readMMap, err := mmap.Map(file, mmap.COPY, 0)
+	readMMap := mgr.readMMaps[fileBlockSeq]
+	if readMMap != nil {
+		return readMMap, nil
+	}
+	readMMap, err = mmap.Map(file, mmap.COPY, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +156,11 @@ func (mgr *dataManager) openWriteMMap(fileBlockSeq uint64) (mmap.MMap, error) {
 	if err != nil {
 		return nil, err
 	}
-	writeMMap, err := mmap.Map(file, mmap.RDWR, 0)
+	writeMMap := mgr.writeMMaps[fileBlockSeq]
+	if writeMMap != nil {
+		return writeMMap, nil
+	}
+	writeMMap, err = mmap.Map(file, mmap.RDWR, 0)
 	if err != nil {
 		return nil, fmt.Errorf("map RDWR for block failed: %s", err.Error())
 	}

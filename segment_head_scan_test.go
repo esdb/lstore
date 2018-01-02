@@ -7,15 +7,15 @@ import (
 )
 
 func realEditingHead() (*editingHead, *blockManager, *slotIndexManager) {
-	strategy := NewIndexingStrategy(&IndexingStrategyConfig{
+	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
-	levels := make([]*slotIndex, 9)
+	levels := make([]*slotIndex, levelsCount)
 	for i := level0; i < level(len(levels)); i++ {
 		levels[i] = newSlotIndex(strategy, i)
 	}
 	blockManager := newBlockManager(&blockManagerConfig{})
-	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{})
+	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{}, strategy)
 	return &editingHead{
 		strategy: strategy,
 		headSegmentVersion: &headSegmentVersion{

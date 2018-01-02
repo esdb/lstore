@@ -20,7 +20,6 @@ func calcCompressedBlockHeaderSize() uint32 {
 }
 
 type blockManagerConfig struct {
-	IndexingStrategyConfig
 	BlockDirectory            string
 	BlockFileSizeInPowerOfTwo uint8
 	BlockCacheSize            int
@@ -32,7 +31,6 @@ type blockManagerConfig struct {
 // retain lru block cache
 type blockManager struct {
 	dataManager      *dataManager
-	indexingStrategy *IndexingStrategy
 	blockCache       *lru.ARCCache
 	// tmp assume there is single writer
 	blockCompressTmp []byte
@@ -46,9 +44,7 @@ func newBlockManager(config *blockManagerConfig) *blockManager {
 		config.BlockCacheSize = 1024
 	}
 	blockCache, _ := lru.NewARC(config.BlockCacheSize)
-	indexingStrategy := NewIndexingStrategy(&config.IndexingStrategyConfig)
 	return &blockManager{
-		indexingStrategy: indexingStrategy,
 		blockCache:       blockCache,
 		dataManager:      newDataManager(config.BlockDirectory, config.BlockFileSizeInPowerOfTwo),
 	}

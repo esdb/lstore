@@ -24,10 +24,10 @@ func intBlobEntry(intValue int64, blobValue Blob) *Entry {
 var ctx = countlog.Ctx(context.Background())
 
 func fakeEditingHead() *editingHead {
-	strategy := NewIndexingStrategy(&IndexingStrategyConfig{
+	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
-	levels := make([]*slotIndex, 9)
+	levels := make([]*slotIndex, levelsCount)
 	for i := level0; i < level(len(levels)); i++ {
 		levels[i] = newSlotIndex(strategy, i)
 	}

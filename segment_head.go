@@ -13,6 +13,7 @@ import (
 	"github.com/esdb/biter"
 )
 
+const levelsCount = 9
 const level0 level = 0 // small
 const level1 level = 1 // medium
 const level2 level = 2 // large
@@ -73,7 +74,7 @@ func openHeadSegment(ctx countlog.Context, config *Config, strategy *IndexingStr
 }
 
 func initIndexedSegment(ctx countlog.Context, config *Config, strategy *IndexingStrategy) (*os.File, error) {
-	levels := make([]*slotIndex, 9)
+	levels := make([]*slotIndex, levelsCount)
 	for i := level0; i < level(len(levels)); i++ {
 		levels[i] = newSlotIndex(strategy, i)
 	}

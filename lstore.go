@@ -118,8 +118,7 @@ func (store *Store) Start(ctxObj context.Context) error {
 		store.IndexDirectory = path.Join(store.Directory, "index")
 	}
 	store.blockManager = newBlockManager(&store.blockManagerConfig)
-	store.slotIndexManager = newSlotIndexManager(&store.slotIndexManagerConfig)
-	store.Config.IndexingStrategy = store.blockManager.indexingStrategy
+	store.slotIndexManager = newSlotIndexManager(&store.slotIndexManagerConfig, store.IndexingStrategy)
 	store.executor = concurrent.NewUnboundedExecutor()
 	writer, err := store.newWriter(ctx)
 	if err != nil {
