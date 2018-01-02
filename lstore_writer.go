@@ -45,6 +45,9 @@ func (store *Store) newWriter(ctx countlog.Context) (*writer, error) {
 }
 
 func (writer *writer) Close() error {
+	if writer.writeMMap == nil {
+		return nil
+	}
 	return plz.Close(plz.WrapCloser(writer.writeMMap.Unmap))
 }
 
