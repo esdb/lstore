@@ -12,18 +12,25 @@ type slotIndexManagerConfig struct {
 	IndexCacheSize            int
 }
 
+type slotIndexManager interface {
+	newSlotIndex(seq slotIndexSeq, level level) (slotIndexSeq, slotIndexSeq, *slotIndex, error)
+	mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error)
+	updateChecksum(seq slotIndexSeq, level level) error
+	indexingStrategy() *IndexingStrategy
+}
+
 // slotIndexManager is global per store
 // it manages the read/write to index file
 // compress/decompress index from the mmap
 // retain lru index cache
-type slotIndexManager struct {
+type mmapSlotIndexManager struct {
 	strategy       *IndexingStrategy
 	slotIndexSizes []uint32
 	dataManager    *dataManager
 	indexCache     *lru.ARCCache
 }
 
-func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrategy) *slotIndexManager {
+func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrategy) *mmapSlotIndexManager {
 	if config.IndexFileSizeInPowerOfTwo == 0 {
 		config.IndexFileSizeInPowerOfTwo = 30
 	}
@@ -31,7 +38,7 @@ func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrat
 		config.IndexCacheSize = 1024
 	}
 	indexCache, _ := lru.NewARC(config.IndexCacheSize)
-	return &slotIndexManager{
+	return &mmapSlotIndexManager{
 		strategy:       strategy,
 		slotIndexSizes: make([]uint32, levelsCount),
 		indexCache:     indexCache,
@@ -39,11 +46,15 @@ func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrat
 	}
 }
 
-func (mgr *slotIndexManager) Close() error {
+func (mgr *mmapSlotIndexManager) Close() error {
 	return mgr.dataManager.Close()
 }
 
-func (mgr *slotIndexManager) newSlotIndex(seq slotIndexSeq, level level) (slotIndexSeq, slotIndexSeq, *slotIndex, error) {
+func (mgr *mmapSlotIndexManager) indexingStrategy() *IndexingStrategy {
+	return mgr.strategy
+}
+
+func (mgr *mmapSlotIndexManager) newSlotIndex(seq slotIndexSeq, level level) (slotIndexSeq, slotIndexSeq, *slotIndex, error) {
 	size := mgr.getSlotIndexSize(level)
 	newSeq, buf, err := mgr.dataManager.allocateBuf(uint64(seq), size)
 	if err != nil {
@@ -66,7 +77,7 @@ func (mgr *slotIndexManager) newSlotIndex(seq slotIndexSeq, level level) (slotIn
 	return slotIndexSeq(newSeq), slotIndexSeq(newSeq) + slotIndexSeq(size), obj, nil
 }
 
-func (mgr *slotIndexManager) getSlotIndexSize(level level) uint32 {
+func (mgr *mmapSlotIndexManager) getSlotIndexSize(level level) uint32 {
 	size := mgr.slotIndexSizes[level]
 	if size == 0 {
 		buf, err := gocodec.Marshal(*newSlotIndex(mgr.strategy, level))
@@ -79,7 +90,7 @@ func (mgr *slotIndexManager) getSlotIndexSize(level level) uint32 {
 	return size
 }
 
-func (mgr *slotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
+func (mgr *mmapSlotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
 	cache, found := mgr.indexCache.Get(seq)
 	if found {
 		return cache.(*slotIndex), nil
@@ -98,7 +109,7 @@ func (mgr *slotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level level)
 	return idx, nil
 }
 
-func (mgr *slotIndexManager) updateChecksum(seq slotIndexSeq, level level) error {
+func (mgr *mmapSlotIndexManager) updateChecksum(seq slotIndexSeq, level level) error {
 	buf, err := mgr.dataManager.mapWritableBuf(uint64(seq), mgr.getSlotIndexSize(level))
 	if err != nil {
 		return err

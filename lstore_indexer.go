@@ -85,28 +85,13 @@ func (indexer *indexer) Index() error {
 	return <-resultChan
 }
 
-func (indexer *indexer) edit() (*editingHead) {
-	store := indexer.currentVersion
-	blockManager := indexer.store.blockManager
-	slotIndexManager := indexer.store.slotIndexManager
-	strategy := indexer.store.IndexingStrategy
-	editingHead := &editingHead{
-		headSegmentVersion: store.headSegment.headSegmentVersion,
-		strategy:           strategy,
-		writeBlock:         blockManager.writeBlock,
-		slotIndexManager:   slotIndexManager,
-		editingLevels: make([]*slotIndex, levelsCount),
-	}
-	return editingHead
-}
-
 func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 	countlog.Trace("event!indexer.run")
 	store := indexer.currentVersion
 	if len(store.rawSegments) == 0 {
 		return nil
 	}
-	editingHead := indexer.edit()
+	editingHead := store.headSegment
 	purgedRawSegmentsCount := 0
 	for _, rawSegment := range store.rawSegments {
 		purgedRawSegmentsCount++

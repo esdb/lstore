@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-func testBlockManager(blockFileSizeInPowerOfTwo uint8) *blockManager {
+func testBlockManager(blockFileSizeInPowerOfTwo uint8) *mmapBlockManager {
 	os.RemoveAll("/tmp/block/")
 	err := os.Mkdir("/tmp/block/", 0777)
 	if err != nil {

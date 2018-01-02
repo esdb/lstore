@@ -51,7 +51,7 @@ func (writer *writer) Close() error {
 func (writer *writer) load(ctx countlog.Context) error {
 	store := writer.store
 	config := store.Config
-	initialVersion, err := loadInitialVersion(ctx, &config, store.slotIndexManager)
+	initialVersion, err := loadInitialVersion(ctx, &config, store.blockManager, store.slotIndexManager)
 	if err != nil {
 		return err
 	}

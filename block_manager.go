@@ -25,18 +25,23 @@ type blockManagerConfig struct {
 	BlockCacheSize            int
 }
 
+type blockManager interface {
+	writeBlock(seq blockSeq, block *block) (blockSeq, blockSeq, error)
+	readBlock(seq blockSeq) (*block, error)
+}
+
 // blockManager is global per store
 // it manages the read/write to block file
 // compress/decompress block from the mmap
 // retain lru block cache
-type blockManager struct {
-	dataManager      *dataManager
-	blockCache       *lru.ARCCache
+type mmapBlockManager struct {
+	dataManager *dataManager
+	blockCache  *lru.ARCCache
 	// tmp assume there is single writer
 	blockCompressTmp []byte
 }
 
-func newBlockManager(config *blockManagerConfig) *blockManager {
+func newBlockManager(config *blockManagerConfig) *mmapBlockManager {
 	if config.BlockFileSizeInPowerOfTwo == 0 {
 		config.BlockFileSizeInPowerOfTwo = 30
 	}
@@ -44,17 +49,17 @@ func newBlockManager(config *blockManagerConfig) *blockManager {
 		config.BlockCacheSize = 1024
 	}
 	blockCache, _ := lru.NewARC(config.BlockCacheSize)
-	return &blockManager{
-		blockCache:       blockCache,
-		dataManager:      newDataManager(config.BlockDirectory, config.BlockFileSizeInPowerOfTwo),
+	return &mmapBlockManager{
+		blockCache:  blockCache,
+		dataManager: newDataManager(config.BlockDirectory, config.BlockFileSizeInPowerOfTwo),
 	}
 }
 
-func (mgr *blockManager) Close() error {
+func (mgr *mmapBlockManager) Close() error {
 	return mgr.dataManager.Close()
 }
 
-func (mgr *blockManager) writeBlock(seq blockSeq, block *block) (blockSeq, blockSeq, error) {
+func (mgr *mmapBlockManager) writeBlock(seq blockSeq, block *block) (blockSeq, blockSeq, error) {
 	mgr.blockCache.Add(seq, block)
 	compressedBlock := mgr.compressBlock(block)
 	newSeq, err := mgr.dataManager.writeBuf(uint64(seq), compressedBlock)
@@ -64,7 +69,7 @@ func (mgr *blockManager) writeBlock(seq blockSeq, block *block) (blockSeq, block
 	return blockSeq(newSeq), blockSeq(newSeq) + blockSeq(len(compressedBlock)), nil
 }
 
-func (mgr *blockManager) compressBlock(block *block) []byte {
+func (mgr *mmapBlockManager) compressBlock(block *block) []byte {
 	stream := gocodec.NewStream(nil)
 	stream.Marshal(*block)
 	if stream.Error != nil {
@@ -87,7 +92,7 @@ func (mgr *blockManager) compressBlock(block *block) []byte {
 	return mgr.blockCompressTmp[:compressedSize+int(compressedBlockHeaderSize)]
 }
 
-func (mgr *blockManager) readBlock(seq blockSeq) (*block, error) {
+func (mgr *mmapBlockManager) readBlock(seq blockSeq) (*block, error) {
 	blkObj, found := mgr.blockCache.Get(seq)
 	if found {
 		return blkObj.(*block), nil

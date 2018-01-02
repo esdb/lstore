@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-func testSlotIndexManager(blockFileSizeInPowerOfTwo uint8) *slotIndexManager {
+func testSlotIndexManager(blockFileSizeInPowerOfTwo uint8) *mmapSlotIndexManager {
 	os.RemoveAll("/tmp/index/")
 	err := os.Mkdir("/tmp/index/", 0777)
 	if err != nil {

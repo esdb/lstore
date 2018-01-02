@@ -33,7 +33,7 @@ func intBlobEntry(intValue int64, blobValue Blob) *Entry {
 
 var ctx = countlog.Ctx(context.Background())
 
-func fakeEditingHead() *editingHead {
+func fakeEditingHead() *headSegment {
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
@@ -42,22 +42,26 @@ func fakeEditingHead() *editingHead {
 	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{
 		IndexDirectory: "/tmp/store/index",
 	}, strategy)
-	headSegment, err := openHeadSegment(ctx, "/tmp/store/head.segment", slotIndexManager)
+	headSegment, err := openHeadSegment(ctx, "/tmp/store/head.segment",
+		&fakeBlockManager{}, slotIndexManager)
 	if err != nil {
 		panic(err)
 	}
-	return &editingHead{
-		strategy:           strategy,
-		headSegmentVersion: headSegment.headSegmentVersion,
-		writeBlock: func(seq blockSeq, block *block) (blockSeq, blockSeq, error) {
-			return seq, seq + 6, nil
-		},
-		slotIndexManager: slotIndexManager,
-		editingLevels:    headSegment.editingLevels,
-	}
+	return headSegment
 }
 
-func getLevel(editing *editingHead, level level) *slotIndex {
+type fakeBlockManager struct {
+}
+
+func (mgr *fakeBlockManager) writeBlock(seq blockSeq, block *block) (blockSeq, blockSeq, error) {
+	return seq, seq + 6, nil
+}
+
+func (mgr *fakeBlockManager) readBlock(seq blockSeq) (*block, error) {
+	panic("not implemented")
+}
+
+func getLevel(editing *headSegment, level level) *slotIndex {
 	return editing.editingLevels[level]
 }
 

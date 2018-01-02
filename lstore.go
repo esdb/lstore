@@ -48,8 +48,8 @@ type Store struct {
 	Config
 	*writer
 	*indexer
-	blockManager     *blockManager
-	slotIndexManager *slotIndexManager
+	blockManager     *mmapBlockManager
+	slotIndexManager *mmapSlotIndexManager
 	currentVersion   unsafe.Pointer
 	executor         *concurrent.UnboundedExecutor // owns writer and indexer
 }

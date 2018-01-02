@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-func realEditingHead() (*editingHead, *blockManager, *slotIndexManager) {
+func realEditingHead() (*headSegment, *mmapBlockManager, *mmapSlotIndexManager) {
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
@@ -16,17 +16,11 @@ func realEditingHead() (*editingHead, *blockManager, *slotIndexManager) {
 	}
 	blockManager := newBlockManager(&blockManagerConfig{})
 	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{IndexDirectory: "/tmp/store/index"}, strategy)
-	headSegment, err := openHeadSegment(ctx, "/tmp/store/head.segment", slotIndexManager)
+	headSegment, err := openHeadSegment(ctx, "/tmp/store/head.segment", blockManager, slotIndexManager)
 	if err != nil {
 		panic(err)
 	}
-	return &editingHead{
-		strategy:           strategy,
-		headSegmentVersion: headSegment.headSegmentVersion,
-		writeBlock:         blockManager.writeBlock,
-		slotIndexManager:   slotIndexManager,
-		editingLevels: make([]*slotIndex, levelsCount),
-	}, blockManager, slotIndexManager
+	return headSegment, blockManager, slotIndexManager
 }
 
 func Test_scan_forward(t *testing.T) {
