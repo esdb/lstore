@@ -24,23 +24,6 @@ func Test_create_block(t *testing.T) {
 	blkHash := blk.Hash(strategy)
 	should.Equal(1, len(blkHash))
 	should.Equal(hashColumn{
-		{0xe3e1efd54283d94f, 0x7081314b599d31b3},
-		{0xd81531287283d94f, 0x70816d9b61a08eeb},
 	}, blkHash[0])
 	should.Equal(blobHashColumn{0x4283d94f, 0x7283d94f}, blk.blobHashColumns[0])
-}
-
-func Benchmark_column_based_block_scan(b *testing.B) {
-	filters := []Filter{
-		//&IntValueFilter{Index: 0, Value: 100},
-	}
-	columnSize := 256
-	blk := &block{
-		intColumns:      []intColumn{make(intColumn, columnSize)},
-		blobHashColumns: []blobHashColumn{make(blobHashColumn, columnSize)},
-		blobColumns:     []blobColumn{make(blobColumn, columnSize)},
-	}
-	for i := 0; i < b.N; i++ {
-		blk.search(nil, nil, 0, filters...)
-	}
 }

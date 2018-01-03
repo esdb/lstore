@@ -11,6 +11,7 @@ import (
 	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/plz"
 	"github.com/esdb/biter"
+	"github.com/esdb/pbloom"
 )
 
 const levelsCount = 9
@@ -143,26 +144,23 @@ func (segment *headSegment) addBlock(ctx countlog.Context, blk *block) error {
 	level1SlotIndex := segment.levelObjs[1]
 	level2SlotIndex := segment.levelObjs[2]
 	level0SlotIndex.children[slots[0]] = uint64(blockSeq)
-	smallHashingStrategy := segment.strategy.smallHashingStrategy
-	mediumHashingStrategy := segment.strategy.mediumHashingStrategy
-	largeHashingStrategy := segment.strategy.largeHashingStrategy
 	for i, hashColumn := range blkHash {
 		pbf0 := level0SlotIndex.pbfs[i]
 		pbf1 := level1SlotIndex.pbfs[i]
 		pbf2 := level2SlotIndex.pbfs[i]
 		for _, hashedElement := range hashColumn {
 			// level0, level1, level2 are computed from block hash
-			pbf0.Put(level0SlotMask, smallHashingStrategy.HashStage2(hashedElement))
-			pbf1.Put(level1SlotMask, mediumHashingStrategy.HashStage2(hashedElement))
-			locations := largeHashingStrategy.HashStage2(hashedElement)
-			pbf2.Put(level2SlotMask, locations)
+			locations := pbloom.BatchPut(hashedElement,
+				level0SlotMask, level1SlotMask, level2SlotMask,
+				pbf0, pbf1, pbf2)
 			// from level3 to levelN, they are derived from level2
 			for j := level(3); j <= segment.topLevel; j++ {
 				parentPbf := segment.levelObjs[j].pbfs[i]
 				levelNMask := biter.SetBits[slots[j]]
-				for _, location := range locations {
-					parentPbf[location] |= levelNMask
-				}
+				parentPbf[locations[0]] |= levelNMask
+				parentPbf[locations[1]] |= levelNMask
+				parentPbf[locations[2]] |= levelNMask
+				parentPbf[locations[3]] |= levelNMask
 			}
 		}
 	}
