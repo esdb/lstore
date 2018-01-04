@@ -4,31 +4,34 @@ import (
 	"github.com/v2pro/plz/countlog"
 )
 
-func loadInitialVersion(ctx countlog.Context, config *Config, blockManager *mmapBlockManager, slotIndexManager *mmapSlotIndexManager) (*StoreVersion, error) {
-	version := StoreVersion{config: *config}.edit()
-	indexedSegment, err := openIndexingSegment(ctx, config.IndexingSegmentPath(), blockManager, slotIndexManager)
+func (writer *writer) loadInitialVersion(ctx countlog.Context) error {
+	version := StoreVersion{}.edit()
+	indexedSegment, err := openIndexingSegment(
+		ctx, writer.store.IndexingSegmentPath(),
+		writer.store.blockManager, writer.store.slotIndexManager)
 	ctx.TraceCall("callee!store.openIndexingSegment", err)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	version.indexingSegment = indexedSegment
-	err = loadTailAndRawSegments(ctx, config, version)
+	err = writer.loadTailAndRawSegments(ctx, version)
 	ctx.TraceCall("callee!store.loadTailAndRawSegments", err)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return version.seal(), nil
+	writer.currentVersion = version.seal()
+	return nil
 }
 
-func loadTailAndRawSegments(ctx countlog.Context, config *Config, version *EditingStoreVersion) error {
-	tailSegment, err := openTailSegment(config.TailSegmentPath(), config.TailSegmentMaxSize, 0)
+func (writer *writer) loadTailAndRawSegments(ctx countlog.Context, version *EditingStoreVersion) error {
+	tailSegment, err := openTailSegment(ctx, writer.store.TailSegmentPath(), writer.store.TailSegmentMaxSize, 0)
 	if err != nil {
 		return err
 	}
 	var reversedRawSegments []*rawSegment
 	startOffset := tailSegment.startOffset
 	for startOffset > version.indexingSegment.tailOffset {
-		rawSegmentPath := config.RawSegmentPath(startOffset)
+		rawSegmentPath := writer.store.RawSegmentPath(startOffset)
 		rawSegment, err := openRawSegment(ctx, rawSegmentPath)
 		if err != nil {
 			countlog.Error("event!lstore.failed to open raw segment",
@@ -43,7 +46,8 @@ func loadTailAndRawSegments(ctx countlog.Context, config *Config, version *Editi
 	for i := 0; i < len(reversedRawSegments); i++ {
 		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
 	}
-	version.tailSegment = tailSegment
+	writer.tailSegment = tailSegment
+	version.tailSegment = tailSegment.rawSegment
 	version.rawSegments = rawSegments
 	return nil
 }

@@ -96,7 +96,7 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 	for _, rawSegment := range store.rawSegments {
 		purgedRawSegmentsCount++
 		// TODO: ensure rawSegment is actually blockLength
-		blk := newBlock(rawSegment.startOffset, rawSegment.rows.rows)
+		blk := newBlock(rawSegment.startOffset, rawSegment.rows)
 		err := editingHead.addBlock(ctx, blk)
 		ctx.TraceCall("callee!editingHead.addBlock", err)
 		if err != nil {

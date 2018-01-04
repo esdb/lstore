@@ -6,7 +6,6 @@ import (
 	"github.com/v2pro/plz/countlog"
 	"github.com/esdb/gocodec"
 	"errors"
-	"sync/atomic"
 	"io"
 	"github.com/esdb/lstore/ref"
 	"path"
@@ -15,17 +14,23 @@ import (
 
 var SegmentOverflowError = errors.New("please rotate to new chunk")
 
+// writableTailSegment is owned by writer
 type tailSegment struct {
-	segmentHeader
-	*ref.ReferenceCounted
-	path     string
-	readBuf  []byte
-	file     *os.File
-	readMMap mmap.MMap
-	tail     uint64 // offset, writer use atomic to notify readers
+	*rawSegment
+	writeBuf  []byte
+	writeMMap mmap.MMap
 }
 
-func openTailSegment(path string, maxSize int64, startOffset Offset) (*tailSegment, error) {
+func (segment *tailSegment) Close() error {
+	if segment.writeMMap == nil {
+		return nil
+	}
+	err := segment.writeMMap.Unmap()
+	countlog.TraceCall("callee!writeMMap.Unmap", err)
+	return err
+}
+
+func openTailSegment(ctx countlog.Context, path string, maxSize int64, startOffset Offset) (*tailSegment, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
 		file, err = createTailSegment(path, maxSize, startOffset)
@@ -35,27 +40,35 @@ func openTailSegment(path string, maxSize int64, startOffset Offset) (*tailSegme
 	} else if err != nil {
 		return nil, err
 	}
-	resources := []io.Closer{file}
-	segment := &tailSegment{}
-	segment.file = file
-	readMMap, err := mmap.Map(file, mmap.RDONLY, 0)
+	defer plz.Close(file)
+	writeMMap, err := mmap.Map(file, mmap.RDWR, 0)
+	ctx.TraceCall("callee!mmap.Map", err)
 	if err != nil {
-		file.Close()
-		countlog.Error("event!chunk.failed to mmap as RDONLY", "err", err, "path", path)
 		return nil, err
 	}
-	resources = append(resources, plz.WrapCloser(readMMap.Unmap))
-	iter := gocodec.NewIterator(readMMap)
+	segment := &tailSegment{}
+	iter := gocodec.NewIterator(writeMMap)
 	segmentHeader, _ := iter.Copy((*segmentHeader)(nil)).(*segmentHeader)
 	if iter.Error != nil {
-		readMMap.Unmap()
-		file.Close()
+		plz.Close(plz.WrapCloser(writeMMap.Unmap))
 		return nil, iter.Error
 	}
-	segment.segmentHeader = *segmentHeader
-	segment.readBuf = iter.Buffer()
-	segment.path = path
-	segment.ReferenceCounted = ref.NewReferenceCounted("tail segment", resources...)
+	segment.rawSegment = &rawSegment{
+		segmentHeader: *segmentHeader,
+		ReferenceCounted: ref.NewReferenceCounted("in mem raw segment"),
+	}
+	for {
+		entry, _ := iter.Copy((*Entry)(nil)).(*Entry)
+		if iter.Error == io.EOF {
+			break
+		}
+		if iter.Error != nil {
+			plz.Close(plz.WrapCloser(writeMMap.Unmap))
+			return nil, iter.Error
+		}
+		segment.rows = append(segment.rows, entry)
+	}
+	segment.writeBuf = iter.Buffer()
 	return segment, nil
 }
 
@@ -80,43 +93,4 @@ func createTailSegment(filename string, maxSize int64, startOffset Offset) (*os.
 		return nil, err
 	}
 	return os.OpenFile(filename, os.O_RDWR, 0666)
-}
-
-func (segment *tailSegment) updateTail(tail Offset) {
-	atomic.StoreUint64(&segment.tail, uint64(tail))
-}
-
-func (segment *tailSegment) getTail() Offset {
-	return Offset(atomic.LoadUint64(&segment.tail))
-}
-
-func (segment *tailSegment) read(reader *Reader) (bool, error) {
-	iter := reader.gocIter
-	if reader.tailOffset == segment.getTail() {
-		// tail not moved
-		return false, nil
-	}
-	buf := segment.readBuf[reader.tailSeq:]
-	bufSize := uint64(len(buf))
-	iter.Reset(buf)
-	newRowsCount := 0
-	startOffset := reader.currentVersion.tailSegment.startOffset
-	for {
-		currentSeq := reader.tailSeq + (bufSize - uint64(len(iter.Buffer())))
-		entry, _ := iter.Copy((*Entry)(nil)).(*Entry)
-		if iter.Error == io.EOF {
-			startSeq := reader.tailSeq
-			reader.tailSeq = currentSeq
-			countlog.Trace("event!tailSegment.read finished",
-				"startSeq", startSeq, "tailSeq", reader.tailSeq)
-			return true, nil
-		}
-		if iter.Error != nil {
-			return false, iter.Error
-		}
-		offset := startOffset + Offset(len(reader.tailRows.rows))
-		reader.tailRows.rows = append(reader.tailRows.rows, entry)
-		reader.tailOffset = offset + 1
-		newRowsCount++
-	}
 }

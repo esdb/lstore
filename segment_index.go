@@ -23,6 +23,9 @@ type indexSegment struct {
 
 func (segment *indexingSegment) searchForward(
 	ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
+	if startOffset >= segment.tailOffset {
+		return nil
+	}
 	return segment.searchForwardAt(ctx, startOffset, filters, cb,
 		segment.indexingLevels[segment.topLevel], segment.topLevel)
 }
@@ -39,6 +42,7 @@ func (segment *indexingSegment) searchForwardAt(
 		}
 		if level == level0 {
 			blk, err := segment.blockManager.readBlock(blockSeq(slotIndex.children[slot]))
+			ctx.TraceCall("callee!blockManager.readBlock", err)
 			if err != nil {
 				return err
 			}
@@ -50,6 +54,7 @@ func (segment *indexingSegment) searchForwardAt(
 			childLevel := level - 1
 			childSlotIndexSeq := slotIndexSeq(slotIndex.children[slot])
 			childSlotIndex, err := segment.slotIndexManager.mapWritableSlotIndex(childSlotIndexSeq, childLevel)
+			ctx.TraceCall("callee!slotIndexManager.mapWritableSlotIndex", err)
 			if err != nil {
 				return err
 			}

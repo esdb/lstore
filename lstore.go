@@ -50,27 +50,27 @@ func (conf *Config) TailSegmentTmpPath() string {
 // it represents the history by a log of entries
 type Store struct {
 	Config
-	*writer
-	*indexer
+	writer           *writer
+	indexer          *indexer
 	blockManager     *mmapBlockManager
 	slotIndexManager *mmapSlotIndexManager
-	currentVersion   unsafe.Pointer
+	currentVersion   unsafe.Pointer                // pointer to StoreVersion, writer use atomic to notify readers
+	tailOffset       uint64                        // offset, writer use atomic to notify readers
 	executor         *concurrent.UnboundedExecutor // owns writer and indexer
 }
 
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
-	config          Config
 	*ref.ReferenceCounted
+	indexSegments   []*indexSegment
 	indexingSegment *indexingSegment
 	rawSegments     []*rawSegment
-	tailSegment     *tailSegment
+	tailSegment     *rawSegment
 }
 
 func (version StoreVersion) edit() *EditingStoreVersion {
 	return &EditingStoreVersion{
 		StoreVersion{
-			config:          version.config,
 			indexingSegment: version.indexingSegment,
 			rawSegments:     version.rawSegments,
 			tailSegment:     version.tailSegment,
@@ -138,6 +138,14 @@ func (store *Store) Stop(ctx context.Context) error {
 	return plz.Close(store.writer)
 }
 
+func (store *Store) Write(ctxObj context.Context, entry *Entry) (Offset, error) {
+	return store.writer.Write(ctxObj, entry)
+}
+
+func (store *Store) Index() error {
+	return store.indexer.Index()
+}
+
 func (store *Store) latest() *StoreVersion {
 	for {
 		version := (*StoreVersion)(atomic.LoadPointer(&store.currentVersion))
@@ -153,4 +161,16 @@ func (store *Store) latest() *StoreVersion {
 func (store *Store) isLatest(version *StoreVersion) bool {
 	latestVersion := (*StoreVersion)(atomic.LoadPointer(&store.currentVersion))
 	return latestVersion == version
+}
+
+func (store *Store) updateVersion(version *StoreVersion) {
+	atomic.StorePointer(&store.currentVersion, unsafe.Pointer(version))
+}
+
+func (store *Store) updateTailOffset(tailOffset Offset) {
+	atomic.StoreUint64(&store.tailOffset, uint64(tailOffset))
+}
+
+func (store *Store) getTailOffset() Offset {
+	return Offset(atomic.LoadUint64(&store.tailOffset))
 }

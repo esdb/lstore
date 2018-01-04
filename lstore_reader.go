@@ -12,9 +12,7 @@ import (
 type Reader struct {
 	store          *Store
 	currentVersion *StoreVersion
-	tailSeq        uint64 // seq to start next cache fill
 	tailOffset     Offset
-	tailRows       rowsChunk // rows cache
 	gocIter        *gocodec.Iterator
 }
 
@@ -29,7 +27,6 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 	ctx := countlog.Ctx(ctxObj)
 	reader := &Reader{
 		store:    store,
-		tailRows: rowsChunk{},
 		gocIter:  gocodec.NewIterator(nil),
 	}
 	_, err := reader.Refresh(ctx)
@@ -42,14 +39,14 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 	return reader, nil
 }
 
+func (reader *Reader) TailOffset() Offset {
+	return reader.tailOffset
+}
+
 // Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailSegment.tail
 func (reader *Reader) Refresh(ctx context.Context) (bool, error) {
 	latestVersion := reader.store.latest()
 	defer plz.Close(latestVersion, "ctx", ctx)
-	if reader.currentVersion == nil || latestVersion.tailSegment != reader.currentVersion.tailSegment {
-		reader.tailSeq = 0
-		reader.tailRows = newRowsChunk(latestVersion.tailSegment.startOffset)
-	}
 	if reader.currentVersion != latestVersion {
 		// when reader moves forward, older version has a chance to die
 		if reader.currentVersion != nil {
@@ -60,7 +57,7 @@ func (reader *Reader) Refresh(ctx context.Context) (bool, error) {
 		latestVersion.Acquire()
 		reader.currentVersion = latestVersion
 	}
-	return reader.currentVersion.tailSegment.read(reader)
+	return reader.store.getTailOffset() != reader.tailOffset, nil
 }
 
 func (reader *Reader) Close() error {
@@ -74,11 +71,11 @@ func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, 
 		return err
 	}
 	for _, rawSegment := range store.rawSegments {
-		if err := rawSegment.rows.search(ctx, startOffset, filters, cb); err != nil {
+		if err := rawSegment.search(ctx, startOffset, filters, cb); err != nil {
 			return err
 		}
 	}
-	return reader.tailRows.search(ctx, startOffset, filters, cb)
+	return store.tailSegment.search(ctx, startOffset, filters, cb)
 }
 
 type ResultCollector struct {

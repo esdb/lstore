@@ -9,13 +9,13 @@ import (
 	"github.com/esdb/lstore/ref"
 	"fmt"
 	"github.com/v2pro/plz"
+	"strconv"
 )
 
 type rawSegment struct {
 	segmentHeader
 	*ref.ReferenceCounted
-	rows rowsChunk
-	Path string
+	rows []*Entry
 }
 
 func openRawSegment(ctx countlog.Context, path string) (*rawSegment, error) {
@@ -24,14 +24,15 @@ func openRawSegment(ctx countlog.Context, path string) (*rawSegment, error) {
 	if err != nil {
 		return nil, err
 	}
-	var resources []io.Closer
-	resources = append(resources, file)
 	segment := &rawSegment{}
 	readMMap, err := mmap.Map(file, mmap.COPY, 0)
 	if err != nil {
+		plz.Close(file)
 		countlog.Error("event!raw.failed to mmap as COPY", "err", err, "path", path)
 		return nil, err
 	}
+	plz.Close(file)
+	var resources []io.Closer
 	resources = append(resources, plz.WrapCloser(readMMap.Unmap))
 	iter := gocodec.NewIterator(readMMap)
 	segmentHeader, _ := iter.Unmarshal((*segmentHeader)(nil)).(*segmentHeader)
@@ -40,7 +41,6 @@ func openRawSegment(ctx countlog.Context, path string) (*rawSegment, error) {
 		return nil, iter.Error
 	}
 	segment.segmentHeader = *segmentHeader
-	segment.Path = path
 	segment.rows, err = segment.loadRows(ctx, iter)
 	if err != nil {
 		countlog.Error("event!raw.failed to unmarshal rows", "err", iter.Error, "path", path)
@@ -50,8 +50,8 @@ func openRawSegment(ctx countlog.Context, path string) (*rawSegment, error) {
 	return segment, nil
 }
 
-func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator) (rowsChunk, error) {
-	var rows rowsChunk
+func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator) ([]*Entry, error) {
+	var rows []*Entry
 	for {
 		iter.Reset(iter.Buffer())
 		entry, _ := iter.Unmarshal((*Entry)(nil)).(*Entry)
@@ -60,8 +60,42 @@ func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator
 		}
 		ctx.TraceCall("callee!iter.Unmarshal", iter.Error)
 		if iter.Error != nil {
-			return rowsChunk{}, fmt.Errorf("load raw segment rows failed: %v", iter.Error.Error())
+			return nil, fmt.Errorf("load raw segment rows failed: %v", iter.Error.Error())
 		}
-		rows.rows = append(rows.rows, entry)
+		rows = append(rows, entry)
 	}
+}
+
+func (segment *rawSegment) search(ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
+	for i, entry := range segment.rows {
+		offset := segment.startOffset + Offset(i)
+		if offset < startOffset {
+			continue
+		}
+		if rowMatches(entry, filters) {
+			if err := cb.HandleRow(offset, entry); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func rowMatches(entry *Entry, filters []Filter) bool {
+	for _, filter := range filters {
+		if !filter.matches(entry) {
+			return false
+		}
+	}
+	return true
+}
+
+func (segment *rawSegment) String() string {
+	if len(segment.rows) == 0 {
+		return "rawSegment{}"
+	}
+	start := int(segment.startOffset)
+	end := start + len(segment.rows) - 1
+	desc := "rawSegment{" + strconv.Itoa(start) + "~" + strconv.Itoa(end) + "}"
+	return desc
 }
