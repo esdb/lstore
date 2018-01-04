@@ -30,7 +30,7 @@ func realEditingHead() (*indexingSegment, *mmapBlockManager, *mmapSlotIndexManag
 //	iter := editing.indexSegment.scanForward(ctx, blockManager, slotIndexManager, filter)
 //	chunk, err := iter()
 //	should.Nil(err)
-//	rows, err := chunk.search(ctx, nil, 0, filter)
+//	rows, err := chunk.scanForward(ctx, nil, 0, filter)
 //	should.Nil(err)
 //	fmt.Println(chunk)
 //	should.Equal(1, len(rows))

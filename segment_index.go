@@ -46,7 +46,7 @@ func (segment *indexingSegment) searchForwardAt(
 			if err != nil {
 				return err
 			}
-			err = blk.search(ctx, startOffset, filters, cb)
+			err = blk.scanForward(ctx, startOffset, filters, cb)
 			if err != nil {
 				return err
 			}

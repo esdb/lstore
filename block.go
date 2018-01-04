@@ -5,6 +5,7 @@ import (
 	"github.com/esdb/pbloom"
 	"fmt"
 	"github.com/v2pro/plz/countlog"
+	"github.com/esdb/biter"
 )
 
 // the sequence number for compressed block
@@ -21,7 +22,7 @@ type block struct {
 	startOffset Offset
 	intColumns  []intColumn
 	blobColumns []blobColumn
-	// to speed up blob column linear search
+	// to speed up blob column linear scanForward
 	blobHashColumns []blobHashColumn
 }
 
@@ -168,24 +169,28 @@ func (blk *block) Hash(strategy *IndexingStrategy) blockHash {
 			asSlice := *(*[]byte)(unsafe.Pointer(&sourceValue))
 			hashed := strategy.smallHashingStrategy.HashStage1(asSlice)
 			blockHash[indexedColumn][i] = hashed
-			blobHashColumns[j][i] = hashed.DownCastToUint32()
+			blobHashColumns[j][i] = hashed[0]
 		}
 	}
 	blk.blobHashColumns = blobHashColumns
 	return blockHash
 }
 
-func (blk *block) search(ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
-	mask := make([]bool, blockLength)
-	for i := 0; i < blockLength; i++ {
-		// TODO: test block startOffset
-		mask[i] = true
+func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
+	if startOffset >= blk.startOffset+Offset(blockLength) {
+		return nil
 	}
+	mask := biter.SetAllBits
 	for _, filter := range filters {
-		filter.searchBlock(blk, mask)
+		mask &= filter.searchBlock(blk, 0)
 	}
-	for i, matches := range mask {
-		if !matches {
+	iter := mask.ScanBackward() // the mask is backward
+	for {
+		i := iter()
+		if i == biter.NotFound {
+			return nil
+		}
+		if !blk.matchesBlockSlot(filters, i) {
 			continue
 		}
 		intColumnsCount := len(blk.intColumns)
@@ -198,12 +203,20 @@ func (blk *block) search(ctx countlog.Context, startOffset Offset, filters []Fil
 		for j := 0; j < blobColumnsCount; j++ {
 			blobValues[j] = blk.blobColumns[j][i]
 		}
-		// TODO: set Offset properly
-		err := cb.HandleRow(0, &Entry{
+		err := cb.HandleRow(blk.startOffset+Offset(i), &Entry{
 			EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues})
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (blk *block) matchesBlockSlot(filters []Filter, i biter.Slot) bool {
+	for _, filter := range filters {
+		if !filter.matchesBlockSlot(blk, i) {
+			return false
+		}
+	}
+	return true
 }

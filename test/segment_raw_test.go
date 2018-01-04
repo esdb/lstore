@@ -19,7 +19,7 @@ func Test_raw_segment(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	defer reader.Close()
-	collector := &lstore.ResultCollector{LimitSize: 1}
+	collector := &lstore.RowsCollector{LimitSize: 1}
 	reader.SearchForward(ctx, 0, nil, collector)
 	should.Equal(1, len(collector.Rows))
 	should.Equal([]int64{1}, collector.Rows[0].IntValues)
@@ -37,7 +37,7 @@ func Test_a_lot_raw_segment(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	defer reader.Close()
-	collector := &lstore.ResultCollector{}
+	collector := &lstore.RowsCollector{}
 	reader.SearchForward(ctx, 0, nil, collector)
 	should.Equal(256, len(collector.Rows))
 	should.Equal([]int64{0}, collector.Rows[0].IntValues)
@@ -59,7 +59,7 @@ func Test_reopen_raw_segment(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	defer reader.Close()
-	collector := &lstore.ResultCollector{LimitSize: 1}
+	collector := &lstore.RowsCollector{LimitSize: 1}
 	reader.SearchForward(ctx, 0, nil, collector)
 	should.Equal(1, len(collector.Rows))
 	should.Equal([]int64{1}, collector.Rows[0].IntValues)

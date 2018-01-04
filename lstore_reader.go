@@ -17,8 +17,8 @@ type Reader struct {
 	gocIter        *gocodec.Iterator
 }
 
-// SearchAborted should be returned if you want to end the search from callback
-var SearchAborted = errors.New("search aborted")
+// SearchAborted should be returned if you want to end the scanForward from callback
+var SearchAborted = errors.New("scanForward aborted")
 
 type SearchCallback interface {
 	HandleRow(offset Offset, entry *Entry) error
@@ -83,14 +83,27 @@ func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, 
 	return store.tailSegment.search(ctx, startOffset, reader.tailOffset, filters, cb)
 }
 
-type ResultCollector struct {
+type RowsCollector struct {
 	LimitSize int
 	Rows      []Row
 }
 
-func (collector *ResultCollector) HandleRow(offset Offset, entry *Entry) error {
+func (collector *RowsCollector) HandleRow(offset Offset, entry *Entry) error {
 	collector.Rows = append(collector.Rows, Row{Offset: offset, Entry: entry})
 	if len(collector.Rows) == collector.LimitSize {
+		return SearchAborted
+	}
+	return nil
+}
+
+type OffsetsCollector struct {
+	LimitSize int
+	Offsets   []Offset
+}
+
+func (collector *OffsetsCollector) HandleRow(offset Offset, entry *Entry) error {
+	collector.Offsets = append(collector.Offsets, offset)
+	if len(collector.Offsets) == collector.LimitSize {
 		return SearchAborted
 	}
 	return nil

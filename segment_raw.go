@@ -73,7 +73,7 @@ func (segment *rawSegment) search(ctx countlog.Context, startOffset Offset, tail
 		if offset < startOffset || offset >= tailOffset {
 			continue
 		}
-		if rowMatches(entry, filters) {
+		if matchesEntry(entry, filters) {
 			if err := cb.HandleRow(offset, entry); err != nil {
 				return err
 			}
@@ -82,9 +82,9 @@ func (segment *rawSegment) search(ctx countlog.Context, startOffset Offset, tail
 	return nil
 }
 
-func rowMatches(entry *Entry, filters []Filter) bool {
+func matchesEntry(entry *Entry, filters []Filter) bool {
 	for _, filter := range filters {
-		if !filter.matches(entry) {
+		if !filter.matchesEntry(entry) {
 			return false
 		}
 	}

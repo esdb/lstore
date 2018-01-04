@@ -21,7 +21,7 @@ func Test_indexing_segment(t *testing.T) {
 	should.Nil(store.Index())
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
-	collector := &lstore.ResultCollector{LimitSize: 2}
+	collector := &lstore.RowsCollector{LimitSize: 2}
 	reader.SearchForward(ctx, 0, []lstore.Filter{
 		store.IndexingStrategy.NewBlobValueFilter(0, "hello"),
 	}, collector)
@@ -47,7 +47,7 @@ func Test_reopen_indexing_segment(t *testing.T) {
 
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
-	collector := &lstore.ResultCollector{LimitSize: 2}
+	collector := &lstore.RowsCollector{LimitSize: 2}
 	reader.SearchForward(ctx, 0, []lstore.Filter{
 		store.IndexingStrategy.NewBlobValueFilter(0, "hello"),
 	}, collector)
