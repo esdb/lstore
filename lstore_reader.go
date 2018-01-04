@@ -6,6 +6,7 @@ import (
 	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/plz"
 	"errors"
+	"math"
 )
 
 // Reader is not thread safe, can only be used from one goroutine
@@ -26,8 +27,8 @@ type SearchCallback interface {
 func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 	ctx := countlog.Ctx(ctxObj)
 	reader := &Reader{
-		store:    store,
-		gocIter:  gocodec.NewIterator(nil),
+		store:   store,
+		gocIter: gocodec.NewIterator(nil),
 	}
 	_, err := reader.Refresh(ctx)
 	ctx.DebugCall("callee!reader.Refresh", err,
@@ -57,7 +58,11 @@ func (reader *Reader) Refresh(ctx context.Context) (bool, error) {
 		latestVersion.Acquire()
 		reader.currentVersion = latestVersion
 	}
-	return reader.store.getTailOffset() != reader.tailOffset, nil
+
+	newTailOffset := reader.store.getTailOffset()
+	taiMoved := newTailOffset != reader.tailOffset
+	reader.tailOffset = newTailOffset
+	return taiMoved, nil
 }
 
 func (reader *Reader) Close() error {
@@ -71,11 +76,11 @@ func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, 
 		return err
 	}
 	for _, rawSegment := range store.rawSegments {
-		if err := rawSegment.search(ctx, startOffset, filters, cb); err != nil {
+		if err := rawSegment.search(ctx, startOffset, math.MaxUint64, filters, cb); err != nil {
 			return err
 		}
 	}
-	return store.tailSegment.search(ctx, startOffset, filters, cb)
+	return store.tailSegment.search(ctx, startOffset, reader.tailOffset, filters, cb)
 }
 
 type ResultCollector struct {

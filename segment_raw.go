@@ -66,10 +66,11 @@ func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator
 	}
 }
 
-func (segment *rawSegment) search(ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
+func (segment *rawSegment) search(ctx countlog.Context, startOffset Offset, tailOffset Offset,
+	filters []Filter, cb SearchCallback) error {
 	for i, entry := range segment.rows {
 		offset := segment.startOffset + Offset(i)
-		if offset < startOffset {
+		if offset < startOffset || offset >= tailOffset {
 			continue
 		}
 		if rowMatches(entry, filters) {

@@ -56,6 +56,7 @@ func Test_reopen_tail_segment(t *testing.T) {
 
 	// can read rows from disk
 	reader, err := store.NewReader(ctx)
+	should.Equal(lstore.Offset(1), reader.TailOffset())
 	should.Nil(err)
 	defer reader.Close()
 	collector := &lstore.ResultCollector{LimitSize: 2}
