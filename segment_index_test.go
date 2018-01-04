@@ -1,6 +1,6 @@
 package lstore
 
-func realEditingHead() (*headSegment, *mmapBlockManager, *mmapSlotIndexManager) {
+func realEditingHead() (*indexingSegment, *mmapBlockManager, *mmapSlotIndexManager) {
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
@@ -10,7 +10,7 @@ func realEditingHead() (*headSegment, *mmapBlockManager, *mmapSlotIndexManager) 
 	}
 	blockManager := newBlockManager(&blockManagerConfig{})
 	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{IndexDirectory: "/tmp/store/index"}, strategy)
-	headSegment, err := openHeadSegment(ctx, "/tmp/store/head.segment", blockManager, slotIndexManager)
+	headSegment, err := openIndexingSegment(ctx, "/tmp/store/head.segment", blockManager, slotIndexManager)
 	if err != nil {
 		panic(err)
 	}
@@ -27,7 +27,7 @@ func realEditingHead() (*headSegment, *mmapBlockManager, *mmapSlotIndexManager) 
 //		blobEntry("dog"),
 //	})))
 //	filter := editing.strategy.NewBlobValueFilter(0, "dog")
-//	iter := editing.headSegmentVersion.scanForward(ctx, blockManager, slotIndexManager, filter)
+//	iter := editing.indexSegment.scanForward(ctx, blockManager, slotIndexManager, filter)
 //	chunk, err := iter()
 //	should.Nil(err)
 //	rows, err := chunk.search(ctx, nil, 0, filter)

@@ -6,12 +6,12 @@ import (
 
 func loadInitialVersion(ctx countlog.Context, config *Config, blockManager *mmapBlockManager, slotIndexManager *mmapSlotIndexManager) (*StoreVersion, error) {
 	version := StoreVersion{config: *config}.edit()
-	indexedSegment, err := openHeadSegment(ctx, config.HeadSegmentPath(), blockManager, slotIndexManager)
-	ctx.TraceCall("callee!store.openHeadSegment", err)
+	indexedSegment, err := openIndexingSegment(ctx, config.IndexingSegmentPath(), blockManager, slotIndexManager)
+	ctx.TraceCall("callee!store.openIndexingSegment", err)
 	if err != nil {
 		return nil, err
 	}
-	version.headSegment = indexedSegment
+	version.indexingSegment = indexedSegment
 	err = loadTailAndRawSegments(ctx, config, version)
 	ctx.TraceCall("callee!store.loadTailAndRawSegments", err)
 	if err != nil {
@@ -27,13 +27,13 @@ func loadTailAndRawSegments(ctx countlog.Context, config *Config, version *Editi
 	}
 	var reversedRawSegments []*rawSegment
 	startOffset := tailSegment.startOffset
-	for startOffset > version.headSegment.tailOffset {
+	for startOffset > version.indexingSegment.tailOffset {
 		rawSegmentPath := config.RawSegmentPath(startOffset)
 		rawSegment, err := openRawSegment(ctx, rawSegmentPath)
 		if err != nil {
 			countlog.Error("event!lstore.failed to open raw segment",
 				"err", err, "rawSegmentPath", rawSegmentPath,
-				"headSegmentTailOffset", version.headSegment.tailOffset)
+				"headSegmentTailOffset", version.indexingSegment.tailOffset)
 			return err
 		}
 		reversedRawSegments = append(reversedRawSegments, rawSegment)

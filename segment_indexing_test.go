@@ -33,7 +33,7 @@ func intBlobEntry(intValue int64, blobValue Blob) *Entry {
 
 var ctx = countlog.Ctx(context.Background())
 
-func fakeEditingHead() *headSegment {
+func fakeEditingHead() *indexingSegment {
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
@@ -42,7 +42,7 @@ func fakeEditingHead() *headSegment {
 	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{
 		IndexDirectory: "/tmp/store/index",
 	}, strategy)
-	headSegment, err := openHeadSegment(ctx, "/tmp/store/head.segment",
+	headSegment, err := openIndexingSegment(ctx, "/tmp/store/head.segment",
 		&fakeBlockManager{}, slotIndexManager)
 	if err != nil {
 		panic(err)
@@ -61,8 +61,8 @@ func (mgr *fakeBlockManager) readBlock(seq blockSeq) (*block, error) {
 	panic("not implemented")
 }
 
-func getLevel(editing *headSegment, level level) *slotIndex {
-	return editing.levelObjs[level]
+func getLevel(editing *indexingSegment, level level) *slotIndex {
+	return editing.indexingLevels[level]
 }
 
 func Test_add_first_block(t *testing.T) {
@@ -72,7 +72,7 @@ func Test_add_first_block(t *testing.T) {
 		blobEntry("hello"),
 	}))
 	should.Equal(blockSeq(6), editing.tailBlockSeq)
-	level0SlotIndex := editing.levelObjs[level0]
+	level0SlotIndex := editing.indexingLevels[level0]
 	should.Equal([]uint64{0}, level0SlotIndex.children[:1])
 	strategy := editing.strategy
 	filterHello := strategy.NewBlobValueFilter(0, "hello")

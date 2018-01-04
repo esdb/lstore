@@ -6,7 +6,7 @@ import (
 	"github.com/esdb/lstore"
 )
 
-func Test_head_segment(t *testing.T) {
+func Test_indexing_segment(t *testing.T) {
 	should := require.New(t)
 	store := smallTestStore()
 	defer store.Stop(ctx)
@@ -29,7 +29,7 @@ func Test_head_segment(t *testing.T) {
 	should.Equal([]int64{4}, collector.Rows[1].IntValues)
 }
 
-func Test_reopen_head_segment(t *testing.T) {
+func Test_reopen_indexing_segment(t *testing.T) {
 	should := require.New(t)
 	store := smallTestStore()
 	defer store.Stop(ctx)

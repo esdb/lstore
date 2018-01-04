@@ -91,7 +91,7 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 	if len(store.rawSegments) == 0 {
 		return nil
 	}
-	editingHead := store.headSegment
+	editingHead := store.indexingSegment
 	purgedRawSegmentsCount := 0
 	for _, rawSegment := range store.rawSegments {
 		purgedRawSegmentsCount++
@@ -104,10 +104,10 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 		}
 	}
 	// ensure blocks are persisted
-	headSegment := store.headSegment
+	headSegment := store.indexingSegment
 	gocodec.UpdateChecksum(headSegment.writeMMap)
 	err = headSegment.writeMMap.Flush()
-	countlog.TraceCall("callee!headSegment.Flush", err,
+	countlog.TraceCall("callee!indexingSegment.Flush", err,
 		"tailBlockSeq", headSegment.tailBlockSeq,
 		"tailSlotIndexSeq", headSegment.tailSlotIndexSeq,
 		"tailOffset", headSegment.tailOffset)

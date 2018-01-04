@@ -14,36 +14,21 @@ import (
 	"github.com/esdb/pbloom"
 )
 
-const levelsCount = 9
-const level0 level = 0 // small
-const level1 level = 1 // medium
-const level2 level = 2 // large
-type level int
-
-type headSegmentVersion struct {
-	segmentHeader
-	tailOffset       Offset
-	tailBlockSeq     blockSeq
-	tailSlotIndexSeq slotIndexSeq
-	topLevel         level          // minimum 3 level
-	levels           []slotIndexSeq // total 9 levels
-}
-
-type headSegment struct {
-	*headSegmentVersion
+type indexingSegment struct {
+	*indexSegment
 	*ref.ReferenceCounted
 	writeMMap        mmap.MMap
-	levelObjs        []*slotIndex
+	indexingLevels   []*slotIndex
 	blockManager     blockManager
 	slotIndexManager slotIndexManager
 	strategy         *IndexingStrategy
 }
 
-func openHeadSegment(ctx countlog.Context, segmentPath string,
-	blockManager blockManager, slotIndexManager slotIndexManager) (*headSegment, error) {
+func openIndexingSegment(ctx countlog.Context, segmentPath string,
+	blockManager blockManager, slotIndexManager slotIndexManager) (*indexingSegment, error) {
 	file, err := os.OpenFile(segmentPath, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
-		file, err = initHeadSegment(ctx, segmentPath, slotIndexManager)
+		file, err = initIndexingSegment(ctx, segmentPath, slotIndexManager)
 	}
 	ctx.TraceCall("callee!os.OpenFile", err)
 	if err != nil {
@@ -57,7 +42,7 @@ func openHeadSegment(ctx countlog.Context, segmentPath string,
 	}
 	resources = append(resources, plz.WrapCloser(writeMMap.Unmap))
 	iter := gocodec.NewIterator(writeMMap)
-	segment, _ := iter.Unmarshal((*headSegmentVersion)(nil)).(*headSegmentVersion)
+	segment, _ := iter.Unmarshal((*indexSegment)(nil)).(*indexSegment)
 	ctx.TraceCall("callee!iter.Unmarshal", iter.Error)
 	if iter.Error != nil {
 		return nil, iter.Error
@@ -74,18 +59,18 @@ func openHeadSegment(ctx countlog.Context, segmentPath string,
 			return nil, err
 		}
 	}
-	return &headSegment{
-		headSegmentVersion: segment,
-		ReferenceCounted:   ref.NewReferenceCounted("indexed segment", resources...),
-		writeMMap:          writeMMap,
-		levelObjs:          editingLevels,
-		blockManager:       blockManager,
-		slotIndexManager:   slotIndexManager,
-		strategy:           slotIndexManager.indexingStrategy(),
+	return &indexingSegment{
+		indexSegment:     segment,
+		ReferenceCounted: ref.NewReferenceCounted("indexed segment", resources...),
+		writeMMap:        writeMMap,
+		indexingLevels:   editingLevels,
+		blockManager:     blockManager,
+		slotIndexManager: slotIndexManager,
+		strategy:         slotIndexManager.indexingStrategy(),
 	}, nil
 }
 
-func initHeadSegment(ctx countlog.Context, segmentPath string, slotIndexManager slotIndexManager) (*os.File, error) {
+func initIndexingSegment(ctx countlog.Context, segmentPath string, slotIndexManager slotIndexManager) (*os.File, error) {
 	levels := make([]slotIndexSeq, levelsCount)
 	tailSlotIndexSeq := slotIndexSeq(0)
 	for i := level0; i <= level2; i++ {
@@ -104,7 +89,7 @@ func initHeadSegment(ctx countlog.Context, segmentPath string, slotIndexManager 
 		}
 	}
 	stream := gocodec.NewStream(nil)
-	stream.Marshal(headSegmentVersion{
+	stream.Marshal(indexSegment{
 		segmentHeader:    segmentHeader{segmentType: segmentTypeHead},
 		topLevel:         level2,
 		levels:           levels,
@@ -123,7 +108,7 @@ func initHeadSegment(ctx countlog.Context, segmentPath string, slotIndexManager 
 	return os.OpenFile(segmentPath, os.O_RDWR, 0666)
 }
 
-func (segment *headSegment) addBlock(ctx countlog.Context, blk *block) error {
+func (segment *indexingSegment) addBlock(ctx countlog.Context, blk *block) error {
 	var err error
 	slots, err := segment.nextSlot(ctx)
 	level0SlotMask := biter.SetBits[slots[level0]]
@@ -140,9 +125,9 @@ func (segment *headSegment) addBlock(ctx countlog.Context, blk *block) error {
 	if err != nil {
 		return err
 	}
-	level0SlotIndex := segment.levelObjs[0]
-	level1SlotIndex := segment.levelObjs[1]
-	level2SlotIndex := segment.levelObjs[2]
+	level0SlotIndex := segment.indexingLevels[0]
+	level1SlotIndex := segment.indexingLevels[1]
+	level2SlotIndex := segment.indexingLevels[2]
 	level0SlotIndex.children[slots[0]] = uint64(blockSeq)
 	for i, hashColumn := range blkHash {
 		pbf0 := level0SlotIndex.pbfs[i]
@@ -155,7 +140,7 @@ func (segment *headSegment) addBlock(ctx countlog.Context, blk *block) error {
 				pbf0, pbf1, pbf2)
 			// from level3 to levelN, they are derived from level2
 			for j := level(3); j <= segment.topLevel; j++ {
-				parentPbf := segment.levelObjs[j].pbfs[i]
+				parentPbf := segment.indexingLevels[j].pbfs[i]
 				levelNMask := biter.SetBits[slots[j]]
 				parentPbf[locations[0]] |= levelNMask
 				parentPbf[locations[1]] |= levelNMask
@@ -168,7 +153,7 @@ func (segment *headSegment) addBlock(ctx countlog.Context, blk *block) error {
 	return nil
 }
 
-func (segment *headSegment) nextSlot(ctx countlog.Context) ([]biter.Slot, error) {
+func (segment *indexingSegment) nextSlot(ctx countlog.Context) ([]biter.Slot, error) {
 	slots := make([]biter.Slot, 9)
 	cnt := int(segment.tailOffset) >> blockLengthInPowerOfTwo
 	level0Slot := biter.Slot(cnt % 64)
@@ -265,7 +250,7 @@ func (segment *headSegment) nextSlot(ctx countlog.Context) ([]biter.Slot, error)
 	panic("bloom filter tree exceed capacity")
 }
 
-func (segment *headSegment) rotate(level level, slot biter.Slot) (err error) {
+func (segment *indexingSegment) rotate(level level, slot biter.Slot) (err error) {
 	if level+1 > segment.topLevel {
 		segment.topLevel = level + 1
 		slotIndexSeq, nextSlotIndexSeq, slotIndex, err := segment.slotIndexManager.newSlotIndex(
@@ -275,56 +260,16 @@ func (segment *headSegment) rotate(level level, slot biter.Slot) (err error) {
 		}
 		segment.tailSlotIndexSeq = nextSlotIndexSeq
 		segment.levels[level+1] = slotIndexSeq
-		segment.levelObjs[level+1] = slotIndex
-		slotIndex.updateSlot(biter.SetBits[0], segment.levelObjs[level])
+		segment.indexingLevels[level+1] = slotIndex
+		slotIndex.updateSlot(biter.SetBits[0], segment.indexingLevels[level])
 	}
-	parentLevel := segment.levelObjs[level+1]
+	parentLevel := segment.indexingLevels[level+1]
 	parentLevel.children[slot] = uint64(segment.levels[level])
 	slotIndexManager := segment.slotIndexManager
 	if err := slotIndexManager.updateChecksum(segment.levels[level], level); err != nil {
 		return err
 	}
-	segment.levels[level], segment.tailSlotIndexSeq, segment.levelObjs[level], err = slotIndexManager.newSlotIndex(
+	segment.levels[level], segment.tailSlotIndexSeq, segment.indexingLevels[level], err = slotIndexManager.newSlotIndex(
 		segment.tailSlotIndexSeq, level)
 	return
-}
-
-func (segment *headSegment) searchForward(
-	ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
-	return segment.searchForwardAt(ctx, startOffset, filters, cb,
-		segment.levelObjs[segment.topLevel], segment.topLevel)
-}
-
-func (segment *headSegment) searchForwardAt(
-	ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback,
-	slotIndex *slotIndex, level level) error {
-	result := slotIndex.search(level, filters...)
-	iter := result.ScanForward()
-	for {
-		slot := iter()
-		if slot == biter.NotFound {
-			return nil
-		}
-		if level == level0 {
-			blk, err := segment.blockManager.readBlock(blockSeq(slotIndex.children[slot]))
-			if err != nil {
-				return err
-			}
-			err = blk.search(ctx, startOffset, filters, cb)
-			if err != nil {
-				return err
-			}
-		} else {
-			childLevel := level - 1
-			childSlotIndexSeq := slotIndexSeq(slotIndex.children[slot])
-			childSlotIndex, err := segment.slotIndexManager.mapWritableSlotIndex(childSlotIndexSeq, childLevel)
-			if err != nil {
-				return err
-			}
-			err = segment.searchForwardAt(ctx, startOffset, filters, cb, childSlotIndex, childLevel)
-			if err != nil {
-				return err
-			}
-		}
-	}
 }

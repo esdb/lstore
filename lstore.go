@@ -13,7 +13,7 @@ import (
 	"github.com/v2pro/plz"
 )
 
-const HeadSegmentFileName = "head.segment"
+const IndexingSegmentFileName = "indexing.segment"
 const TailSegmentFileName = "tail.segment"
 const TailSegmentTmpFileName = "tail.segment.tmp"
 
@@ -26,8 +26,12 @@ type Config struct {
 	IndexingStrategy   *IndexingStrategy
 }
 
-func (conf *Config) HeadSegmentPath() string {
-	return path.Join(conf.Directory, HeadSegmentFileName)
+func (conf *Config) IndexSegmentPath(tailOffset Offset) string {
+	return path.Join(conf.Directory, fmt.Sprintf("index-%d.segment", tailOffset))
+}
+
+func (conf *Config) IndexingSegmentPath() string {
+	return path.Join(conf.Directory, IndexingSegmentFileName)
 }
 
 func (conf *Config) RawSegmentPath(tailOffset Offset) string {
@@ -56,20 +60,20 @@ type Store struct {
 
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
-	config      Config
+	config          Config
 	*ref.ReferenceCounted
-	headSegment *headSegment
-	rawSegments []*rawSegment
-	tailSegment *tailSegment
+	indexingSegment *indexingSegment
+	rawSegments     []*rawSegment
+	tailSegment     *tailSegment
 }
 
 func (version StoreVersion) edit() *EditingStoreVersion {
 	return &EditingStoreVersion{
 		StoreVersion{
-			config:      version.config,
-			headSegment: version.headSegment,
-			rawSegments: version.rawSegments,
-			tailSegment: version.tailSegment,
+			config:          version.config,
+			indexingSegment: version.indexingSegment,
+			rawSegments:     version.rawSegments,
+			tailSegment:     version.tailSegment,
 		},
 	}
 }
@@ -90,11 +94,11 @@ func (edt EditingStoreVersion) seal() *StoreVersion {
 		}
 		resources = append(resources, rawSegment)
 	}
-	if version.headSegment != nil {
-		if !version.headSegment.Acquire() {
+	if version.indexingSegment != nil {
+		if !version.indexingSegment.Acquire() {
 			panic("acquire reference counter should not fail during version rotation")
 		}
-		resources = append(resources, version.headSegment)
+		resources = append(resources, version.indexingSegment)
 	}
 	version.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
 	return version

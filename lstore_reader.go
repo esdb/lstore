@@ -70,7 +70,7 @@ func (reader *Reader) Close() error {
 func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
 	ctx := countlog.Ctx(ctxObj)
 	store := reader.currentVersion
-	if err := store.headSegment.searchForward(ctx, startOffset, filters, cb); err != nil {
+	if err := store.indexingSegment.searchForward(ctx, startOffset, filters, cb); err != nil {
 		return err
 	}
 	for _, rawSegment := range store.rawSegments {
