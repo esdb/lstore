@@ -185,7 +185,7 @@ func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filter F
 			continue
 		}
 		if startOffset > beginOffset {
-			mask = biter.SetBitsForward[startOffset - beginOffset]
+			mask = biter.SetBitsForwardFrom[startOffset - beginOffset]
 		}
 		mask &= filter.searchBlock(blk, beginSlot)
 		iter := mask.ScanForward()

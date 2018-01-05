@@ -26,22 +26,16 @@ func (segment *indexingSegment) searchForward(
 	if startOffset >= segment.tailOffset {
 		return nil
 	}
-	return segment.searchForwardAt(ctx, startOffset, filter, cb,
-		segment.indexingLevels[segment.topLevel], segment.topLevel)
+	return segment.searchForwardAt(ctx, startOffset, filter,
+		segment.indexingLevels[segment.topLevel], segment.topLevel, cb)
 }
 
 func (segment *indexingSegment) searchForwardAt(
-	ctx countlog.Context, startOffset Offset, filter Filter, cb SearchCallback,
-	slotIndex *slotIndex, level level) error {
-	result := slotIndex.search(level, filter)
-	iter := result.ScanForward()
-	for {
-		slot := iter()
-		if slot == biter.NotFound {
-			return nil
-		}
-		if level == level0 {
-			blk, err := segment.blockManager.readBlock(blockSeq(slotIndex.children[slot]))
+	ctx countlog.Context, startOffset Offset, filter Filter,
+	levelIndex *slotIndex, level level, cb SearchCallback) error {
+	if level == level0 {
+		for slot := biter.Slot(0); slot < levelIndex.tailSlot; slot++ {
+			blk, err := segment.blockManager.readBlock(blockSeq(levelIndex.children[slot]))
 			ctx.TraceCall("callee!blockManager.readBlock", err)
 			if err != nil {
 				return err
@@ -50,18 +44,28 @@ func (segment *indexingSegment) searchForwardAt(
 			if err != nil {
 				return err
 			}
-		} else {
+		}
+	} else {
+		result := levelIndex.search(level, filter)
+		result &= biter.SetBitsForwardUntil[levelIndex.tailSlot]
+		iter := result.ScanForward()
+		for {
+			slot := iter()
+			if slot == biter.NotFound {
+				return nil
+			}
 			childLevel := level - 1
-			childSlotIndexSeq := slotIndexSeq(slotIndex.children[slot])
+			childSlotIndexSeq := slotIndexSeq(levelIndex.children[slot])
 			childSlotIndex, err := segment.slotIndexManager.mapWritableSlotIndex(childSlotIndexSeq, childLevel)
 			ctx.TraceCall("callee!slotIndexManager.mapWritableSlotIndex", err)
 			if err != nil {
 				return err
 			}
-			err = segment.searchForwardAt(ctx, startOffset, filter, cb, childSlotIndex, childLevel)
+			err = segment.searchForwardAt(ctx, startOffset, filter, childSlotIndex, childLevel, cb)
 			if err != nil {
 				return err
 			}
 		}
 	}
+	return nil
 }

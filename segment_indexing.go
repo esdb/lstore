@@ -262,9 +262,11 @@ func (segment *indexingSegment) rotate(level level, slot biter.Slot) (err error)
 		segment.levels[level+1] = slotIndexSeq
 		segment.indexingLevels[level+1] = slotIndex
 		slotIndex.updateSlot(biter.SetBits[0], segment.indexingLevels[level])
+		slotIndex.tailSlot = 1
 	}
 	parentLevel := segment.indexingLevels[level+1]
 	parentLevel.children[slot] = uint64(segment.levels[level])
+	parentLevel.tailSlot = slot + 1
 	slotIndexManager := segment.slotIndexManager
 	if err := slotIndexManager.updateChecksum(segment.levels[level], level); err != nil {
 		return err

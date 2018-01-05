@@ -95,17 +95,17 @@ func (filter *dummyFilter) matchesBlockSlot(blk *block, slot biter.Slot) bool {
 }
 
 func (filter *dummyFilter) searchBlock(blk *block, begin biter.Slot) biter.Bits {
-	return biter.SetBitsForward[0]
+	return biter.SetBitsForwardFrom[0]
 }
 
 func (filter *dummyFilter) searchLargeIndex(idx *slotIndex) biter.Bits {
-	return biter.SetBitsForward[0]
+	return biter.SetBitsForwardFrom[0]
 }
 
 func (filter *dummyFilter) searchMediumIndex(idx *slotIndex) biter.Bits {
-	return biter.SetBitsForward[0]
+	return biter.SetBitsForwardFrom[0]
 }
 
 func (filter *dummyFilter) searchSmallIndex(idx *slotIndex) biter.Bits {
-	return biter.SetBitsForward[0]
+	return biter.SetBitsForwardFrom[0]
 }

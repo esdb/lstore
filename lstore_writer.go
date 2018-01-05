@@ -160,21 +160,27 @@ func handleCommand(ctx countlog.Context, cmd writerCommand) {
 func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultChan chan<- WriteResult) {
 	ctx := countlog.Ctx(ctxObj)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
+		if len(writer.rows) >= blockLength {
+			err := writer.rotate(ctx, writer.currentVersion)
+			ctx.TraceCall("callee!writer.rotate", err)
+			if err != nil {
+				resultChan <- WriteResult{0, err}
+				return
+			}
+		}
 		seq, err := writer.tryWrite(ctx, entry)
 		if err == SegmentOverflowError {
-			newVersion, err := writer.rotate(ctx, writer.currentVersion)
+			err := writer.rotate(ctx, writer.currentVersion)
+			ctx.TraceCall("callee!writer.rotate", err)
 			if err != nil {
-				writer.updateCurrentVersion(newVersion)
 				resultChan <- WriteResult{0, err}
 				return
 			}
 			seq, err = writer.tryWrite(ctx, entry)
 			if err != nil {
-				writer.updateCurrentVersion(newVersion)
 				resultChan <- WriteResult{0, err}
 				return
 			}
-			writer.updateCurrentVersion(newVersion)
 			resultChan <- WriteResult{seq, nil}
 			return
 		}
@@ -219,16 +225,16 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) (Offset, erro
 	return offset, nil
 }
 
-func (writer *writer) rotate(ctx countlog.Context, oldVersion *StoreVersion) (*StoreVersion, error) {
+func (writer *writer) rotate(ctx countlog.Context, oldVersion *StoreVersion) error {
 	err := writer.tailSegment.Close()
 	ctx.TraceCall("callee!tailSegment.Close", err)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	tailSegmentTmpFile, err := createTailSegment(writer.store.TailSegmentTmpPath(), writer.store.TailSegmentMaxSize,
 		Offset(writer.store.tailOffset))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	plz.Close(tailSegmentTmpFile)
 	newVersion := oldVersion.edit()
@@ -239,23 +245,26 @@ func (writer *writer) rotate(ctx countlog.Context, oldVersion *StoreVersion) (*S
 	}
 	rotatedTo := writer.store.RawSegmentPath(Offset(writer.store.tailOffset))
 	if err = os.Rename(writer.store.TailSegmentPath(), rotatedTo); err != nil {
-		return nil, err
+		return err
 	}
 	if err = os.Rename(writer.store.TailSegmentTmpPath(), writer.store.TailSegmentPath()); err != nil {
-		return nil, err
+		return err
 	}
 	// use writer.tailRows to build a raw segment without loading from file
 	newVersion.rawSegments[i] = writer.tailSegment.rawSegment
 	writer.tailSegment, err = openTailSegment(
 		ctx, writer.store.TailSegmentPath(), writer.store.TailSegmentMaxSize, Offset(writer.store.tailOffset))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	newVersion.tailSegment = writer.tailSegment.rawSegment
+	sealedNewVersion := newVersion.seal()
+	writer.updateCurrentVersion(sealedNewVersion)
 	countlog.Debug("event!store.rotated",
-		"tail", newVersion.tailSegment.startOffset,
+		"tail", sealedNewVersion.tailSegment.startOffset,
+		"rawSegmentsCount", len(sealedNewVersion.rawSegments),
 		"rotatedTo", rotatedTo)
-	return newVersion.seal(), nil
+	return nil
 }
 
 func (writer *writer) purgeRawSegments(

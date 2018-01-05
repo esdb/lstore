@@ -49,6 +49,7 @@ func (indexer *indexer) start() {
 			case cmd = <-indexer.commandQueue:
 			}
 			if store.isLatest(indexer.currentVersion) {
+				countlog.Trace("event!indexer.check is latest", "isLatest", true)
 				if cmd == nil {
 					return
 				}
@@ -86,42 +87,58 @@ func (indexer *indexer) Index() error {
 }
 
 func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
-	countlog.Trace("event!indexer.run")
+	countlog.Debug("event!indexer.run")
 	store := indexer.currentVersion
 	if len(store.rawSegments) == 0 {
+		countlog.Trace("event!indexingSegment.doIndex do not find enough raw segments",
+			"rawSegmentsCount", len(store.rawSegments))
 		return nil
 	}
-	editingHead := store.indexingSegment
-	purgedRawSegmentsCount := 0
+	indexing := store.indexingSegment
+	originalTailOffset := indexing.tailOffset
+	var rows []*Entry
+	rowsStartOffset := store.rawSegments[0].startOffset
 	for _, rawSegment := range store.rawSegments {
-		purgedRawSegmentsCount++
-		// TODO: ensure rawSegment is actually blockLength
-		blk := newBlock(rawSegment.startOffset, rawSegment.rows)
-		err := editingHead.addBlock(ctx, blk)
-		ctx.TraceCall("callee!editingHead.addBlock", err)
-		if err != nil {
-			return err
+		// TODO: skip already indexed rows
+		rows = append(rows, rawSegment.rows...)
+		if len(rows) >= blockLength {
+			blk := newBlock(rowsStartOffset, rows[:blockLength])
+			err := indexing.addBlock(ctx, blk)
+			ctx.TraceCall("callee!indexing.addBlock", err, "rowsStartOff", rowsStartOffset)
+			if err != nil {
+				return err
+			}
+			rows = rows[blockLength:]
+			rowsStartOffset += Offset(blockLength)
 		}
 	}
+	if originalTailOffset == indexing.tailOffset {
+		countlog.Trace("event!indexingSegment.doIndex can not find enough rows to build block",
+			"originalTailOffset", originalTailOffset,
+			"rawSegmentsCount", len(store.rawSegments),
+				"totalRows", len(rows))
+		return nil
+	}
 	// ensure blocks are persisted
-	headSegment := store.indexingSegment
-	gocodec.UpdateChecksum(headSegment.writeMMap)
-	err = headSegment.writeMMap.Flush()
+	gocodec.UpdateChecksum(indexing.writeMMap)
+	err = indexing.writeMMap.Flush()
 	countlog.TraceCall("callee!indexingSegment.Flush", err,
-		"tailBlockSeq", headSegment.tailBlockSeq,
-		"tailSlotIndexSeq", headSegment.tailSlotIndexSeq,
-		"tailOffset", headSegment.tailOffset)
+		"tailBlockSeq", indexing.tailBlockSeq,
+		"tailSlotIndexSeq", indexing.tailSlotIndexSeq,
+		"originalTailOffset", originalTailOffset,
+		"tailOffset", indexing.tailOffset)
 	if err != nil {
 		return err
 	}
-	for level := level0; level <= headSegment.topLevel; level++ {
-		err = indexer.store.slotIndexManager.updateChecksum(headSegment.levels[level], level)
+	for level := level0; level <= indexing.topLevel; level++ {
+		err = indexer.store.slotIndexManager.updateChecksum(indexing.levels[level], level)
 		ctx.TraceCall("callee!slotIndexManager.updateChecksum", err)
 		if err != nil {
 			return err
 		}
 	}
-	err = indexer.store.writer.purgeRawSegments(ctx, purgedRawSegmentsCount)
+	// TODO: purse raw segments
+	err = indexer.store.writer.purgeRawSegments(ctx, 0)
 	if err != nil {
 		return err
 	}

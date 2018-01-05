@@ -22,6 +22,7 @@ func bigTestStore() *lstore.Store {
 	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 200 * 1024 * 1024
 	store.IndexingStrategy = lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
+		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	os.RemoveAll(store.Directory)
 	err := store.Start(context.Background())
