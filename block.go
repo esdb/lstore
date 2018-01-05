@@ -176,7 +176,7 @@ func (blk *block) Hash(strategy *IndexingStrategy) blockHash {
 	return blockHash
 }
 
-func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
+func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filter Filter, cb SearchCallback) error {
 	for _, beginSlot := range [4]biter.Slot{0, 64, 128, 192} {
 		mask := biter.SetAllBits
 		beginOffset := blk.startOffset + Offset(beginSlot)
@@ -187,16 +187,14 @@ func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filters 
 		if startOffset > beginOffset {
 			mask = biter.SetBitsForward[startOffset - beginOffset]
 		}
-		for _, filter := range filters {
-			mask &= filter.searchBlock(blk, beginSlot)
-		}
+		mask &= filter.searchBlock(blk, beginSlot)
 		iter := mask.ScanForward()
 		for {
 			i := iter()
 			if i == biter.NotFound {
 				break
 			}
-			if !blk.matchesBlockSlot(filters, i+beginSlot) {
+			if !filter.matchesBlockSlot(blk, i+beginSlot) {
 				continue
 			}
 			intColumnsCount := len(blk.intColumns)
@@ -217,13 +215,4 @@ func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filters 
 		}
 	}
 	return nil
-}
-
-func (blk *block) matchesBlockSlot(filters []Filter, i biter.Slot) bool {
-	for _, filter := range filters {
-		if !filter.matchesBlockSlot(blk, i) {
-			return false
-		}
-	}
-	return true
 }

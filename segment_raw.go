@@ -67,28 +67,19 @@ func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator
 }
 
 func (segment *rawSegment) search(ctx countlog.Context, startOffset Offset, tailOffset Offset,
-	filters []Filter, cb SearchCallback) error {
+	filter Filter, cb SearchCallback) error {
 	for i, entry := range segment.rows {
 		offset := segment.startOffset + Offset(i)
 		if offset < startOffset || offset >= tailOffset {
 			continue
 		}
-		if matchesEntry(entry, filters) {
+		if filter.matchesEntry(entry) {
 			if err := cb.HandleRow(offset, entry); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
-}
-
-func matchesEntry(entry *Entry, filters []Filter) bool {
-	for _, filter := range filters {
-		if !filter.matchesEntry(entry) {
-			return false
-		}
-	}
-	return true
 }
 
 func (segment *rawSegment) String() string {

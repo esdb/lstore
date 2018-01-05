@@ -22,9 +22,7 @@ func Test_indexing_segment(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{LimitSize: 2}
-	reader.SearchForward(ctx, 0, []lstore.Filter{
-		store.IndexingStrategy.NewBlobValueFilter(0, "hello"),
-	}, collector)
+	reader.SearchForward(ctx, 0, store.IndexingStrategy.NewBlobValueFilter(0, "hello"), collector)
 	should.Equal([]int64{2}, collector.Rows[0].IntValues)
 	should.Equal([]int64{4}, collector.Rows[1].IntValues)
 }
@@ -48,9 +46,7 @@ func Test_reopen_indexing_segment(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{LimitSize: 2}
-	reader.SearchForward(ctx, 0, []lstore.Filter{
-		store.IndexingStrategy.NewBlobValueFilter(0, "hello"),
-	}, collector)
+	reader.SearchForward(ctx, 0, store.IndexingStrategy.NewBlobValueFilter(0, "hello"), collector)
 	should.Equal([]int64{2}, collector.Rows[0].IntValues)
 	should.Equal([]int64{4}, collector.Rows[1].IntValues)
 }

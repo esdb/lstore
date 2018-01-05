@@ -76,9 +76,7 @@ func Test_block_search(t *testing.T) {
 		blk.Hash(strategy)
 		filter := strategy.NewBlobValueFilter(0, testCase.filter)
 		collector := &OffsetsCollector{}
-		blk.scanForward(ctx, testCase.startOffset, []Filter{
-			filter,
-		}, collector)
+		blk.scanForward(ctx, testCase.startOffset, filter, collector)
 		should.Equal(testCase.output, collector.Offsets)
 	}
 }

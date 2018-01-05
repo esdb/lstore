@@ -43,37 +43,13 @@ func (idx *slotIndex) updateSlot(slotMask biter.Bits, child *slotIndex) {
 	}
 }
 
-func (idx *slotIndex) search(level level, filters ...Filter) biter.Bits {
+func (idx *slotIndex) search(level level, filter Filter) biter.Bits {
 	switch level {
 	case level0:
-		return idx.searchSmall(filters...)
+		return filter.searchSmallIndex(idx)
 	case level1:
-		return idx.searchMedium(filters...)
+		return filter.searchMediumIndex(idx)
 	default:
-		return idx.searchLarge(filters...)
+		return filter.searchLargeIndex(idx)
 	}
-}
-
-func (idx *slotIndex) searchLarge(filters ...Filter) biter.Bits {
-	result := biter.SetAllBits
-	for _, filter := range filters {
-		result &= filter.searchLargeIndex(idx)
-	}
-	return result
-}
-
-func (idx *slotIndex) searchMedium(filters ...Filter) biter.Bits {
-	result := biter.SetAllBits
-	for _, filter := range filters {
-		result &= filter.searchMediumIndex(idx)
-	}
-	return result
-}
-
-func (idx *slotIndex) searchSmall(filters ...Filter) biter.Bits {
-	result := biter.SetAllBits
-	for _, filter := range filters {
-		result &= filter.searchSmallIndex(idx)
-	}
-	return result
 }

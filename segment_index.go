@@ -22,18 +22,18 @@ type indexSegment struct {
 }
 
 func (segment *indexingSegment) searchForward(
-	ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
+	ctx countlog.Context, startOffset Offset, filter Filter, cb SearchCallback) error {
 	if startOffset >= segment.tailOffset {
 		return nil
 	}
-	return segment.searchForwardAt(ctx, startOffset, filters, cb,
+	return segment.searchForwardAt(ctx, startOffset, filter, cb,
 		segment.indexingLevels[segment.topLevel], segment.topLevel)
 }
 
 func (segment *indexingSegment) searchForwardAt(
-	ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback,
+	ctx countlog.Context, startOffset Offset, filter Filter, cb SearchCallback,
 	slotIndex *slotIndex, level level) error {
-	result := slotIndex.search(level, filters...)
+	result := slotIndex.search(level, filter)
 	iter := result.ScanForward()
 	for {
 		slot := iter()
@@ -46,7 +46,7 @@ func (segment *indexingSegment) searchForwardAt(
 			if err != nil {
 				return err
 			}
-			err = blk.scanForward(ctx, startOffset, filters, cb)
+			err = blk.scanForward(ctx, startOffset, filter, cb)
 			if err != nil {
 				return err
 			}
@@ -58,7 +58,7 @@ func (segment *indexingSegment) searchForwardAt(
 			if err != nil {
 				return err
 			}
-			err = segment.searchForwardAt(ctx, startOffset, filters, cb, childSlotIndex, childLevel)
+			err = segment.searchForwardAt(ctx, startOffset, filter, cb, childSlotIndex, childLevel)
 			if err != nil {
 				return err
 			}

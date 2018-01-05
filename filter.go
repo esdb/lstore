@@ -80,3 +80,32 @@ func (filter *blobValueFilter) searchSmallIndex(idx *slotIndex) biter.Bits {
 	pbf := idx.pbfs[filter.indexedColumn]
 	return pbf.Find(filter.smallBloom)
 }
+
+type dummyFilter struct {
+}
+
+var dummyFilterInstance = &dummyFilter{}
+
+func (filter *dummyFilter) matchesEntry(entry *Entry) bool {
+	return true
+}
+
+func (filter *dummyFilter) matchesBlockSlot(blk *block, slot biter.Slot) bool {
+	return true
+}
+
+func (filter *dummyFilter) searchBlock(blk *block, begin biter.Slot) biter.Bits {
+	return biter.SetBitsForward[0]
+}
+
+func (filter *dummyFilter) searchLargeIndex(idx *slotIndex) biter.Bits {
+	return biter.SetBitsForward[0]
+}
+
+func (filter *dummyFilter) searchMediumIndex(idx *slotIndex) biter.Bits {
+	return biter.SetBitsForward[0]
+}
+
+func (filter *dummyFilter) searchSmallIndex(idx *slotIndex) biter.Bits {
+	return biter.SetBitsForward[0]
+}

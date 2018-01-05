@@ -69,18 +69,21 @@ func (reader *Reader) Close() error {
 	return reader.currentVersion.Close()
 }
 
-func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
+func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, filter Filter, cb SearchCallback) error {
 	ctx := countlog.Ctx(ctxObj)
 	store := reader.currentVersion
-	if err := store.indexingSegment.searchForward(ctx, startOffset, filters, cb); err != nil {
+	if filter == nil {
+		filter = dummyFilterInstance
+	}
+	if err := store.indexingSegment.searchForward(ctx, startOffset, filter, cb); err != nil {
 		return err
 	}
 	for _, rawSegment := range store.rawSegments {
-		if err := rawSegment.search(ctx, startOffset, math.MaxUint64, filters, cb); err != nil {
+		if err := rawSegment.search(ctx, startOffset, math.MaxUint64, filter, cb); err != nil {
 			return err
 		}
 	}
-	return store.tailSegment.search(ctx, startOffset, reader.tailOffset, filters, cb)
+	return store.tailSegment.search(ctx, startOffset, reader.tailOffset, filter, cb)
 }
 
 type RowsCollector struct {
