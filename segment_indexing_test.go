@@ -27,6 +27,14 @@ func blobEntry(values ...Blob) *Entry {
 	return &Entry{EntryType: EntryTypeData, BlobValues: values}
 }
 
+func blobEntries(values ...Blob) []*Entry {
+	entries := make([]*Entry, len(values))
+	for i, value := range values {
+		entries[i] = blobEntry(value)
+	}
+	return entries
+}
+
 func intBlobEntry(intValue int64, blobValue Blob) *Entry {
 	return &Entry{EntryType: EntryTypeData, IntValues: []int64{intValue}, BlobValues: []Blob{blobValue}}
 }

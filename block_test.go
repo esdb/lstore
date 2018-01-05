@@ -29,25 +29,44 @@ func Test_block_search(t *testing.T) {
 	should := require.New(t)
 
 	type TestCase struct {
+		startOffset Offset
 		input  []*Entry
 		filter Blob
 		output []Offset
 	}
 	testCases := []TestCase{
 		{
-			input: []*Entry{{
-				IntValues:  []int64{1, 2},
-				BlobValues: []Blob{"hello"},
-			}, {
-				IntValues:  []int64{1, 2},
-				BlobValues: []Blob{"world"},
-			}, {
-				IntValues:  []int64{1, 2},
-				BlobValues: []Blob{"world"},
-			}},
+			input:  blobEntries("hello", "world", "world"),
 			filter: "world",
 			output: []Offset{1, 2},
 		},
+		{
+			input:  blobEntries("hello", "hello", "hello"),
+			filter: "world",
+			output: nil,
+		},
+		{
+			input: blobEntries(
+				"x", "x", "x", "x", "x", "x", "x", "x",
+				"x", "x", "x", "x", "x", "x", "x", "x",
+				"x", "x", "x", "x", "x", "x", "x", "x",
+				"x", "x", "x", "x", "x", "x", "x", "x",
+				"x", "x", "x", "x", "x", "x", "x", "x",
+				"x", "x", "x", "x", "x", "x", "x", "x",
+				"x", "x", "x", "x", "x", "x", "x", "x",
+				"x", "x", "x", "x", "x", "x", "x", "x",
+				"o",
+			),
+			filter: "o",
+			output: []Offset{64},
+		},
+		{
+			startOffset: 2,
+			input: blobEntries("x", "x", "x", "x"),
+			filter: "x",
+			output: []Offset{2, 3},
+		},
+
 	}
 	for _, testCase := range testCases {
 		blk := newBlock(0, testCase.input)
@@ -57,7 +76,7 @@ func Test_block_search(t *testing.T) {
 		blk.Hash(strategy)
 		filter := strategy.NewBlobValueFilter(0, testCase.filter)
 		collector := &OffsetsCollector{}
-		blk.scanForward(ctx, 0, []Filter{
+		blk.scanForward(ctx, testCase.startOffset, []Filter{
 			filter,
 		}, collector)
 		should.Equal(testCase.output, collector.Offsets)

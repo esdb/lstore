@@ -22,7 +22,7 @@ type block struct {
 	startOffset Offset
 	intColumns  []intColumn
 	blobColumns []blobColumn
-	// to speed up blob column linear scanForward
+	// to speed up blob column linear search
 	blobHashColumns []blobHashColumn
 }
 
@@ -177,36 +177,43 @@ func (blk *block) Hash(strategy *IndexingStrategy) blockHash {
 }
 
 func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filters []Filter, cb SearchCallback) error {
-	if startOffset >= blk.startOffset+Offset(blockLength) {
-		return nil
-	}
-	mask := biter.SetAllBits
-	for _, filter := range filters {
-		mask &= filter.searchBlock(blk, 0)
-	}
-	iter := mask.ScanBackward() // the mask is backward
-	for {
-		i := iter()
-		if i == biter.NotFound {
-			return nil
-		}
-		if !blk.matchesBlockSlot(filters, i) {
+	for _, beginSlot := range [4]biter.Slot{0, 64, 128, 192} {
+		mask := biter.SetAllBits
+		beginOffset := blk.startOffset + Offset(beginSlot)
+		endOffset := beginOffset + Offset(64)
+		if startOffset >= endOffset {
 			continue
 		}
-		intColumnsCount := len(blk.intColumns)
-		intValues := make([]int64, intColumnsCount)
-		for j := 0; j < intColumnsCount; j++ {
-			intValues[j] = blk.intColumns[j][i]
+		if startOffset > beginOffset {
+			mask = biter.SetBitsForward[startOffset - beginOffset]
 		}
-		blobColumnsCount := len(blk.blobColumns)
-		blobValues := make([]Blob, blobColumnsCount)
-		for j := 0; j < blobColumnsCount; j++ {
-			blobValues[j] = blk.blobColumns[j][i]
+		for _, filter := range filters {
+			mask &= filter.searchBlock(blk, beginSlot)
 		}
-		err := cb.HandleRow(blk.startOffset+Offset(i), &Entry{
-			EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues})
-		if err != nil {
-			return err
+		iter := mask.ScanForward()
+		for {
+			i := iter()
+			if i == biter.NotFound {
+				break
+			}
+			if !blk.matchesBlockSlot(filters, i+beginSlot) {
+				continue
+			}
+			intColumnsCount := len(blk.intColumns)
+			intValues := make([]int64, intColumnsCount)
+			for j := 0; j < intColumnsCount; j++ {
+				intValues[j] = blk.intColumns[j][i]
+			}
+			blobColumnsCount := len(blk.blobColumns)
+			blobValues := make([]Blob, blobColumnsCount)
+			for j := 0; j < blobColumnsCount; j++ {
+				blobValues[j] = blk.blobColumns[j][i]
+			}
+			err := cb.HandleRow(blk.startOffset+Offset(i+beginSlot), &Entry{
+				EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues})
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
