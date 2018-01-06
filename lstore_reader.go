@@ -75,6 +75,11 @@ func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, 
 	if filter == nil {
 		filter = dummyFilterInstance
 	}
+	for _, indexedSegment := range store.indexedSegments {
+		if err := indexedSegment.searchForward(ctx, startOffset, filter, cb); err != nil {
+			return err
+		}
+	}
 	if startOffset < store.indexingSegment.tailOffset {
 		if err := store.indexingSegment.searchForward(ctx, startOffset, filter, cb); err != nil {
 			return err
@@ -82,11 +87,11 @@ func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, 
 		startOffset = store.indexingSegment.tailOffset
 	}
 	for _, rawSegment := range store.rawSegments {
-		if err := rawSegment.search(ctx, startOffset, math.MaxUint64, filter, cb); err != nil {
+		if err := rawSegment.searchForward(ctx, startOffset, math.MaxUint64, filter, cb); err != nil {
 			return err
 		}
 	}
-	return store.tailSegment.search(ctx, startOffset, reader.tailOffset, filter, cb)
+	return store.tailSegment.searchForward(ctx, startOffset, reader.tailOffset, filter, cb)
 }
 
 type RowsCollector struct {

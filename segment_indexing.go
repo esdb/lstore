@@ -15,20 +15,19 @@ import (
 )
 
 type indexingSegment struct {
-	*indexSegment
+	*searchable
 	*ref.ReferenceCounted
 	writeMMap        mmap.MMap
 	indexingLevels   []*slotIndex
-	blockManager     blockManager
 	slotIndexManager slotIndexManager
 	strategy         *IndexingStrategy
 }
 
-func openIndexingSegment(ctx countlog.Context, segmentPath string,
+func openIndexingSegment(ctx countlog.Context, segmentPath string, prev *indexSegment,
 	blockManager blockManager, slotIndexManager slotIndexManager) (*indexingSegment, error) {
 	file, err := os.OpenFile(segmentPath, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
-		file, err = initIndexingSegment(ctx, segmentPath, slotIndexManager)
+		file, err = initIndexingSegment(ctx, segmentPath, prev, slotIndexManager)
 	}
 	ctx.TraceCall("callee!os.OpenFile", err)
 	if err != nil {
@@ -61,18 +60,29 @@ func openIndexingSegment(ctx countlog.Context, segmentPath string,
 	}
 	return &indexingSegment{
 		ReferenceCounted: ref.NewReferenceCounted("indexing segment", resources...),
-		indexSegment:     segment,
+		searchable:     &searchable{
+			indexSegment: segment,
+			blockManager: blockManager,
+			readSlotIndex: slotIndexManager.mapWritableSlotIndex,
+		},
 		writeMMap:        writeMMap,
 		indexingLevels:   editingLevels,
-		blockManager:     blockManager,
 		slotIndexManager: slotIndexManager,
 		strategy:         slotIndexManager.indexingStrategy(),
 	}, nil
 }
 
-func initIndexingSegment(ctx countlog.Context, segmentPath string, slotIndexManager slotIndexManager) (*os.File, error) {
+func initIndexingSegment(ctx countlog.Context, segmentPath string, prev *indexSegment,
+	slotIndexManager slotIndexManager) (*os.File, error) {
 	levels := make([]slotIndexSeq, levelsCount)
 	tailSlotIndexSeq := slotIndexSeq(0)
+	tailBlockSeq := blockSeq(0)
+	startOffset := Offset(0)
+	if prev != nil {
+		tailSlotIndexSeq = prev.tailSlotIndexSeq
+		tailBlockSeq = prev.tailBlockSeq
+		startOffset = prev.tailOffset
+	}
 	for i := level0; i <= level2; i++ {
 		var err error
 		var slotIndex *slotIndex
@@ -91,10 +101,12 @@ func initIndexingSegment(ctx countlog.Context, segmentPath string, slotIndexMana
 	}
 	stream := gocodec.NewStream(nil)
 	stream.Marshal(indexSegment{
-		segmentHeader:    segmentHeader{segmentType: segmentTypeHead},
+		segmentHeader:    segmentHeader{segmentType: segmentTypeHead, startOffset: startOffset},
 		topLevel:         level2,
 		levels:           levels,
 		tailSlotIndexSeq: tailSlotIndexSeq,
+		tailBlockSeq: tailBlockSeq,
+		tailOffset: startOffset,
 	})
 	ctx.TraceCall("callee!stream.Marshal", stream.Error)
 	if stream.Error != nil {

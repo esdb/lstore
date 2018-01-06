@@ -56,7 +56,7 @@ func (writer *writer) load(ctx countlog.Context) error {
 func (writer *writer) loadInitialVersion(ctx countlog.Context) error {
 	version := StoreVersion{}.edit()
 	indexedSegment, err := openIndexingSegment(
-		ctx, writer.store.IndexingSegmentPath(),
+		ctx, writer.store.IndexingSegmentPath(), nil,
 		writer.store.blockManager, writer.store.slotIndexManager)
 	ctx.TraceCall("callee!store.openIndexingSegment", err)
 	if err != nil {
@@ -161,7 +161,7 @@ func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultCha
 	ctx := countlog.Ctx(ctxObj)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		if len(writer.rows) >= blockLength {
-			err := writer.rotate(ctx, writer.currentVersion)
+			err := writer.rotateTail(ctx, writer.currentVersion)
 			ctx.TraceCall("callee!writer.rotate", err)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
@@ -170,7 +170,7 @@ func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultCha
 		}
 		seq, err := writer.tryWrite(ctx, entry)
 		if err == SegmentOverflowError {
-			err := writer.rotate(ctx, writer.currentVersion)
+			err := writer.rotateTail(ctx, writer.currentVersion)
 			ctx.TraceCall("callee!writer.rotate", err)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
@@ -225,7 +225,7 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) (Offset, erro
 	return offset, nil
 }
 
-func (writer *writer) rotate(ctx countlog.Context, oldVersion *StoreVersion) error {
+func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion) error {
 	err := writer.tailSegment.Close()
 	ctx.TraceCall("callee!tailSegment.Close", err)
 	if err != nil {
@@ -260,7 +260,7 @@ func (writer *writer) rotate(ctx countlog.Context, oldVersion *StoreVersion) err
 	newVersion.tailSegment = writer.tailSegment.rawSegment
 	sealedNewVersion := newVersion.seal()
 	writer.updateCurrentVersion(sealedNewVersion)
-	countlog.Debug("event!store.rotated",
+	countlog.Debug("event!store.rotated tail",
 		"tail", sealedNewVersion.tailSegment.startOffset,
 		"rawSegmentsCount", len(sealedNewVersion.rawSegments),
 		"rotatedTo", rotatedTo)

@@ -14,6 +14,7 @@ import (
 )
 
 const IndexingSegmentFileName = "indexing.segment"
+const IndexingSegmentTmpFileName = "indexing.segment.tmp"
 const TailSegmentFileName = "tail.segment"
 const TailSegmentTmpFileName = "tail.segment.tmp"
 
@@ -26,12 +27,16 @@ type Config struct {
 	IndexingStrategy   *IndexingStrategy
 }
 
-func (conf *Config) IndexSegmentPath(tailOffset Offset) string {
-	return path.Join(conf.Directory, fmt.Sprintf("index-%d.segment", tailOffset))
+func (conf *Config) IndexedSegmentPath(tailOffset Offset) string {
+	return path.Join(conf.Directory, fmt.Sprintf("indexed-%d.segment", tailOffset))
 }
 
 func (conf *Config) IndexingSegmentPath() string {
 	return path.Join(conf.Directory, IndexingSegmentFileName)
+}
+
+func (conf *Config) IndexingSegmentTmpPath() string {
+	return path.Join(conf.Directory, IndexingSegmentTmpFileName)
 }
 
 func (conf *Config) RawSegmentPath(tailOffset Offset) string {
@@ -62,7 +67,7 @@ type Store struct {
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
 	*ref.ReferenceCounted
-	indexSegments   []*indexSegment
+	indexedSegments []*searchable
 	indexingSegment *indexingSegment
 	rawSegments     []*rawSegment
 	tailSegment     *rawSegment
@@ -144,6 +149,10 @@ func (store *Store) Write(ctxObj context.Context, entry *Entry) (Offset, error) 
 
 func (store *Store) UpdateIndex() error {
 	return store.indexer.UpdateIndex()
+}
+
+func (store *Store) RotateIndex() error {
+	return store.indexer.RotateIndex()
 }
 
 func (store *Store) latest() *StoreVersion {

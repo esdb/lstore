@@ -66,7 +66,7 @@ func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator
 	}
 }
 
-func (segment *rawSegment) search(ctx countlog.Context, startOffset Offset, tailOffset Offset,
+func (segment *rawSegment) searchForward(ctx countlog.Context, startOffset Offset, tailOffset Offset,
 	filter Filter, cb SearchCallback) error {
 	for i, entry := range segment.rows {
 		offset := segment.startOffset + Offset(i)

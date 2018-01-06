@@ -6,6 +6,7 @@ import (
 	"errors"
 	"context"
 	"github.com/esdb/gocodec"
+	"os"
 )
 
 type indexerCommand func(ctx countlog.Context)
@@ -61,7 +62,7 @@ func (indexer *indexer) start() {
 			}
 			if cmd == nil {
 				cmd = func(ctx countlog.Context) {
-					indexer.doIndex(ctx)
+					indexer.doUpdateIndex(ctx)
 				}
 			}
 			cmd(ctx)
@@ -81,16 +82,59 @@ func (indexer *indexer) asyncExecute(cmd indexerCommand) error {
 func (indexer *indexer) UpdateIndex() error {
 	resultChan := make(chan error)
 	indexer.asyncExecute(func(ctx countlog.Context) {
-		resultChan <- indexer.doIndex(ctx)
+		resultChan <- indexer.doUpdateIndex(ctx)
 	})
 	return <-resultChan
 }
 
-func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
-	countlog.Debug("event!indexer.run")
+func (indexer *indexer) RotateIndex() error {
+	resultChan := make(chan error)
+	indexer.asyncExecute(func(ctx countlog.Context) {
+		resultChan <- indexer.doRotateIndex(ctx)
+	})
+	return <-resultChan
+}
+
+func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
+	countlog.Debug("event!indexer.doRotateIndex")
+	editingVersion := indexer.currentVersion.edit()
+	prev := editingVersion.indexingSegment.searchable.indexSegment
+	newIndexedSegment := prev.copy()
+	editingVersion.indexedSegments = append(editingVersion.indexedSegments, &searchable{
+		indexSegment:  newIndexedSegment,
+		blockManager:  indexer.store.blockManager,
+		readSlotIndex: indexer.store.slotIndexManager.readSlotIndex,
+	})
+	editingVersion.indexingSegment, err = openIndexingSegment(
+		ctx, indexer.store.IndexingSegmentTmpPath(), prev,
+		indexer.store.blockManager, indexer.store.slotIndexManager)
+	if err != nil {
+		return err
+	}
+	err = os.Rename(indexer.store.IndexingSegmentPath(),
+		indexer.store.IndexedSegmentPath(newIndexedSegment.tailOffset))
+	ctx.TraceCall("callee!os.Rename", err)
+	if err != nil {
+		return err
+	}
+	err = os.Rename(indexer.store.IndexingSegmentTmpPath(),
+		indexer.store.IndexingSegmentPath())
+	ctx.TraceCall("callee!os.Rename", err)
+	if err != nil {
+		return err
+	}
+	indexer.store.updateVersion(editingVersion.seal())
+	ctx.Info("event!indexer.rotated index",
+		"startOffset", newIndexedSegment.startOffset,
+		"tailOffset", newIndexedSegment.tailOffset)
+	return nil
+}
+
+func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
+	countlog.Debug("event!indexer.doUpdateIndex")
 	store := indexer.currentVersion
 	if len(store.rawSegments) == 0 {
-		countlog.Trace("event!indexingSegment.doIndex do not find enough raw segments",
+		countlog.Trace("event!indexingSegment.doUpdateIndex do not find enough raw segments",
 			"rawSegmentsCount", len(store.rawSegments))
 		return nil
 	}
@@ -114,14 +158,14 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 		if blockTailOffset >= end {
 			continue
 		}
-		blockRows = append(blockRows, rawSegment.rows[blockTailOffset - begin:]...)
+		blockRows = append(blockRows, rawSegment.rows[blockTailOffset-begin:]...)
 		if len(blockRows) >= blockLength {
 			purgedRawSegmentsCount = rawSegmentCount
 			blk := newBlock(blockStartOffset, blockRows[:blockLength])
 			err := indexing.addBlock(ctx, blk)
 			ctx.TraceCall("callee!indexing.addBlock", err,
 				"blockStartOffset", blockStartOffset,
-					"purgedRawSegmentsCount", purgedRawSegmentsCount)
+				"purgedRawSegmentsCount", purgedRawSegmentsCount)
 			if err != nil {
 				return err
 			}
@@ -130,7 +174,7 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 		}
 	}
 	if originalTailOffset == indexing.tailOffset {
-		countlog.Trace("event!indexingSegment.doIndex can not find enough rows to build block",
+		countlog.Trace("event!indexingSegment.doUpdateIndex can not find enough rows to build block",
 			"originalTailOffset", originalTailOffset,
 			"rawSegmentsCount", len(store.rawSegments),
 			"blockRowsCount", len(blockRows))
@@ -154,7 +198,6 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 			return err
 		}
 	}
-	// TODO: purse raw segments
 	err = indexer.store.writer.purgeRawSegments(ctx, purgedRawSegmentsCount)
 	if err != nil {
 		return err
