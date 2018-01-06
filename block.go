@@ -194,20 +194,21 @@ func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filter F
 			if i == biter.NotFound {
 				break
 			}
-			if !filter.matchesBlockSlot(blk, i+beginSlot) {
+			currentSlot := i + beginSlot
+			if !filter.matchesBlockSlot(blk, currentSlot) {
 				continue
 			}
 			intColumnsCount := len(blk.intColumns)
 			intValues := make([]int64, intColumnsCount)
 			for j := 0; j < intColumnsCount; j++ {
-				intValues[j] = blk.intColumns[j][i]
+				intValues[j] = blk.intColumns[j][currentSlot]
 			}
 			blobColumnsCount := len(blk.blobColumns)
 			blobValues := make([]Blob, blobColumnsCount)
 			for j := 0; j < blobColumnsCount; j++ {
-				blobValues[j] = blk.blobColumns[j][i]
+				blobValues[j] = blk.blobColumns[j][currentSlot]
 			}
-			err := cb.HandleRow(blk.startOffset+Offset(i+beginSlot), &Entry{
+			err := cb.HandleRow(blk.startOffset+Offset(currentSlot), &Entry{
 				EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues})
 			if err != nil {
 				return err

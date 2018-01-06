@@ -75,8 +75,11 @@ func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, 
 	if filter == nil {
 		filter = dummyFilterInstance
 	}
-	if err := store.indexingSegment.searchForward(ctx, startOffset, filter, cb); err != nil {
-		return err
+	if startOffset < store.indexingSegment.tailOffset {
+		if err := store.indexingSegment.searchForward(ctx, startOffset, filter, cb); err != nil {
+			return err
+		}
+		startOffset = store.indexingSegment.tailOffset
 	}
 	for _, rawSegment := range store.rawSegments {
 		if err := rawSegment.search(ctx, startOffset, math.MaxUint64, filter, cb); err != nil {

@@ -96,27 +96,40 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 	}
 	indexing := store.indexingSegment
 	originalTailOffset := indexing.tailOffset
-	var rows []*Entry
-	rowsStartOffset := store.rawSegments[0].startOffset
+	var blockRows []*Entry
+	blockStartOffset := indexing.tailOffset
 	for _, rawSegment := range store.rawSegments {
-		// TODO: skip already indexed rows
-		rows = append(rows, rawSegment.rows...)
-		if len(rows) >= blockLength {
-			blk := newBlock(rowsStartOffset, rows[:blockLength])
+		begin := rawSegment.startOffset
+		end := begin + Offset(len(rawSegment.rows))
+		blockTailOffset := blockStartOffset + Offset(len(blockRows))
+		if blockTailOffset < begin {
+			countlog.Fatal("event!indexer.offset is not continuous",
+				"indexing.tailOffset", indexing.tailOffset,
+				"blockStartOffset", blockStartOffset,
+				"blockRowsCount", len(blockRows),
+				"rawSegment.startOffset", begin)
+			return errors.New("offset is not continuous")
+		}
+		if blockTailOffset >= end {
+			continue
+		}
+		blockRows = append(blockRows, rawSegment.rows[blockTailOffset - begin:]...)
+		if len(blockRows) >= blockLength {
+			blk := newBlock(blockStartOffset, blockRows[:blockLength])
 			err := indexing.addBlock(ctx, blk)
-			ctx.TraceCall("callee!indexing.addBlock", err, "rowsStartOff", rowsStartOffset)
+			ctx.TraceCall("callee!indexing.addBlock", err, "blockStartOffset", blockStartOffset)
 			if err != nil {
 				return err
 			}
-			rows = rows[blockLength:]
-			rowsStartOffset += Offset(blockLength)
+			blockRows = blockRows[blockLength:]
+			blockStartOffset += Offset(blockLength)
 		}
 	}
 	if originalTailOffset == indexing.tailOffset {
 		countlog.Trace("event!indexingSegment.doIndex can not find enough rows to build block",
 			"originalTailOffset", originalTailOffset,
 			"rawSegmentsCount", len(store.rawSegments),
-				"totalRows", len(rows))
+			"blockRowsCount", len(blockRows))
 		return nil
 	}
 	// ensure blocks are persisted

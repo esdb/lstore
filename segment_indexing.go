@@ -82,6 +82,7 @@ func initIndexingSegment(ctx countlog.Context, segmentPath string, slotIndexMana
 		}
 		if i > level0 {
 			slotIndex.children[0] = uint64(levels[i-1])
+			slotIndex.tailSlot = 1
 		}
 		err = slotIndexManager.updateChecksum(levels[i], i)
 		if err != nil {
@@ -129,6 +130,7 @@ func (segment *indexingSegment) addBlock(ctx countlog.Context, blk *block) error
 	level1SlotIndex := segment.indexingLevels[1]
 	level2SlotIndex := segment.indexingLevels[2]
 	level0SlotIndex.children[slots[0]] = uint64(blockSeq)
+	level0SlotIndex.tailSlot = slots[0] + 1
 	for i, hashColumn := range blkHash {
 		pbf0 := level0SlotIndex.pbfs[i]
 		pbf1 := level1SlotIndex.pbfs[i]

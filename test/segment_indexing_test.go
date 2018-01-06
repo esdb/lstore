@@ -58,8 +58,9 @@ func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 	defer store.Stop(ctx)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
-		_, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
+		should.Equal(lstore.Offset(i), offset)
 	}
 	should.Nil(store.Index())
 	for i := 260; i < 520; i++ {
