@@ -142,8 +142,8 @@ func (store *Store) Write(ctxObj context.Context, entry *Entry) (Offset, error) 
 	return store.writer.Write(ctxObj, entry)
 }
 
-func (store *Store) Index() error {
-	return store.indexer.Index()
+func (store *Store) UpdateIndex() error {
+	return store.indexer.UpdateIndex()
 }
 
 func (store *Store) latest() *StoreVersion {

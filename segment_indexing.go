@@ -60,8 +60,8 @@ func openIndexingSegment(ctx countlog.Context, segmentPath string,
 		}
 	}
 	return &indexingSegment{
+		ReferenceCounted: ref.NewReferenceCounted("indexing segment", resources...),
 		indexSegment:     segment,
-		ReferenceCounted: ref.NewReferenceCounted("indexed segment", resources...),
 		writeMMap:        writeMMap,
 		indexingLevels:   editingLevels,
 		blockManager:     blockManager,

@@ -19,7 +19,7 @@ func Test_indexing_segment(t *testing.T) {
 		_, err := store.Write(ctx, intBlobEntry(int64(i)+1, blobValue))
 		should.Nil(err)
 	}
-	should.Nil(store.Index())
+	should.Nil(store.UpdateIndex())
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{LimitSize: 2}
@@ -40,7 +40,7 @@ func Test_reopen_indexing_segment(t *testing.T) {
 		_, err := store.Write(ctx, intBlobEntry(int64(i)+1, blobValue))
 		should.Nil(err)
 	}
-	should.Nil(store.Index())
+	should.Nil(store.UpdateIndex())
 
 	store = reopenTestStore(store)
 
@@ -62,13 +62,13 @@ func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 		should.Nil(err)
 		should.Equal(lstore.Offset(i), offset)
 	}
-	should.Nil(store.Index())
+	should.Nil(store.UpdateIndex())
 	for i := 260; i < 520; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		_, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 	}
-	should.Nil(store.Index())
+	should.Nil(store.UpdateIndex())
 
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
@@ -94,7 +94,7 @@ func Test_index_block_compressed(t *testing.T) {
 		_, err := store.Write(ctx, intBlobEntry(int64(i)+1, blobValue))
 		should.Nil(err)
 	}
-	should.Nil(store.Index())
+	should.Nil(store.UpdateIndex())
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{LimitSize: 2}

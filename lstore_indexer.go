@@ -78,7 +78,7 @@ func (indexer *indexer) asyncExecute(cmd indexerCommand) error {
 	}
 }
 
-func (indexer *indexer) Index() error {
+func (indexer *indexer) UpdateIndex() error {
 	resultChan := make(chan error)
 	indexer.asyncExecute(func(ctx countlog.Context) {
 		resultChan <- indexer.doIndex(ctx)
