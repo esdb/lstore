@@ -52,23 +52,54 @@ func (writer *writer) load(ctx countlog.Context) error {
 	return nil
 }
 
-
 func (writer *writer) loadInitialVersion(ctx countlog.Context) error {
 	version := StoreVersion{}.edit()
-	indexedSegment, err := openIndexingSegment(
+	err := writer.loadIndexingAndIndexedSegments(ctx, version)
+	ctx.TraceCall("callee!writer.loadIndexingAndIndexedSegments", err)
+	if err != nil {
+		return err
+	}
+	err = writer.loadTailAndRawSegments(ctx, version)
+	ctx.TraceCall("callee!writer.loadTailAndRawSegments", err)
+	if err != nil {
+		return err
+	}
+	writer.currentVersion = version.seal()
+	return nil
+}
+
+func (writer *writer) loadIndexingAndIndexedSegments(ctx countlog.Context, version *EditingStoreVersion) error {
+	indexingSegment, err := openIndexingSegment(
 		ctx, writer.store.IndexingSegmentPath(), nil,
 		writer.store.blockManager, writer.store.slotIndexManager)
 	ctx.TraceCall("callee!store.openIndexingSegment", err)
 	if err != nil {
 		return err
 	}
-	version.indexingSegment = indexedSegment
-	err = writer.loadTailAndRawSegments(ctx, version)
-	ctx.TraceCall("callee!store.loadTailAndRawSegments", err)
-	if err != nil {
-		return err
+	startOffset := indexingSegment.startOffset
+	var reversedIndexedSegments []*searchable
+	for {
+		indexedSegmentPath := writer.store.IndexedSegmentPath(startOffset)
+		indexedSegment, err := openIndexedSegment(ctx, indexedSegmentPath)
+		if os.IsNotExist(err) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		reversedIndexedSegments = append(reversedIndexedSegments, &searchable{
+			indexSegment: indexedSegment,
+			blockManager: writer.store.blockManager,
+			readSlotIndex: writer.store.slotIndexManager.readSlotIndex,
+		})
+		startOffset = indexedSegment.startOffset
 	}
-	writer.currentVersion = version.seal()
+	indexedSegments := make([]*searchable, len(reversedIndexedSegments))
+	for i := 0; i < len(reversedIndexedSegments); i++ {
+		indexedSegments[i] = reversedIndexedSegments[len(reversedIndexedSegments)-i-1]
+	}
+	version.indexingSegment = indexingSegment
+	version.indexedSegments = indexedSegments
 	return nil
 }
 

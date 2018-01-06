@@ -3,6 +3,9 @@ package lstore
 import (
 	"github.com/v2pro/plz/countlog"
 	"github.com/esdb/biter"
+	"io/ioutil"
+	"github.com/esdb/gocodec"
+	"fmt"
 )
 
 const levelsCount = 9
@@ -27,6 +30,20 @@ type searchable struct {
 	blockManager blockManager
 	// readSlotIndex might read from rwCache or roCache, depending on
 	readSlotIndex func(slotIndexSeq, level) (*slotIndex, error)
+}
+
+func openIndexedSegment(ctx countlog.Context, indexedSegmentPath string) (*indexSegment, error) {
+	buf, err := ioutil.ReadFile(indexedSegmentPath)
+	ctx.TraceCall("callee!ioutil.ReadFile", err)
+	if err != nil {
+		return nil, err
+	}
+	iter := gocodec.NewIterator(buf)
+	segment, _ := iter.Unmarshal((*indexSegment)(nil)).(*indexSegment)
+	if iter.Error != nil {
+		return nil, fmt.Errorf("unmarshal index segment failed: %s", iter.Error.Error())
+	}
+	return segment, nil
 }
 
 func (segment *indexSegment) copy() *indexSegment {
