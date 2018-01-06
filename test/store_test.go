@@ -46,8 +46,8 @@ func tinyTestStore() *lstore.Store {
 	return store
 }
 
-func smallTestStore() *lstore.Store {
-	store := &lstore.Store{}
+func smallTestStore(config lstore.Config) *lstore.Store {
+	store := &lstore.Store{Config: config}
 	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 280
 	store.IndexingStrategy = lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
