@@ -46,7 +46,7 @@ func (writer *writer) load(ctx countlog.Context) error {
 	if err != nil {
 		return err
 	}
-	writer.updateTailOffset(writer.tailSegment.startOffset + Offset(len(writer.tailSegment.rows)))
+	writer.updateTailOffset(writer.tailSegment.startOffset + Offset(len(writer.tailSegment.entries)))
 	return nil
 }
 
@@ -62,6 +62,7 @@ func (writer *writer) loadInitialVersion(ctx countlog.Context) error {
 	if err != nil {
 		return err
 	}
+	writer.loadRawSegmentIndices(ctx, version)
 	writer.updateCurrentVersion(version.seal())
 	return nil
 }
@@ -130,6 +131,23 @@ func (writer *writer) loadTailAndRawSegments(ctx countlog.Context, version *Edit
 	return nil
 }
 
+func (writer *writer) loadRawSegmentIndices(ctx countlog.Context, version *EditingStoreVersion) {
+	startOffset := version.tailSegment.startOffset
+	if len(version.rawSegments) > 0 {
+		startOffset = version.rawSegments[0].startOffset
+	}
+	currentIndex := newRawSegmentIndex(writer.store.IndexingStrategy, startOffset)
+	version.rawSegmentIndices = []*rawSegmentIndex{newRawSegmentIndex(writer.store.IndexingStrategy, startOffset)}
+	for _, rawSegment := range append(version.rawSegments, version.tailSegment) {
+		for _, entry := range rawSegment.entries {
+			if currentIndex.add(entry) {
+				currentIndex = newRawSegmentIndex(writer.store.IndexingStrategy, startOffset)
+				version.rawSegmentIndices = append(version.rawSegmentIndices, currentIndex)
+			}
+		}
+	}
+}
+
 func (writer *writer) start() {
 	writer.store.executor.Go(func(ctxObj context.Context) {
 		ctx := countlog.Ctx(ctxObj)
@@ -177,7 +195,7 @@ func handleCommand(ctx countlog.Context, cmd writerCommand) {
 func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultChan chan<- WriteResult) {
 	ctx := countlog.Ctx(ctxObj)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
-		if len(writer.rows) >= blockLength {
+		if len(writer.entries) >= blockLength {
 			err := writer.rotateTail(ctx, writer.currentVersion)
 			ctx.TraceCall("callee!writer.rotate", err)
 			if err != nil {
@@ -186,6 +204,10 @@ func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultCha
 			}
 		}
 		seq, err := writer.tryWrite(ctx, entry)
+		if err == nil {
+			resultChan <- WriteResult{seq, nil}
+			return
+		}
 		if err == SegmentOverflowError {
 			err := writer.rotateTail(ctx, writer.currentVersion)
 			ctx.TraceCall("callee!writer.rotate", err)
@@ -201,7 +223,7 @@ func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultCha
 			resultChan <- WriteResult{seq, nil}
 			return
 		}
-		resultChan <- WriteResult{seq, nil}
+		resultChan <- WriteResult{0, err}
 		return
 	})
 }
@@ -234,11 +256,13 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) (Offset, erro
 		return 0, SegmentOverflowError
 	}
 	writer.writeBuf = writer.writeBuf[size:]
-	offset := writer.startOffset + Offset(len(writer.rows))
-	writer.rows = append(writer.rows, entry)
+	offset := writer.startOffset + Offset(len(writer.entries))
+	writer.entries = append(writer.entries, entry)
 	countlog.Trace("event!writer.tryWrite", "offset", offset)
 	// reader will know if read the tail using atomic
 	writer.updateTailOffset(offset + 1)
+	indices := writer.currentVersion.rawSegmentIndices
+	indices[len(indices) - 1].add(entry)
 	return offset, nil
 }
 
@@ -284,10 +308,6 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 	return nil
 }
 
-func (writer *writer) reopenRawSegment() {
-
-}
-
 // removeRawSegments should only be used by indexer
 func (writer *writer) removeRawSegments(
 	ctx countlog.Context, removedRawSegmentsCount int) error {
@@ -296,7 +316,7 @@ func (writer *writer) removeRawSegments(
 		oldVersion := writer.currentVersion
 		removedRawSegments := oldVersion.rawSegments[:removedRawSegmentsCount]
 		for _, segment := range removedRawSegments {
-			segmentPath := writer.store.RawSegmentPath(segment.startOffset + Offset(len(segment.rows)))
+			segmentPath := writer.store.RawSegmentPath(segment.startOffset + Offset(len(segment.entries)))
 			err := os.Remove(segmentPath)
 			ctx.TraceCall("callee!os.Remove", err)
 		}

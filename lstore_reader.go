@@ -6,7 +6,6 @@ import (
 	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/plz"
 	"errors"
-	"math"
 )
 
 // Reader is not thread safe, can only be used from one goroutine
@@ -90,12 +89,12 @@ func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, 
 		}
 		startOffset = store.indexingSegment.tailOffset
 	}
-	for _, rawSegment := range store.rawSegments {
-		if err := rawSegment.searchForward(ctx, startOffset, math.MaxUint64, filter, cb); err != nil {
+	for _, rawSegmentIndex := range store.rawSegmentIndices {
+		if err := rawSegmentIndex.searchForward(ctx, startOffset, filter, cb); err != nil {
 			return err
 		}
 	}
-	return store.tailSegment.searchForward(ctx, startOffset, reader.tailOffset, filter, cb)
+	return nil
 }
 
 type RowsCollector struct {

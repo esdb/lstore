@@ -18,7 +18,7 @@ import (
 type rawSegment struct {
 	segmentHeader
 	*ref.ReferenceCounted
-	rows []*Entry
+	entries []*Entry
 }
 
 func openRawSegment(ctx countlog.Context, path string) (*rawSegment, error) {
@@ -44,7 +44,7 @@ func openRawSegment(ctx countlog.Context, path string) (*rawSegment, error) {
 		return nil, iter.Error
 	}
 	segment.segmentHeader = *segmentHeader
-	segment.rows, err = segment.loadRows(ctx, iter)
+	segment.entries, err = segment.loadRows(ctx, iter)
 	if err != nil {
 		countlog.Error("event!raw.failed to unmarshal rows", "err", iter.Error, "path", path)
 		return nil, err
@@ -71,7 +71,7 @@ func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator
 
 func (segment *rawSegment) searchForward(ctx countlog.Context, startOffset Offset, tailOffset Offset,
 	filter Filter, cb SearchCallback) error {
-	for i, entry := range segment.rows {
+	for i, entry := range segment.entries {
 		offset := segment.startOffset + Offset(i)
 		if offset < startOffset || offset >= tailOffset {
 			continue
@@ -86,15 +86,14 @@ func (segment *rawSegment) searchForward(ctx countlog.Context, startOffset Offse
 }
 
 func (segment *rawSegment) String() string {
-	if len(segment.rows) == 0 {
+	if len(segment.entries) == 0 {
 		return "rawSegment{}"
 	}
 	start := int(segment.startOffset)
-	end := start + len(segment.rows) - 1
+	end := start + len(segment.entries) - 1
 	desc := "rawSegment{" + strconv.Itoa(start) + "~" + strconv.Itoa(end) + "}"
 	return desc
 }
-
 
 type rawSegmentIndexRoot struct {
 	pbfs     []pbloom.ParallelBloomFilter // 64 slots
@@ -140,7 +139,7 @@ func newRawSegmentIndex(strategy *IndexingStrategy, startOffset Offset) *rawSegm
 	}
 }
 
-func (index *rawSegmentIndex) add(entry *Entry) {
+func (index *rawSegmentIndex) add(entry *Entry) bool {
 	root := index.root
 	rootTail := root.tailSlot
 	child := index.children[rootTail]
@@ -158,21 +157,26 @@ func (index *rawSegmentIndex) add(entry *Entry) {
 	}
 	index.tailOffset += 1
 	if child.tailSlot == 63 {
+		if root.tailSlot == 63 {
+			return true
+		}
 		root.tailSlot += 1
+	} else {
+		child.tailSlot += 1
 	}
-	child.tailSlot += 1
+	return false
 }
 
 func (index *rawSegmentIndex) searchForward(ctx countlog.Context, startOffset Offset,
-	filter Filter, cb SearchCallback) {
+	filter Filter, cb SearchCallback) error {
 	root := index.root
 	rootResult := filter.searchTinyIndex(root.pbfs)
-	rootResult &= biter.SetBitsForwardUntil[root.tailSlot+1]
+	rootResult &= biter.SetBitsForwardUntil[root.tailSlot]
 	rootIter := rootResult.ScanForward()
 	for {
 		rootSlot := rootIter()
 		if rootSlot == biter.NotFound {
-			return
+			return nil
 		}
 		child := index.children[rootSlot]
 		childResult := filter.searchTinyIndex(child.pbfs)
@@ -186,7 +190,9 @@ func (index *rawSegmentIndex) searchForward(ctx countlog.Context, startOffset Of
 			}
 			entry := child.children[childSlot]
 			if filter.matchesEntry(entry) {
-				cb.HandleRow(baseOffset+Offset(childSlot), entry)
+				if err := cb.HandleRow(baseOffset+Offset(childSlot), entry); err != nil {
+					return err
+				}
 			}
 		}
 	}

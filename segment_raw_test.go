@@ -4,6 +4,7 @@ import (
 	"testing"
 	"github.com/stretchr/testify/require"
 	"fmt"
+	"github.com/esdb/biter"
 )
 
 func Test_build_raw_segment_index(t *testing.T) {
@@ -25,15 +26,20 @@ func Test_search_raw_segment_index(t *testing.T) {
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newRawSegmentIndex(strategy, 0)
-	var entries []*Entry
-	for i := 0; i < 4096; i++ {
+	for i := 0; i < 4095; i++ {
 		entry := blobEntry(Blob(fmt.Sprintf("hello%v", i)))
-		entries = append(entries, entry)
-		index.add(entry)
+		should.False(index.add(entry))
 	}
+	entry := blobEntry("hell4095")
+	should.True(index.add(entry))
+	should.Equal(biter.Slot(63), index.root.tailSlot)
+	should.Equal(biter.Slot(63), index.children[63].tailSlot)
 	collector := &RowsCollector{}
 	index.searchForward(ctx, 0, strategy.NewBlobValueFilter(0, Blob("hello4003")), collector)
 	should.Equal(1, len(collector.Rows))
+	collector = &RowsCollector{}
+	index.searchForward(ctx, 96, dummyFilterInstance, collector)
+	should.Equal(4000, len(collector.Rows))
 }
 
 func Benchmark_raw_segment_index(b *testing.B) {

@@ -66,7 +66,7 @@ func openTailSegment(ctx countlog.Context, path string, maxSize int64, startOffs
 			plz.Close(plz.WrapCloser(writeMMap.Unmap))
 			return nil, iter.Error
 		}
-		segment.rows = append(segment.rows, entry)
+		segment.entries = append(segment.entries, entry)
 	}
 	segment.writeBuf = iter.Buffer()
 	return segment, nil

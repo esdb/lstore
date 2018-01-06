@@ -6,6 +6,7 @@ import (
 	"unsafe"
 	"github.com/esdb/plinear"
 	"github.com/v2pro/plz/countlog"
+	"math"
 )
 
 type Filter interface {
@@ -103,21 +104,21 @@ func (filter *dummyFilter) matchesBlockSlot(blk *block, slot biter.Slot) bool {
 }
 
 func (filter *dummyFilter) searchBlock(blk *block, begin biter.Slot) biter.Bits {
-	return biter.SetBitsForwardFrom[0]
+	return math.MaxUint64
 }
 
 func (filter *dummyFilter) searchLargeIndex(idx *slotIndex) biter.Bits {
-	return biter.SetBitsForwardFrom[0]
+	return math.MaxUint64
 }
 
 func (filter *dummyFilter) searchMediumIndex(idx *slotIndex) biter.Bits {
-	return biter.SetBitsForwardFrom[0]
+	return math.MaxUint64
 }
 
 func (filter *dummyFilter) searchSmallIndex(idx *slotIndex) biter.Bits {
-	return biter.SetBitsForwardFrom[0]
+	return math.MaxUint64
 }
 
 func (filter *dummyFilter) searchTinyIndex(pbfs []pbloom.ParallelBloomFilter) biter.Bits {
-	return biter.SetBitsForwardFrom[0]
+	return math.MaxUint64
 }

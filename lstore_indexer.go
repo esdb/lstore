@@ -192,7 +192,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	var removedRawSegmentsCount int
 	for rawSegmentCount, rawSegment := range store.rawSegments {
 		begin := rawSegment.startOffset
-		end := begin + Offset(len(rawSegment.rows))
+		end := begin + Offset(len(rawSegment.entries))
 		blockTailOffset := blockStartOffset + Offset(len(blockRows))
 		if blockTailOffset < begin {
 			countlog.Fatal("event!indexer.offset is not continuous",
@@ -205,7 +205,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		if blockTailOffset >= end {
 			continue
 		}
-		blockRows = append(blockRows, rawSegment.rows[blockTailOffset-begin:]...)
+		blockRows = append(blockRows, rawSegment.entries[blockTailOffset-begin:]...)
 		if len(blockRows) >= blockLength {
 			removedRawSegmentsCount = rawSegmentCount
 			blk := newBlock(blockStartOffset, blockRows[:blockLength])

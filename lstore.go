@@ -67,10 +67,11 @@ type Store struct {
 // StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
 	*ref.ReferenceCounted
-	indexedSegments []*searchable
-	indexingSegment *indexingSegment
-	rawSegments     []*rawSegment
-	tailSegment     *rawSegment
+	indexedSegments   []*searchable
+	indexingSegment   *indexingSegment
+	rawSegmentIndices []*rawSegmentIndex
+	rawSegments       []*rawSegment
+	tailSegment       *rawSegment
 }
 
 func (version StoreVersion) edit() *EditingStoreVersion {
