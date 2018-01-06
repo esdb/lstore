@@ -95,6 +95,37 @@ func (indexer *indexer) RotateIndex() error {
 	return <-resultChan
 }
 
+func (indexer *indexer) Remove(untilOffset Offset) error {
+	resultChan := make(chan error)
+	indexer.asyncExecute(func(ctx countlog.Context) {
+		resultChan <- indexer.doRemove(ctx, untilOffset)
+	})
+	return <-resultChan
+}
+
+func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err error) {
+	var removedIndexedSegmentsCount int
+	// TODO: release disk and memory used by block and slot index
+	for i, indexedSegment := range indexer.currentVersion.indexedSegments {
+		if indexedSegment.startOffset >= untilOffset {
+			break
+		}
+		if indexedSegment.tailOffset <= untilOffset {
+			removedIndexedSegmentsCount = i + 1
+			err = os.Remove(indexer.store.IndexedSegmentPath(indexedSegment.tailOffset))
+			ctx.TraceCall("callee!os.Remove", err)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	err = indexer.store.writer.removedIndexedSegments(ctx, removedIndexedSegmentsCount)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	countlog.Debug("event!indexer.doRotateIndex")
 	prev := indexer.currentVersion.indexingSegment.searchable.indexSegment
@@ -140,7 +171,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	originalTailOffset := indexing.tailOffset
 	var blockRows []*Entry
 	blockStartOffset := indexing.tailOffset
-	var purgedRawSegmentsCount int
+	var removedRawSegmentsCount int
 	for rawSegmentCount, rawSegment := range store.rawSegments {
 		begin := rawSegment.startOffset
 		end := begin + Offset(len(rawSegment.rows))
@@ -158,12 +189,12 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		}
 		blockRows = append(blockRows, rawSegment.rows[blockTailOffset-begin:]...)
 		if len(blockRows) >= blockLength {
-			purgedRawSegmentsCount = rawSegmentCount
+			removedRawSegmentsCount = rawSegmentCount
 			blk := newBlock(blockStartOffset, blockRows[:blockLength])
 			err := indexing.addBlock(ctx, blk)
 			ctx.TraceCall("callee!indexing.addBlock", err,
 				"blockStartOffset", blockStartOffset,
-				"purgedRawSegmentsCount", purgedRawSegmentsCount)
+				"removedRawSegmentsCount", removedRawSegmentsCount)
 			if err != nil {
 				return err
 			}
@@ -196,7 +227,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 			return err
 		}
 	}
-	err = indexer.store.writer.purgeRawSegments(ctx, purgedRawSegmentsCount)
+	err = indexer.store.writer.removeRawSegments(ctx, removedRawSegmentsCount)
 	if err != nil {
 		return err
 	}

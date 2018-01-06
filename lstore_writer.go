@@ -86,8 +86,8 @@ func (writer *writer) loadIndexingAndIndexedSegments(ctx countlog.Context, versi
 			return err
 		}
 		reversedIndexedSegments = append(reversedIndexedSegments, &searchable{
-			indexSegment: indexedSegment,
-			blockManager: writer.store.blockManager,
+			indexSegment:  indexedSegment,
+			blockManager:  writer.store.blockManager,
 			readSlotIndex: writer.store.slotIndexManager.readSlotIndex,
 		})
 		startOffset = indexedSegment.startOffset
@@ -284,26 +284,26 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 	return nil
 }
 
-// purgeRawSegments should only be used by indexer
-func (writer *writer) purgeRawSegments(
-	ctx countlog.Context, purgedRawSegmentsCount int) error {
+// removeRawSegments should only be used by indexer
+func (writer *writer) removeRawSegments(
+	ctx countlog.Context, removedRawSegmentsCount int) error {
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
-		purgedRawSegments := oldVersion.rawSegments[:purgedRawSegmentsCount]
-		for _, segment := range purgedRawSegments {
+		removedRawSegments := oldVersion.rawSegments[:removedRawSegmentsCount]
+		for _, segment := range removedRawSegments {
 			segmentPath := writer.store.RawSegmentPath(segment.startOffset + Offset(len(segment.rows)))
 			err := os.Remove(segmentPath)
 			ctx.TraceCall("callee!os.Remove", err)
 		}
 		newVersion := oldVersion.edit()
-		newVersion.rawSegments = oldVersion.rawSegments[purgedRawSegmentsCount:]
+		newVersion.rawSegments = oldVersion.rawSegments[removedRawSegmentsCount:]
 		writer.updateCurrentVersion(newVersion.seal())
 		resultChan <- nil
 		return
 	})
-	countlog.Debug("event!writer.purged raw segments",
-		"count", purgedRawSegmentsCount)
+	countlog.Debug("event!writer.removed raw segments",
+		"count", removedRawSegmentsCount)
 	return <-resultChan
 }
 
@@ -322,6 +322,23 @@ func (writer *writer) rotateIndex(
 	})
 	countlog.Debug("event!writer.rotated index",
 		"indexingSegment.startOffset", indexingSegment.startOffset)
+	return <-resultChan
+}
+
+// removedIndexedSegments should only be used by indexer
+func (writer *writer) removedIndexedSegments(
+	ctx countlog.Context, removedIndexedSegmentsCount int) error {
+	resultChan := make(chan error)
+	writer.asyncExecute(ctx, func(ctx countlog.Context) {
+		oldVersion := writer.currentVersion
+		newVersion := oldVersion.edit()
+		newVersion.indexedSegments = newVersion.indexedSegments[removedIndexedSegmentsCount:]
+		writer.updateCurrentVersion(newVersion.seal())
+		resultChan <- nil
+		return
+	})
+	countlog.Debug("event!writer.rotated index",
+		"removedIndexedSegmentsCount", removedIndexedSegmentsCount)
 	return <-resultChan
 }
 

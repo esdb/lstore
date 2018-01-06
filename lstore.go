@@ -76,8 +76,9 @@ type StoreVersion struct {
 func (version StoreVersion) edit() *EditingStoreVersion {
 	return &EditingStoreVersion{
 		StoreVersion{
+			indexedSegments: append([]*searchable(nil), version.indexedSegments...),
 			indexingSegment: version.indexingSegment,
-			rawSegments:     version.rawSegments,
+			rawSegments:     append([]*rawSegment(nil), version.rawSegments...),
 			tailSegment:     version.tailSegment,
 		},
 	}
@@ -153,6 +154,12 @@ func (store *Store) UpdateIndex() error {
 
 func (store *Store) RotateIndex() error {
 	return store.indexer.RotateIndex()
+}
+
+// Remove can only remove those rows in indexed segment
+// data still hanging in indexing/raw/tail segment can not be removed
+func (store *Store) Remove(untilOffset Offset) error {
+	return store.indexer.Remove(untilOffset)
 }
 
 func (store *Store) latest() *StoreVersion {

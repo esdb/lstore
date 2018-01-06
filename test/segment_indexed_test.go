@@ -88,3 +88,27 @@ func Test_reopen_indexed_segments(t *testing.T) {
 		should.Equal(row.IntValues[0], int64(row.Offset))
 	}
 }
+
+func Test_remove_indexed_segment(t *testing.T) {
+	should := require.New(t)
+	store := bigTestStore()
+	defer store.Stop(ctx)
+	for i := 0; i < 260; i++ {
+		blobValue := lstore.Blob(strconv.Itoa(i))
+		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		should.Nil(err)
+		should.Equal(lstore.Offset(i), offset)
+	}
+	should.Nil(store.UpdateIndex())
+	should.Nil(store.RotateIndex())
+	should.Nil(store.Remove(256))
+
+	reader, err := store.NewReader(ctx)
+	should.Nil(err)
+	collector := &lstore.RowsCollector{}
+	reader.SearchForward(ctx, 0, nil,collector)
+	should.Equal(4, len(collector.Rows))
+	for _, row := range collector.Rows {
+		should.Equal(row.IntValues[0], int64(row.Offset))
+	}
+}
