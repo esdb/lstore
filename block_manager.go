@@ -171,3 +171,7 @@ func (mgr *mmapBlockManager) unmarshalBlock(seq blockSeq) (*block, error) {
 	}
 	return blk, nil
 }
+
+func (mgr *mmapBlockManager) remove(seq blockSeq) {
+	mgr.dataManager.Remove(uint64(seq))
+}

@@ -169,7 +169,7 @@ func (segment *indexingSegment) addBlock(ctx countlog.Context, blk *block) error
 
 func (segment *indexingSegment) nextSlot(ctx countlog.Context) ([]biter.Slot, error) {
 	slots := make([]biter.Slot, 9)
-	cnt := int(segment.tailOffset) >> blockLengthInPowerOfTwo
+	cnt := int(segment.tailOffset - segment.startOffset) >> blockLengthInPowerOfTwo
 	level0Slot := biter.Slot(cnt % 64)
 	cnt = cnt >> 6
 	level1Slot := biter.Slot(cnt % 64)
@@ -189,7 +189,7 @@ func (segment *indexingSegment) nextSlot(ctx countlog.Context) ([]biter.Slot, er
 	level8Slot := biter.Slot(cnt % 64)
 	slots = []biter.Slot{level0Slot, level1Slot, level2Slot, level3Slot, level4Slot,
 		level5Slot, level6Slot, level7Slot, level8Slot}
-	if level0Slot != 0 || segment.tailOffset == 0 {
+	if level0Slot != 0 || (segment.tailOffset - segment.startOffset) == 0 {
 		return slots, nil
 	}
 	if level1Slot != 0 {

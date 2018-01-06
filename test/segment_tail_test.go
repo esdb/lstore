@@ -11,7 +11,7 @@ var ctx = context.Background()
 
 func Test_write_read_one_entry(t *testing.T) {
 	should := require.New(t)
-	store := bigTestStore()
+	store := bigTestStore(lstore.Config{})
 	defer store.Stop(ctx)
 	seq, err := store.Write(ctx, intEntry(1))
 	should.Nil(err)
@@ -27,7 +27,7 @@ func Test_write_read_one_entry(t *testing.T) {
 
 func Test_write_two_entries(t *testing.T) {
 	should := require.New(t)
-	store := bigTestStore()
+	store := bigTestStore(lstore.Config{})
 	defer store.Stop(ctx)
 	seq, err := store.Write(ctx, intEntry(1))
 	should.Nil(err)
@@ -46,7 +46,7 @@ func Test_write_two_entries(t *testing.T) {
 
 func Test_reopen_tail_segment(t *testing.T) {
 	should := require.New(t)
-	store := bigTestStore()
+	store := bigTestStore(lstore.Config{})
 	defer store.Stop(ctx)
 	seq, err := store.Write(ctx, intEntry(1))
 	should.Nil(err)

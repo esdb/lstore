@@ -106,6 +106,8 @@ func (indexer *indexer) Remove(untilOffset Offset) error {
 func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err error) {
 	var removedIndexedSegmentsCount int
 	// TODO: release disk and memory used by block and slot index
+	var tailBlockSeq blockSeq
+	var tailSlotIndexSeq slotIndexSeq
 	for i, indexedSegment := range indexer.currentVersion.indexedSegments {
 		if indexedSegment.startOffset >= untilOffset {
 			break
@@ -117,12 +119,19 @@ func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err 
 			if err != nil {
 				return err
 			}
+			tailBlockSeq = indexedSegment.tailBlockSeq
+			tailSlotIndexSeq = indexedSegment.tailSlotIndexSeq
 		}
+	}
+	if removedIndexedSegmentsCount == 0 {
+		return nil
 	}
 	err = indexer.store.writer.removedIndexedSegments(ctx, removedIndexedSegmentsCount)
 	if err != nil {
 		return err
 	}
+	indexer.store.slotIndexManager.remove(tailSlotIndexSeq)
+	indexer.store.blockManager.remove(tailBlockSeq)
 	return nil
 }
 

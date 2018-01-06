@@ -142,3 +142,7 @@ func (mgr *mmapSlotIndexManager) updateChecksum(seq slotIndexSeq, level level) e
 	gocodec.UpdateChecksum(buf)
 	return nil
 }
+
+func (mgr *mmapSlotIndexManager) remove(untilSeq slotIndexSeq) {
+	mgr.dataManager.Remove(uint64(untilSeq))
+}

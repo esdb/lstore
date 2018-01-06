@@ -10,34 +10,35 @@ import (
 	"github.com/v2pro/plz"
 	"math"
 	"io"
+	"errors"
+	"io/ioutil"
+	"strconv"
 )
 
 type DataManager struct {
 	// only lock the modification of following maps
 	// does not cover reading or writing
-	mapMutex              *sync.Mutex
-	files                 map[uint64]*os.File
-	writeMMaps            map[uint64]mmap.MMap
-	readMMaps             map[uint64]mmap.MMap
-	minOpenedFileBlockSeq uint64
-	lockedSeqs            map[uint64]struct{}
-	directory             string
-	fileSizeInPowerOfTwo  uint8 // 2 ^ x
-	fileSize              uint64
+	mapMutex             *sync.Mutex
+	files                map[uint64]*os.File
+	writeMMaps           map[uint64]mmap.MMap
+	readMMaps            map[uint64]mmap.MMap
+	activeReaders        map[interface{}]struct{}
+	delayedRemoval       uint64
+	directory            string
+	fileSizeInPowerOfTwo uint8 // 2 ^ x
+	fileSize             uint64
 }
 
 func New(directory string, fileSizeInPowerOfTwo uint8) *DataManager {
-	lockedSeqs := make(map[uint64]struct{}, 100)
 	return &DataManager{
-		directory:             directory,
-		fileSizeInPowerOfTwo:  fileSizeInPowerOfTwo,
-		fileSize:              1 << fileSizeInPowerOfTwo,
-		mapMutex:              &sync.Mutex{},
-		lockedSeqs:            lockedSeqs,
-		minOpenedFileBlockSeq: math.MaxUint64,
-		files:                 map[uint64]*os.File{},
-		readMMaps:             map[uint64]mmap.MMap{},
-		writeMMaps:            map[uint64]mmap.MMap{},
+		directory:            directory,
+		fileSizeInPowerOfTwo: fileSizeInPowerOfTwo,
+		fileSize:             1 << fileSizeInPowerOfTwo,
+		mapMutex:             &sync.Mutex{},
+		activeReaders:        map[interface{}]struct{}{},
+		files:                map[uint64]*os.File{},
+		readMMaps:            map[uint64]mmap.MMap{},
+		writeMMaps:           map[uint64]mmap.MMap{},
 	}
 }
 
@@ -78,8 +79,18 @@ func (mgr *DataManager) WriteBuf(seq uint64, buf []byte) (uint64, error) {
 	}
 	dst := writeMMap[relativeOffset:]
 	if len(dst) < len(buf) {
+		if uint64(len(buf)) > mgr.fileSize {
+			countlog.Error("event!dheap.WriteBuf can not fulfill the request",
+				"seq", seq, "relativeOffset", relativeOffset,
+				"dstSize", len(dst), "bufSize", len(buf))
+			return 0, errors.New("WriteBuf can not fulfill the request")
+		}
 		// write the buf to next file
-		return mgr.WriteBuf(seq+uint64(len(dst)), buf)
+		newSeq := seq + uint64(len(dst))
+		countlog.Debug("event!dheap.write buf rotate to new file",
+			"seq", seq, "newSeq", newSeq, "relativeOffset", relativeOffset,
+			"dstSize", len(dst), "bufSize", len(buf))
+		return mgr.WriteBuf(newSeq, buf)
 	}
 	copy(dst, buf)
 	return seq, writeMMap.Flush()
@@ -94,8 +105,18 @@ func (mgr *DataManager) AllocateBuf(seq uint64, size uint32) (uint64, []byte, er
 	}
 	dst := writeMMap[relativeOffset:]
 	if uint32(len(dst)) < size {
+		if uint64(size) > mgr.fileSize {
+			countlog.Error("event!dheap.AllocateBuf can not fulfill the request",
+				"seq", seq, "relativeOffset", relativeOffset,
+				"dstSize", len(dst), "bufSize", size)
+			return 0, nil, errors.New("AllocateBuf can not fulfill the request")
+		}
 		// allocate the buf to next file
-		return mgr.AllocateBuf(seq+uint64(len(dst)), size)
+		newSeq := seq + uint64(len(dst))
+		countlog.Debug("event!dheap.allocate buf rotate to new file",
+			"seq", seq, "newSeq", newSeq, "relativeOffset", relativeOffset,
+			"dstSize", len(dst), "bufSize", size)
+		return mgr.AllocateBuf(newSeq, size)
 	}
 	return seq, dst[:size], nil
 }
@@ -149,6 +170,7 @@ func (mgr *DataManager) openReadMMap(fileBlockSeq uint64) (mmap.MMap, error) {
 		return readMMap, nil
 	}
 	readMMap, err = mmap.Map(file, mmap.COPY, 0)
+	countlog.TraceCall("callee!mmap.Map", err)
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +190,7 @@ func (mgr *DataManager) openWriteMMap(fileBlockSeq uint64) (mmap.MMap, error) {
 		return writeMMap, nil
 	}
 	writeMMap, err = mmap.Map(file, mmap.RDWR, 0)
+	countlog.TraceCall("callee!mmap.Map", err)
 	if err != nil {
 		return nil, fmt.Errorf("map RDWR for block failed: %s", err.Error())
 	}
@@ -180,15 +203,12 @@ func (mgr *DataManager) openFile(fileBlockSeq uint64) (*os.File, error) {
 	if file != nil {
 		return file, nil
 	}
-	if fileBlockSeq < mgr.minOpenedFileBlockSeq {
-		mgr.minOpenedFileBlockSeq = fileBlockSeq
-	}
-	filePath := path.Join(mgr.directory, fmt.Sprintf(
-		"%d.dat", fileBlockSeq))
+	filePath := path.Join(mgr.directory, strconv.Itoa(int(fileBlockSeq)))
 	file, err := os.OpenFile(filePath, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
 		os.MkdirAll(path.Dir(filePath), 0777)
 		file, err = os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
+		countlog.InfoCall("callee!os.OpenFile", err, "filePath", filePath, "fileSize", mgr.fileSize)
 		if err != nil {
 			return nil, err
 		}
@@ -203,44 +223,46 @@ func (mgr *DataManager) openFile(fileBlockSeq uint64) (*os.File, error) {
 	return file, nil
 }
 
-func (mgr *DataManager) Lock(seq uint64) error {
+func (mgr *DataManager) Lock(reader interface{}) {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
-	mgr.lockedSeqs[seq] = struct{}{}
-	return nil
+	mgr.activeReaders[reader] = struct{}{}
 }
 
-func (mgr *DataManager) Unlock(seq uint64) {
+func (mgr *DataManager) Unlock(reader interface{}) {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
-	delete(mgr.lockedSeqs, seq)
+	delete(mgr.activeReaders, reader)
+	if mgr.delayedRemoval > 0 && len(mgr.activeReaders) == 0 {
+		countlog.Debug("event!dheap.trigger delayed removal", "delayedRemoval", mgr.delayedRemoval)
+		mgr.removeFiles(mgr.delayedRemoval)
+		mgr.delayedRemoval = 0
+	}
 }
 
 func (mgr *DataManager) Remove(untilSeq uint64) {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
-	minLockedSeq := uint64(math.MaxUint64)
-	for lockedSeq := range mgr.lockedSeqs {
-		if lockedSeq < minLockedSeq {
-			minLockedSeq = lockedSeq
+	if len(mgr.activeReaders) > 0 {
+		if untilSeq > mgr.delayedRemoval {
+			mgr.delayedRemoval = untilSeq
 		}
-	}
-	fileBlockSeq := untilSeq >> mgr.fileSizeInPowerOfTwo
-	minRemovable := minLockedSeq >> mgr.fileSizeInPowerOfTwo
-	if minRemovable < fileBlockSeq {
-		countlog.Debug("event!dheap.not all file blocks will be removed",
-			"minRemovable", minRemovable,
-			"fileBlockSeq", fileBlockSeq)
-		fileBlockSeq = minRemovable
-	}
-	var resources []io.Closer
-	if mgr.minOpenedFileBlockSeq >= fileBlockSeq {
-		countlog.Debug("event!dheap.no file blocks will be removed",
-			"minOpenedFileBlockSeq", mgr.minOpenedFileBlockSeq,
-			"fileBlockSeq", fileBlockSeq)
+		countlog.Debug("event!dheap.can not remove files now", "delayedRemoval", mgr.delayedRemoval)
 		return
 	}
-	for i := mgr.minOpenedFileBlockSeq; i < fileBlockSeq; i++ {
+	mgr.removeFiles(untilSeq)
+}
+
+func (mgr *DataManager) removeFiles(untilSeq uint64) {
+	minFileName, err := getMinFileName(mgr.directory)
+	countlog.TraceCall("callee!getMinFileName", err)
+	if err != nil {
+		return
+	}
+	fileBlockSeq := untilSeq >> mgr.fileSizeInPowerOfTwo
+	var resources []io.Closer
+	countlog.Debug("event!dheap.remove files", "from", minFileName, "to", fileBlockSeq)
+	for i := minFileName; i < fileBlockSeq; i++ {
 		if readMMap := mgr.readMMaps[i]; readMMap != nil {
 			resources = append(resources, plz.WrapCloser(readMMap.Unmap))
 			delete(mgr.readMMaps, i)
@@ -253,11 +275,9 @@ func (mgr *DataManager) Remove(untilSeq uint64) {
 			resources = append(resources, file)
 			delete(mgr.files, i)
 		}
-		filePath := path.Join(mgr.directory, fmt.Sprintf(
-			"%d.dat", i))
+		filePath := path.Join(mgr.directory, strconv.Itoa(int(i)))
 		resources = append(resources, wrapFileRemover(filePath))
 	}
-	mgr.minOpenedFileBlockSeq = fileBlockSeq
 	if len(resources) != 0 {
 		go func() {
 			plz.CloseAll(resources,
@@ -265,6 +285,25 @@ func (mgr *DataManager) Remove(untilSeq uint64) {
 				"fileBlockSeq", fileBlockSeq)
 		}()
 	}
+}
+
+func getMinFileName(dir string) (uint64, error) {
+	files, err := ioutil.ReadDir(dir)
+	countlog.TraceCall("callee!ioutil.ReadDir", err)
+	if err != nil {
+		return 0, err
+	}
+	minFileName := uint64(math.MaxUint64)
+	for _, file := range files {
+		no, err := strconv.Atoi(file.Name())
+		if err != nil {
+			continue
+		}
+		if uint64(no) < minFileName {
+			minFileName = uint64(no)
+		}
+	}
+	return minFileName, nil
 }
 
 func wrapFileRemover(filePath string) io.Closer {

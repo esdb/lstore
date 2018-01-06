@@ -17,8 +17,8 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-func bigTestStore() *lstore.Store {
-	store := &lstore.Store{}
+func bigTestStore(config lstore.Config) *lstore.Store {
+	store := &lstore.Store{Config: config}
 	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 200 * 1024 * 1024
 	store.IndexingStrategy = lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
@@ -82,4 +82,18 @@ func blobEntry(values ...lstore.Blob) *lstore.Entry {
 
 func intBlobEntry(intValue int64, blobValue lstore.Blob) *lstore.Entry {
 	return &lstore.Entry{EntryType: lstore.EntryTypeData, IntValues: []int64{intValue}, BlobValues: []lstore.Blob{blobValue}}
+}
+
+type assertSearchForward struct {
+	cb lstore.SearchCallback
+	lastOffset lstore.Offset
+}
+
+func (cb *assertSearchForward) HandleRow(offset lstore.Offset, entry *lstore.Entry) error {
+	if offset < cb.lastOffset {
+		countlog.Fatal("event!not scan forward", "lastOffset", cb.lastOffset, "offset", offset)
+		return lstore.SearchAborted
+	}
+	cb.lastOffset = offset
+	return cb.cb.HandleRow(offset, entry)
 }
