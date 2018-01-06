@@ -15,6 +15,7 @@ type slotIndexManagerConfig struct {
 type slotIndexManager interface {
 	newSlotIndex(seq slotIndexSeq, level level) (slotIndexSeq, slotIndexSeq, *slotIndex, error)
 	mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error)
+	readSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error)
 	updateChecksum(seq slotIndexSeq, level level) error
 	indexingStrategy() *IndexingStrategy
 }
@@ -27,7 +28,8 @@ type mmapSlotIndexManager struct {
 	strategy       *IndexingStrategy
 	slotIndexSizes []uint32
 	dataManager    *dataManager
-	indexCache     *lru.ARCCache
+	rwCache        *lru.ARCCache
+	roCache        *lru.ARCCache
 }
 
 func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrategy) *mmapSlotIndexManager {
@@ -37,11 +39,13 @@ func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrat
 	if config.IndexCacheSize == 0 {
 		config.IndexCacheSize = 1024
 	}
-	indexCache, _ := lru.NewARC(config.IndexCacheSize)
+	rwCache, _ := lru.NewARC(levelsCount)
+	roCache, _ := lru.NewARC(config.IndexCacheSize)
 	return &mmapSlotIndexManager{
 		strategy:       strategy,
 		slotIndexSizes: make([]uint32, levelsCount),
-		indexCache:     indexCache,
+		rwCache:        rwCache,
+		roCache:        roCache,
 		dataManager:    newDataManager(config.IndexDirectory, config.IndexFileSizeInPowerOfTwo),
 	}
 }
@@ -73,7 +77,7 @@ func (mgr *mmapSlotIndexManager) newSlotIndex(seq slotIndexSeq, level level) (sl
 		return 0, 0, nil, fmt.Errorf("newSlotIndex failed: %s", iter.Error.Error())
 	}
 	gocodec.UpdateChecksum(buf)
-	mgr.indexCache.Add(slotIndexSeq(newSeq), obj)
+	mgr.rwCache.Add(slotIndexSeq(newSeq), obj)
 	return slotIndexSeq(newSeq), slotIndexSeq(newSeq) + slotIndexSeq(size), obj, nil
 }
 
@@ -91,7 +95,7 @@ func (mgr *mmapSlotIndexManager) getSlotIndexSize(level level) uint32 {
 }
 
 func (mgr *mmapSlotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
-	cache, found := mgr.indexCache.Get(seq)
+	cache, found := mgr.rwCache.Get(seq)
 	if found {
 		return cache.(*slotIndex), nil
 	}
@@ -106,6 +110,26 @@ func (mgr *mmapSlotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level le
 		return nil, fmt.Errorf("mapWritableSlotIndex failed: %s", iter.Error.Error())
 	}
 	gocodec.UpdateChecksum(buf)
+	mgr.rwCache.Add(seq, idx)
+	return idx, nil
+}
+
+func (mgr *mmapSlotIndexManager) readSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
+	cache, found := mgr.roCache.Get(seq)
+	if found {
+		return cache.(*slotIndex), nil
+	}
+	size := mgr.getSlotIndexSize(level)
+	buf, err := mgr.dataManager.readBuf(uint64(seq), size)
+	if err != nil {
+		return nil, err
+	}
+	iter := gocodec.NewIterator(buf)
+	idx, _ := iter.Unmarshal((*slotIndex)(nil)).(*slotIndex)
+	if iter.Error != nil {
+		return nil, fmt.Errorf("readSlotIndex failed: %s", iter.Error.Error())
+	}
+	mgr.roCache.Add(seq, idx)
 	return idx, nil
 }
 

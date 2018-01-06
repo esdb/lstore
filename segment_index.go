@@ -56,7 +56,7 @@ func (segment *indexingSegment) searchForwardAt(
 			}
 			childLevel := level - 1
 			childSlotIndexSeq := slotIndexSeq(levelIndex.children[slot])
-			childSlotIndex, err := segment.slotIndexManager.mapWritableSlotIndex(childSlotIndexSeq, childLevel)
+			childSlotIndex, err := segment.slotIndexManager.readSlotIndex(childSlotIndexSeq, childLevel)
 			ctx.TraceCall("callee!slotIndexManager.mapWritableSlotIndex", err)
 			if err != nil {
 				return err
