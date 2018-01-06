@@ -144,5 +144,15 @@ func (mgr *mmapSlotIndexManager) updateChecksum(seq slotIndexSeq, level level) e
 }
 
 func (mgr *mmapSlotIndexManager) remove(untilSeq slotIndexSeq) {
+	for _, key := range mgr.rwCache.Keys() {
+		if key.(slotIndexSeq) < untilSeq {
+			mgr.rwCache.Remove(key)
+		}
+	}
+	for _, key := range mgr.roCache.Keys() {
+		if key.(slotIndexSeq) < untilSeq {
+			mgr.rwCache.Remove(key)
+		}
+	}
 	mgr.dataManager.Remove(uint64(untilSeq))
 }

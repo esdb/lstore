@@ -37,6 +37,8 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 	if err != nil {
 		return nil, err
 	}
+	store.blockManager.dataManager.Lock(reader)
+	store.slotIndexManager.dataManager.Lock(reader)
 	return reader, nil
 }
 
@@ -66,6 +68,8 @@ func (reader *Reader) Refresh(ctx context.Context) (bool, error) {
 }
 
 func (reader *Reader) Close() error {
+	reader.store.blockManager.dataManager.Unlock(reader)
+	reader.store.slotIndexManager.dataManager.Unlock(reader)
 	return reader.currentVersion.Close()
 }
 

@@ -6,6 +6,7 @@ import (
 	"github.com/esdb/lstore"
 	"strconv"
 	"github.com/minio/minio/pkg/x/os"
+	"time"
 )
 
 func Test_indexed_segment(t *testing.T) {
@@ -24,7 +25,7 @@ func Test_indexed_segment(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{}
-	reader.SearchForward(ctx, 0, nil,collector)
+	reader.SearchForward(ctx, 0, nil, collector)
 	should.Equal(260, len(collector.Rows))
 	for _, row := range collector.Rows {
 		should.Equal(row.IntValues[0], int64(row.Offset))
@@ -41,7 +42,7 @@ func Test_indexed_segment(t *testing.T) {
 	should.Nil(err)
 	should.True(hasNew)
 	collector = &lstore.RowsCollector{}
-	reader.SearchForward(ctx, 0, nil,collector)
+	reader.SearchForward(ctx, 0, nil, collector)
 	should.Equal(520, len(collector.Rows))
 	for _, row := range collector.Rows {
 		should.Equal(row.IntValues[0], int64(row.Offset))
@@ -66,7 +67,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{}
-	reader.SearchForward(ctx, 0, nil,collector)
+	reader.SearchForward(ctx, 0, nil, collector)
 	should.Equal(260, len(collector.Rows))
 	for _, row := range collector.Rows {
 		should.Equal(row.IntValues[0], int64(row.Offset))
@@ -83,7 +84,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	should.Nil(err)
 	should.True(hasNew)
 	collector = &lstore.RowsCollector{}
-	reader.SearchForward(ctx, 0, nil,collector)
+	reader.SearchForward(ctx, 0, nil, collector)
 	should.Equal(520, len(collector.Rows))
 	for _, row := range collector.Rows {
 		should.Equal(row.IntValues[0], int64(row.Offset))
@@ -110,8 +111,10 @@ func Test_remove_indexed_segment(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{}
-	reader.SearchForward(ctx, 0, nil,&assertSearchForward{collector, 0})
+	reader.SearchForward(ctx, 0, nil, &assertSearchForward{collector, 0})
 	should.Equal(2304, len(collector.Rows))
+	should.NoError(reader.Close())
+	time.Sleep(time.Second)
 	_, err = os.Stat("/tmp/store/block/2")
 	should.Error(err)
 	_, err = os.Stat("/tmp/store/block/3")

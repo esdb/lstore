@@ -65,9 +65,19 @@ func (indexer *indexer) start() {
 					indexer.doUpdateIndex(ctx)
 				}
 			}
-			cmd(ctx)
+			indexer.runCommand(ctx, cmd)
 		}
 	})
+}
+
+func (indexer *indexer) runCommand(ctx countlog.Context, cmd indexerCommand) {
+	slotIndexManager := indexer.store.slotIndexManager
+	slotIndexManager.dataManager.Lock(indexer)
+	defer slotIndexManager.dataManager.Unlock(indexer)
+	blockManager := indexer.store.blockManager
+	blockManager.dataManager.Lock(indexer)
+	defer blockManager.dataManager.Unlock(indexer)
+	cmd(ctx)
 }
 
 func (indexer *indexer) asyncExecute(cmd indexerCommand) error {
@@ -105,7 +115,6 @@ func (indexer *indexer) Remove(untilOffset Offset) error {
 
 func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err error) {
 	var removedIndexedSegmentsCount int
-	// TODO: release disk and memory used by block and slot index
 	var tailBlockSeq blockSeq
 	var tailSlotIndexSeq slotIndexSeq
 	for i, indexedSegment := range indexer.currentVersion.indexedSegments {
