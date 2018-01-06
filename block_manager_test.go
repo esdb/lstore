@@ -27,7 +27,7 @@ func Test_write_block_to_file_head(t *testing.T) {
 	should.Equal(blockSeq(0), start)
 	should.Nil(err)
 	should.True(size > 0)
-	mgr.blockCache.Remove()
+	mgr.blockCache.Purge()
 	blk, err := mgr.readBlock(0)
 	should.Nil(err)
 	should.Equal(Offset(1), blk.startOffset)
@@ -47,7 +47,6 @@ func Test_block_cache(t *testing.T) {
 	blk, err = mgr.readBlock(0)
 	should.Nil(err)
 	should.Equal(Offset(1), blk.startOffset)
-
 }
 
 func Test_write_block_to_file_body(t *testing.T) {
@@ -58,7 +57,7 @@ func Test_write_block_to_file_body(t *testing.T) {
 	should.Equal(blockSeq(2 << 14 + 777), start)
 	should.Nil(err)
 	should.True(size > 0)
-	mgr.blockCache.Remove()
+	mgr.blockCache.Purge()
 	blk, err := mgr.readBlock(2 << 14 + 777)
 	should.Nil(err)
 	should.Equal(Offset(1), blk.startOffset)
@@ -72,7 +71,7 @@ func Test_write_block_to_file_tail_cutting_off_header(t *testing.T) {
 	should.Equal(blockSeq(256), start)
 	should.Nil(err)
 	should.True(size > 0)
-	mgr.blockCache.Remove()
+	mgr.blockCache.Purge()
 	blk, err := mgr.readBlock(start)
 	should.Nil(err)
 	should.Equal(Offset(1), blk.startOffset)

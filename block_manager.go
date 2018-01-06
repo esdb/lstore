@@ -6,6 +6,7 @@ import (
 	"github.com/esdb/lstore/lz4"
 	"fmt"
 	"unsafe"
+	"github.com/esdb/lstore/dheap"
 )
 
 type compressedBlockHeader struct {
@@ -37,7 +38,7 @@ type blockManager interface {
 // compress/decompress block from the mmap
 // retain lru block cache
 type mmapBlockManager struct {
-	dataManager *dataManager
+	dataManager *dheap.DataManager
 	blockCache  *lru.ARCCache
 	// tmp assume there is single writer
 	blockCompressTmp []byte
@@ -55,7 +56,7 @@ func newBlockManager(config *blockManagerConfig) *mmapBlockManager {
 	return &mmapBlockManager{
 		blockCompressed: config.BlockCompressed,
 		blockCache:      blockCache,
-		dataManager:     newDataManager(config.BlockDirectory, config.BlockFileSizeInPowerOfTwo),
+		dataManager:     dheap.New(config.BlockDirectory, config.BlockFileSizeInPowerOfTwo),
 	}
 }
 
@@ -71,7 +72,7 @@ func (mgr *mmapBlockManager) writeBlock(seq blockSeq, block *block) (blockSeq, b
 	} else {
 		buf = mgr.marshalBlock(block)
 	}
-	newSeq, err := mgr.dataManager.writeBuf(uint64(seq), buf)
+	newSeq, err := mgr.dataManager.WriteBuf(uint64(seq), buf)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -128,7 +129,7 @@ func (mgr *mmapBlockManager) readBlock(seq blockSeq) (blk *block, err error) {
 }
 
 func (mgr *mmapBlockManager) uncompressBlock(seq blockSeq) (*block, error) {
-	headerBuf, err := mgr.dataManager.readBuf(uint64(seq), compressedBlockHeaderSize)
+	headerBuf, err := mgr.dataManager.ReadBuf(uint64(seq), compressedBlockHeaderSize)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +139,7 @@ func (mgr *mmapBlockManager) uncompressBlock(seq blockSeq) (*block, error) {
 		return nil, fmt.Errorf("unmarshal compressedBlockHeader failed: %s", iter.Error)
 	}
 	decompressed := make([]byte, compressedBlockHeader.blockOriginalSize)
-	compressedBuf, err := mgr.dataManager.readBuf(
+	compressedBuf, err := mgr.dataManager.ReadBuf(
 		uint64(seq)+uint64(compressedBlockHeaderSize),
 		compressedBlockHeader.blockCompressedSize)
 	if err != nil {
@@ -154,12 +155,12 @@ func (mgr *mmapBlockManager) uncompressBlock(seq blockSeq) (*block, error) {
 }
 
 func (mgr *mmapBlockManager) unmarshalBlock(seq blockSeq) (*block, error) {
-	sizeBuf, err := mgr.dataManager.readBuf(uint64(seq), 8)
+	sizeBuf, err := mgr.dataManager.ReadBuf(uint64(seq), 8)
 	if err != nil {
 		return nil, err
 	}
 	size := (*uint64)(unsafe.Pointer(&sizeBuf[0]))
-	buf, err := mgr.dataManager.readBuf(uint64(seq), uint32(*size))
+	buf, err := mgr.dataManager.ReadBuf(uint64(seq), uint32(*size))
 	if err != nil {
 		return nil, err
 	}

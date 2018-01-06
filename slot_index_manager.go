@@ -4,6 +4,7 @@ import (
 	"github.com/hashicorp/golang-lru"
 	"github.com/esdb/gocodec"
 	"fmt"
+	"github.com/esdb/lstore/dheap"
 )
 
 type slotIndexManagerConfig struct {
@@ -27,7 +28,7 @@ type slotIndexManager interface {
 type mmapSlotIndexManager struct {
 	strategy       *IndexingStrategy
 	slotIndexSizes []uint32
-	dataManager    *dataManager
+	dataManager    *dheap.DataManager
 	rwCache        *lru.ARCCache
 	roCache        *lru.ARCCache
 }
@@ -46,7 +47,7 @@ func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrat
 		slotIndexSizes: make([]uint32, levelsCount),
 		rwCache:        rwCache,
 		roCache:        roCache,
-		dataManager:    newDataManager(config.IndexDirectory, config.IndexFileSizeInPowerOfTwo),
+		dataManager:    dheap.New(config.IndexDirectory, config.IndexFileSizeInPowerOfTwo),
 	}
 }
 
@@ -60,7 +61,7 @@ func (mgr *mmapSlotIndexManager) indexingStrategy() *IndexingStrategy {
 
 func (mgr *mmapSlotIndexManager) newSlotIndex(seq slotIndexSeq, level level) (slotIndexSeq, slotIndexSeq, *slotIndex, error) {
 	size := mgr.getSlotIndexSize(level)
-	newSeq, buf, err := mgr.dataManager.allocateBuf(uint64(seq), size)
+	newSeq, buf, err := mgr.dataManager.AllocateBuf(uint64(seq), size)
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -100,7 +101,7 @@ func (mgr *mmapSlotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level le
 		return cache.(*slotIndex), nil
 	}
 	size := mgr.getSlotIndexSize(level)
-	buf, err := mgr.dataManager.mapWritableBuf(uint64(seq), size)
+	buf, err := mgr.dataManager.MapWritableBuf(uint64(seq), size)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +121,7 @@ func (mgr *mmapSlotIndexManager) readSlotIndex(seq slotIndexSeq, level level) (*
 		return cache.(*slotIndex), nil
 	}
 	size := mgr.getSlotIndexSize(level)
-	buf, err := mgr.dataManager.readBuf(uint64(seq), size)
+	buf, err := mgr.dataManager.ReadBuf(uint64(seq), size)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +135,7 @@ func (mgr *mmapSlotIndexManager) readSlotIndex(seq slotIndexSeq, level level) (*
 }
 
 func (mgr *mmapSlotIndexManager) updateChecksum(seq slotIndexSeq, level level) error {
-	buf, err := mgr.dataManager.mapWritableBuf(uint64(seq), mgr.getSlotIndexSize(level))
+	buf, err := mgr.dataManager.MapWritableBuf(uint64(seq), mgr.getSlotIndexSize(level))
 	if err != nil {
 		return err
 	}

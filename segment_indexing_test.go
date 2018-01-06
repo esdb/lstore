@@ -50,7 +50,7 @@ func fakeEditingHead() *indexingSegment {
 	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{
 		IndexDirectory: "/tmp/store/index",
 	}, strategy)
-	headSegment, err := openIndexingSegment(ctx, "/tmp/store/head.segment",
+	headSegment, err := openIndexingSegment(ctx, "/tmp/store/head.segment", nil,
 		&fakeBlockManager{}, slotIndexManager)
 	if err != nil {
 		panic(err)
