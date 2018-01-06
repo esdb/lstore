@@ -98,7 +98,8 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 	originalTailOffset := indexing.tailOffset
 	var blockRows []*Entry
 	blockStartOffset := indexing.tailOffset
-	for _, rawSegment := range store.rawSegments {
+	var purgedRawSegmentsCount int
+	for rawSegmentCount, rawSegment := range store.rawSegments {
 		begin := rawSegment.startOffset
 		end := begin + Offset(len(rawSegment.rows))
 		blockTailOffset := blockStartOffset + Offset(len(blockRows))
@@ -115,9 +116,12 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 		}
 		blockRows = append(blockRows, rawSegment.rows[blockTailOffset - begin:]...)
 		if len(blockRows) >= blockLength {
+			purgedRawSegmentsCount = rawSegmentCount
 			blk := newBlock(blockStartOffset, blockRows[:blockLength])
 			err := indexing.addBlock(ctx, blk)
-			ctx.TraceCall("callee!indexing.addBlock", err, "blockStartOffset", blockStartOffset)
+			ctx.TraceCall("callee!indexing.addBlock", err,
+				"blockStartOffset", blockStartOffset,
+					"purgedRawSegmentsCount", purgedRawSegmentsCount)
 			if err != nil {
 				return err
 			}
@@ -151,7 +155,7 @@ func (indexer *indexer) doIndex(ctx countlog.Context) (err error) {
 		}
 	}
 	// TODO: purse raw segments
-	err = indexer.store.writer.purgeRawSegments(ctx, 0)
+	err = indexer.store.writer.purgeRawSegments(ctx, purgedRawSegmentsCount)
 	if err != nil {
 		return err
 	}

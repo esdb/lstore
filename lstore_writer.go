@@ -272,6 +272,12 @@ func (writer *writer) purgeRawSegments(
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
+		purgedRawSegments := oldVersion.rawSegments[:purgedRawSegmentsCount]
+		for _, segment := range purgedRawSegments {
+			segmentPath := writer.store.RawSegmentPath(segment.startOffset + Offset(len(segment.rows)))
+			err := os.Remove(segmentPath)
+			ctx.TraceCall("callee!os.Remove", err)
+		}
 		newVersion := oldVersion.edit()
 		newVersion.rawSegments = oldVersion.rawSegments[purgedRawSegmentsCount:]
 		writer.updateCurrentVersion(newVersion.seal())
