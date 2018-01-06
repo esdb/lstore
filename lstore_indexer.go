@@ -97,15 +97,13 @@ func (indexer *indexer) RotateIndex() error {
 
 func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	countlog.Debug("event!indexer.doRotateIndex")
-	editingVersion := indexer.currentVersion.edit()
-	prev := editingVersion.indexingSegment.searchable.indexSegment
-	newIndexedSegment := prev.copy()
-	editingVersion.indexedSegments = append(editingVersion.indexedSegments, &searchable{
-		indexSegment:  newIndexedSegment,
+	prev := indexer.currentVersion.indexingSegment.searchable.indexSegment
+	newIndexedSegment := &searchable{
+		indexSegment:  prev.copy(),
 		blockManager:  indexer.store.blockManager,
 		readSlotIndex: indexer.store.slotIndexManager.readSlotIndex,
-	})
-	editingVersion.indexingSegment, err = openIndexingSegment(
+	}
+	newIndexingSegment, err := openIndexingSegment(
 		ctx, indexer.store.IndexingSegmentTmpPath(), prev,
 		indexer.store.blockManager, indexer.store.slotIndexManager)
 	if err != nil {
@@ -123,10 +121,10 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	indexer.store.updateVersion(editingVersion.seal())
+	indexer.store.writer.rotateIndex(ctx, newIndexedSegment, newIndexingSegment)
 	ctx.Info("event!indexer.rotated index",
-		"startOffset", newIndexedSegment.startOffset,
-		"tailOffset", newIndexedSegment.tailOffset)
+		"indexedSegment.startOffset", newIndexedSegment.startOffset,
+		"indexedSegment.tailOffset", newIndexedSegment.tailOffset)
 	return nil
 }
 

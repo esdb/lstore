@@ -172,14 +172,6 @@ func (store *Store) isLatest(version *StoreVersion) bool {
 	return latestVersion == version
 }
 
-func (store *Store) updateVersion(version *StoreVersion) {
-	atomic.StorePointer(&store.currentVersion, unsafe.Pointer(version))
-}
-
-func (store *Store) updateTailOffset(tailOffset Offset) {
-	atomic.StoreUint64(&store.tailOffset, uint64(tailOffset))
-}
-
 func (store *Store) getTailOffset() Offset {
 	return Offset(atomic.LoadUint64(&store.tailOffset))
 }

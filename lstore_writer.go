@@ -42,13 +42,11 @@ func (writer *writer) Close() error {
 }
 
 func (writer *writer) load(ctx countlog.Context) error {
-	store := writer.store
 	err := writer.loadInitialVersion(ctx)
 	if err != nil {
 		return err
 	}
-	store.updateVersion(writer.currentVersion)
-	store.updateTailOffset(writer.tailSegment.startOffset + Offset(len(writer.tailSegment.rows)))
+	writer.updateTailOffset(writer.tailSegment.startOffset + Offset(len(writer.tailSegment.rows)))
 	return nil
 }
 
@@ -64,7 +62,7 @@ func (writer *writer) loadInitialVersion(ctx countlog.Context) error {
 	if err != nil {
 		return err
 	}
-	writer.currentVersion = version.seal()
+	writer.updateCurrentVersion(version.seal())
 	return nil
 }
 
@@ -157,18 +155,6 @@ func (writer *writer) start() {
 	})
 }
 
-func (writer *writer) updateCurrentVersion(newVersion *StoreVersion) {
-	if newVersion == nil {
-		return
-	}
-	atomic.StorePointer(&writer.store.currentVersion, unsafe.Pointer(newVersion))
-	err := writer.currentVersion.Close()
-	if err != nil {
-		countlog.Error("event!store.failed to close", "err", err)
-	}
-	writer.currentVersion = newVersion
-}
-
 func (writer *writer) asyncExecute(ctx countlog.Context, cmd writerCommand) {
 	select {
 	case writer.commandQueue <- cmd:
@@ -252,7 +238,7 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) (Offset, erro
 	writer.rows = append(writer.rows, entry)
 	countlog.Trace("event!writer.tryWrite", "offset", offset)
 	// reader will know if read the tail using atomic
-	writer.store.updateTailOffset(offset + 1)
+	writer.updateTailOffset(offset + 1)
 	return offset, nil
 }
 
@@ -298,6 +284,7 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 	return nil
 }
 
+// purgeRawSegments should only be used by indexer
 func (writer *writer) purgeRawSegments(
 	ctx countlog.Context, purgedRawSegmentsCount int) error {
 	resultChan := make(chan error)
@@ -318,4 +305,40 @@ func (writer *writer) purgeRawSegments(
 	countlog.Debug("event!writer.purged raw segments",
 		"count", purgedRawSegmentsCount)
 	return <-resultChan
+}
+
+// rotateIndex should only be used by indexer
+func (writer *writer) rotateIndex(
+	ctx countlog.Context, indexedSegment *searchable, indexingSegment *indexingSegment) error {
+	resultChan := make(chan error)
+	writer.asyncExecute(ctx, func(ctx countlog.Context) {
+		oldVersion := writer.currentVersion
+		newVersion := oldVersion.edit()
+		newVersion.indexedSegments = append(newVersion.indexedSegments, indexedSegment)
+		newVersion.indexingSegment = indexingSegment
+		writer.updateCurrentVersion(newVersion.seal())
+		resultChan <- nil
+		return
+	})
+	countlog.Debug("event!writer.rotated index",
+		"indexingSegment.startOffset", indexingSegment.startOffset)
+	return <-resultChan
+}
+
+func (writer *writer) updateCurrentVersion(newVersion *StoreVersion) {
+	if newVersion == nil {
+		return
+	}
+	atomic.StorePointer(&writer.store.currentVersion, unsafe.Pointer(newVersion))
+	if writer.currentVersion != nil {
+		err := writer.currentVersion.Close()
+		if err != nil {
+			countlog.Error("event!store.failed to close", "err", err)
+		}
+	}
+	writer.currentVersion = newVersion
+}
+
+func (writer *writer) updateTailOffset(tailOffset Offset) {
+	atomic.StoreUint64(&writer.store.tailOffset, uint64(tailOffset))
 }
