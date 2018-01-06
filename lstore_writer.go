@@ -284,6 +284,10 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 	return nil
 }
 
+func (writer *writer) reopenRawSegment() {
+
+}
+
 // removeRawSegments should only be used by indexer
 func (writer *writer) removeRawSegments(
 	ctx countlog.Context, removedRawSegmentsCount int) error {

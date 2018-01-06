@@ -12,6 +12,7 @@ type Filter interface {
 	searchLargeIndex(idx *slotIndex) biter.Bits
 	searchMediumIndex(idx *slotIndex) biter.Bits
 	searchSmallIndex(idx *slotIndex) biter.Bits
+	searchTinyIndex(pbfs []pbloom.ParallelBloomFilter) biter.Bits
 	searchBlock(blk *block, beginSlot biter.Slot) biter.Bits
 	matchesBlockSlot(blk *block, slot biter.Slot) bool
 	matchesEntry(entry *Entry) bool
@@ -23,6 +24,7 @@ type blobValueFilter struct {
 	value         Blob
 	valueHash     uint32
 	hashed        pbloom.HashedElement
+	tinyBloom     pbloom.BloomElement
 	smallBloom    pbloom.BloomElement
 	mediumBloom   pbloom.BloomElement
 	largeBloom    pbloom.BloomElement
@@ -31,13 +33,14 @@ type blobValueFilter struct {
 func (strategy *IndexingStrategy) NewBlobValueFilter(
 	column int, value Blob) Filter {
 	indexedColumn := strategy.lookupBlobColumn(column)
-	hashed := strategy.smallHashingStrategy.HashStage1(*(*[]byte)((unsafe.Pointer)(&value)))
+	hashed := strategy.tinyHashingStrategy.HashStage1(*(*[]byte)((unsafe.Pointer)(&value)))
 	return &blobValueFilter{
 		sourceColumn:  column,
 		indexedColumn: indexedColumn,
 		value:         value,
 		valueHash:     hashed[0],
 		hashed:        hashed,
+		tinyBloom:     strategy.tinyHashingStrategy.HashStage2(hashed),
 		smallBloom:    strategy.smallHashingStrategy.HashStage2(hashed),
 		mediumBloom:   strategy.mediumHashingStrategy.HashStage2(hashed),
 		largeBloom:    strategy.largeHashingStrategy.HashStage2(hashed),
@@ -81,6 +84,11 @@ func (filter *blobValueFilter) searchSmallIndex(idx *slotIndex) biter.Bits {
 	return pbf.Find(filter.smallBloom)
 }
 
+func (filter *blobValueFilter) searchTinyIndex(pbfs []pbloom.ParallelBloomFilter) biter.Bits {
+	pbf := pbfs[filter.indexedColumn]
+	return pbf.Find(filter.tinyBloom)
+}
+
 type dummyFilter struct {
 }
 
@@ -107,5 +115,9 @@ func (filter *dummyFilter) searchMediumIndex(idx *slotIndex) biter.Bits {
 }
 
 func (filter *dummyFilter) searchSmallIndex(idx *slotIndex) biter.Bits {
+	return biter.SetBitsForwardFrom[0]
+}
+
+func (filter *dummyFilter) searchTinyIndex(pbfs []pbloom.ParallelBloomFilter) biter.Bits {
 	return biter.SetBitsForwardFrom[0]
 }

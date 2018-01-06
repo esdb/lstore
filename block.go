@@ -48,6 +48,7 @@ func (col bloomFilterIndexedColumn) SourceColumn() int {
 }
 
 type IndexingStrategy struct {
+	tinyHashingStrategy           *pbloom.HashingStrategy // used for raw segments
 	smallHashingStrategy          *pbloom.HashingStrategy
 	mediumHashingStrategy         *pbloom.HashingStrategy
 	largeHashingStrategy          *pbloom.HashingStrategy
@@ -75,10 +76,13 @@ func NewIndexingStrategy(config IndexingStrategyConfig) *IndexingStrategy {
 		pbloom.HasherFnv, 157042, pbloom.BatchPutLocationsPerElement)
 	smallHashingStrategy := pbloom.NewHashingStrategy(
 		pbloom.HasherFnv, 2454, pbloom.BatchPutLocationsPerElement)
+	tinyHashingStrategy := pbloom.NewHashingStrategy(
+		pbloom.HasherFnv, 64, 2)
 	return &IndexingStrategy{
 		largeHashingStrategy:          largeHashingStrategy,
 		mediumHashingStrategy:         mediumHashingStrategy,
 		smallHashingStrategy:          smallHashingStrategy,
+		tinyHashingStrategy:           tinyHashingStrategy,
 		bloomFilterIndexedIntColumns:  bloomFilterIndexedIntColumns,
 		bloomFilterIndexedBlobColumns: bloomFilterIndexedBlobColumns,
 		minMaxIndexedColumns:          config.MinMaxIndexedColumns,
@@ -185,7 +189,7 @@ func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filter F
 			continue
 		}
 		if startOffset > beginOffset {
-			mask = biter.SetBitsForwardFrom[startOffset - beginOffset]
+			mask = biter.SetBitsForwardFrom[startOffset-beginOffset]
 		}
 		mask &= filter.searchBlock(blk, beginSlot)
 		iter := mask.ScanForward()
