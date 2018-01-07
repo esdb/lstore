@@ -172,6 +172,10 @@ func (index *rawSegmentIndex) searchForward(ctx countlog.Context, startOffset Of
 	root := index.root
 	rootResult := filter.searchTinyIndex(root.pbfs)
 	rootResult &= biter.SetBitsForwardUntil[root.tailSlot]
+	delta := startOffset - index.startOffset
+	if delta < 4096 {
+		rootResult &= biter.SetBitsForwardFrom[delta >> 6]
+	}
 	rootIter := rootResult.ScanForward()
 	for {
 		rootSlot := rootIter()
@@ -181,8 +185,12 @@ func (index *rawSegmentIndex) searchForward(ctx countlog.Context, startOffset Of
 		child := index.children[rootSlot]
 		childResult := filter.searchTinyIndex(child.pbfs)
 		childResult &= biter.SetBitsForwardUntil[child.tailSlot]
-		childIter := childResult.ScanForward()
 		baseOffset := index.startOffset + (Offset(rootSlot) << 6) // * 64
+		delta := startOffset - baseOffset
+		if delta < 64 {
+			childResult &= biter.SetBitsForwardFrom[delta]
+		}
+		childIter := childResult.ScanForward()
 		for {
 			childSlot := childIter()
 			if childSlot == biter.NotFound {
