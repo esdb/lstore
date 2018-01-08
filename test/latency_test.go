@@ -3,7 +3,7 @@ package test
 //func Test_write_read_latency(t *testing.T) {
 //	runtime.GOMAXPROCS(4)
 //	should := require.New(t)
-//	store := bigTestStore()
+//	store := testStore()
 //	start := time.Now()
 //	ctx := context.Background()
 //	resultChan := make(chan lstore.WriteResult, 1024)

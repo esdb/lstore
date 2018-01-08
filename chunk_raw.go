@@ -70,8 +70,8 @@ func (chunk *rawChunk) add(entry *Entry) bool {
 		bloom := strategy.tinyHashingStrategy.Hash(asSlice)
 		chunk.pbfs[indexedColumn].Put(biter.SetBits[rootTail], bloom)
 		child.pbfs[indexedColumn].Put(biter.SetBits[childTail], bloom)
-		child.children[childTail] = entry
 	}
+	child.children[childTail] = entry
 	chunk.tailOffset += 1
 	if child.tailSlot == 63 {
 		if chunk.tailSlot == 63 {

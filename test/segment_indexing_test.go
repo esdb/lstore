@@ -30,7 +30,7 @@ func Test_indexing_segment(t *testing.T) {
 
 func Test_reopen_indexing_segment(t *testing.T) {
 	should := require.New(t)
-	store := bigTestStore(lstore.Config{})
+	store := testStore(lstore.Config{})
 	defer store.Stop(ctx)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob("hello")
@@ -54,7 +54,7 @@ func Test_reopen_indexing_segment(t *testing.T) {
 
 func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 	should := require.New(t)
-	store := bigTestStore(lstore.Config{})
+	store := testStore(lstore.Config{})
 	defer store.Stop(ctx)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))

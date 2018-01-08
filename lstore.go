@@ -102,6 +102,9 @@ func (store *Store) Start(ctxObj context.Context) error {
 	if store.IndexDirectory == "" {
 		store.IndexDirectory = path.Join(store.Directory, "index")
 	}
+	if store.IndexingStrategy == nil {
+		store.IndexingStrategy = NewIndexingStrategy(IndexingStrategyConfig{})
+	}
 	store.blockManager = newBlockManager(&store.blockManagerConfig)
 	store.slotIndexManager = newSlotIndexManager(&store.slotIndexManagerConfig, store.IndexingStrategy)
 	store.executor = concurrent.NewUnboundedExecutor()

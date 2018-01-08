@@ -77,10 +77,15 @@ func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, 
 		}
 		startOffset = store.indexingChunk.tailOffset
 	}
-	for _, rawSegmentIndex := range store.rawChunks {
+	lastRawChunk := len(store.rawChunks) - 1
+	for _, rawSegmentIndex := range store.rawChunks[:lastRawChunk] {
 		if err := rawSegmentIndex.searchForward(ctx, startOffset, filter, cb); err != nil {
 			return err
 		}
+	}
+	if err := store.rawChunks[lastRawChunk].searchForward(
+		ctx, startOffset, filter, &StopAt{reader.tailOffset, cb}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -109,4 +114,16 @@ func (collector *OffsetsCollector) HandleRow(offset Offset, entry *Entry) error 
 		return SearchAborted
 	}
 	return nil
+}
+
+type StopAt struct {
+	Offset         Offset
+	SearchCallback SearchCallback
+}
+
+func (collector *StopAt) HandleRow(offset Offset, entry *Entry) error {
+	if offset >= collector.Offset {
+		return SearchAborted
+	}
+	return collector.SearchCallback.HandleRow(offset, entry)
 }

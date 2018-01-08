@@ -17,13 +17,10 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-func bigTestStore(config lstore.Config) *lstore.Store {
+func testStore(config lstore.Config) *lstore.Store {
 	store := &lstore.Store{Config: config}
 	store.Directory = "/tmp/store"
 	store.TailSegmentMaxSize = 200 * 1024 * 1024
-	store.IndexingStrategy = lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
-		BloomFilterIndexedBlobColumns: []int{0},
-	})
 	os.RemoveAll(store.Directory)
 	err := store.Start(context.Background())
 	if err != nil {

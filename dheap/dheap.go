@@ -208,7 +208,7 @@ func (mgr *DataManager) openFile(fileBlockSeq uint64) (*os.File, error) {
 	if os.IsNotExist(err) {
 		os.MkdirAll(path.Dir(filePath), 0777)
 		file, err = os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
-		countlog.InfoCall("callee!os.OpenFile", err, "filePath", filePath, "fileSize", mgr.fileSize)
+		countlog.DebugCall("callee!os.OpenFile", err, "filePath", filePath, "fileSize", mgr.fileSize)
 		if err != nil {
 			return nil, err
 		}

@@ -11,7 +11,7 @@ import (
 
 func Test_indexed_segment(t *testing.T) {
 	should := require.New(t)
-	store := bigTestStore(lstore.Config{})
+	store := testStore(lstore.Config{})
 	defer store.Stop(ctx)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
@@ -50,7 +50,7 @@ func Test_indexed_segment(t *testing.T) {
 
 func Test_reopen_indexed_segments(t *testing.T) {
 	should := require.New(t)
-	store := bigTestStore(lstore.Config{})
+	store := testStore(lstore.Config{})
 	defer store.Stop(ctx)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
@@ -93,7 +93,7 @@ func Test_remove_indexed_segment(t *testing.T) {
 	should := require.New(t)
 	config := lstore.Config{}
 	config.BlockFileSizeInPowerOfTwo = 14
-	store := bigTestStore(config)
+	store := testStore(config)
 	defer store.Stop(ctx)
 	for j := 0; j < 4; j++ {
 		for i := 0; i < 1024; i++ {
