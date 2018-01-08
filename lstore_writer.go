@@ -298,25 +298,46 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 	return nil
 }
 
-// removeRawSegments should only be used by indexer
-func (writer *writer) updateIndex(
+// movedBlockIntoIndex should only be used by indexer
+func (writer *writer) movedBlockIntoIndex(
 	ctx countlog.Context, indexingChunk *indexChunk) error {
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
 		newVersion := oldVersion.edit()
+		firstRawChunk := *newVersion.rawChunks[0] // copy the first raw chunk
+		firstRawChunk.headSlot += 4
+		if firstRawChunk.headSlot == 64 {
+			newVersion.rawChunks = newVersion.rawChunks[1:]
+		} else {
+			newVersion.rawChunks[0] = &firstRawChunk
+		}
+		headOffset := newVersion.rawChunks[0].headOffset + Offset(newVersion.rawChunks[0].headSlot << 6)
+		removedRawSegmentsCount := 0
+		for i, rawSegment := range writer.rawSegments {
+			if rawSegment.headOffset <= headOffset {
+				removedRawSegmentsCount = i
+				break
+			}
+		}
+		removedRawSegments := writer.rawSegments[:removedRawSegmentsCount]
+		writer.rawSegments = writer.rawSegments[removedRawSegmentsCount:]
+		for _, removedRawSegment := range removedRawSegments {
+			err := os.Remove(removedRawSegment.path)
+			ctx.TraceCall("callee!os.Remove", err)
+		}
 		newVersion.indexingChunk = indexingChunk
 		writer.updateCurrentVersion(newVersion.seal())
 		resultChan <- nil
 		return
 	})
-	countlog.Debug("event!writer.updated index",
+	countlog.Debug("event!writer.movedBlockIntoIndex",
 		"indexingChunk.headOffset", indexingChunk.headOffset)
 	return <-resultChan
 }
 
-// rotateIndex should only be used by indexer
-func (writer *writer) rotateIndex(
+// rotatedIndex should only be used by indexer
+func (writer *writer) rotatedIndex(
 	ctx countlog.Context, indexedChunk *indexChunk, indexingChunk *indexChunk) error {
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
@@ -333,20 +354,20 @@ func (writer *writer) rotateIndex(
 	return <-resultChan
 }
 
-// removedIndexedSegments should only be used by indexer
-func (writer *writer) removedIndexedSegments(
-	ctx countlog.Context, removedIndexedSegmentsCount int) error {
+// removedIndex should only be used by indexer
+func (writer *writer) removedIndex(
+	ctx countlog.Context, removedIndexedChunksCount int) error {
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
 		newVersion := oldVersion.edit()
-		newVersion.indexedChunks = newVersion.indexedChunks[removedIndexedSegmentsCount:]
+		newVersion.indexedChunks = newVersion.indexedChunks[removedIndexedChunksCount:]
 		writer.updateCurrentVersion(newVersion.seal())
 		resultChan <- nil
 		return
 	})
 	countlog.Debug("event!writer.rotated index",
-		"removedIndexedSegmentsCount", removedIndexedSegmentsCount)
+		"removedIndexedChunksCount", removedIndexedChunksCount)
 	return <-resultChan
 }
 

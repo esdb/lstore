@@ -87,7 +87,7 @@ func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{}
-	reader.SearchForward(ctx, 0, nil,collector)
+	reader.SearchForward(ctx, 0, nil, collector)
 	should.Equal(520, len(collector.Rows))
 	for _, row := range collector.Rows {
 		should.Equal(row.IntValues[0], int64(row.Offset))
@@ -96,7 +96,11 @@ func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 
 func Test_index_block_compressed(t *testing.T) {
 	should := require.New(t)
-	config := lstore.Config{}
+	config := lstore.Config{
+		IndexingStrategy: lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
+			BloomFilterIndexedBlobColumns: []int{0},
+		}),
+	}
 	config.BlockCompressed = true
 	store := testStore(config)
 	defer store.Stop(ctx)

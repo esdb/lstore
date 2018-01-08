@@ -29,11 +29,11 @@ func newIndexSegment(slotIndexManager slotIndexManager, prev *indexSegment) (*in
 	levels := make([]slotIndexSeq, levelsCount)
 	tailSlotIndexSeq := slotIndexSeq(0)
 	tailBlockSeq := blockSeq(0)
-	startOffset := Offset(0)
+	headOffset := Offset(0)
 	if prev != nil {
 		tailSlotIndexSeq = prev.tailSlotIndexSeq
 		tailBlockSeq = prev.tailBlockSeq
-		startOffset = prev.tailOffset
+		headOffset = prev.tailOffset
 	}
 	for i := level0; i <= level2; i++ {
 		var err error
@@ -48,12 +48,12 @@ func newIndexSegment(slotIndexManager slotIndexManager, prev *indexSegment) (*in
 		}
 	}
 	return &indexSegment{
-		segmentHeader:    segmentHeader{segmentType: segmentTypeIndex, headOffset: startOffset},
+		segmentHeader:    segmentHeader{segmentType: segmentTypeIndex, headOffset: headOffset},
 		topLevel:         level2,
 		levels:           levels,
 		tailSlotIndexSeq: tailSlotIndexSeq,
-		tailBlockSeq: tailBlockSeq,
-		tailOffset: startOffset,
+		tailBlockSeq:     tailBlockSeq,
+		tailOffset:       headOffset,
 	}, nil
 }
 
@@ -84,4 +84,10 @@ func createIndexSegment(ctx countlog.Context, segmentPath string, segment *index
 		return err
 	}
 	return nil
+}
+
+func (segment *indexSegment) copy() *indexSegment {
+	copied := *segment
+	copied.levels = append([]slotIndexSeq(nil), copied.levels...)
+	return &copied
 }
