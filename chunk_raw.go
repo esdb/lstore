@@ -33,7 +33,16 @@ func newRawChunks(strategy *IndexingStrategy, headOffset Offset) []*rawChunk {
 }
 
 func newRawChunk(strategy *IndexingStrategy, headOffset Offset) *rawChunk {
-	children := make([]*rawChunkChild, 65)
+	children := make([]*rawChunkChild, 64)
+	for i := 0; i < len(children); i++ {
+		hashingStrategy := strategy.tinyHashingStrategy
+		pbfs := make([]pbloom.ParallelBloomFilter, strategy.bloomFilterIndexedColumnsCount())
+		for i := 0; i < len(pbfs); i++ {
+			pbfs[i] = hashingStrategy.New()
+		}
+		child := &rawChunkChild{pbfs, make([]*Entry, 64), 0}
+		children[i] = child
+	}
 	hashingStrategy := strategy.tinyHashingStrategy
 	pbfs := make([]pbloom.ParallelBloomFilter, strategy.bloomFilterIndexedColumnsCount())
 	for i := 0; i < len(pbfs); i++ {
@@ -51,15 +60,6 @@ func newRawChunk(strategy *IndexingStrategy, headOffset Offset) *rawChunk {
 func (chunk *rawChunk) add(entry *Entry) bool {
 	rootTail := chunk.tailSlot - 1
 	child := chunk.children[rootTail]
-	if child == nil {
-		hashingStrategy := chunk.strategy.tinyHashingStrategy
-		pbfs := make([]pbloom.ParallelBloomFilter, chunk.strategy.bloomFilterIndexedColumnsCount())
-		for i := 0; i < len(pbfs); i++ {
-			pbfs[i] = hashingStrategy.New()
-		}
-		child = &rawChunkChild{pbfs, make([]*Entry, 64), 0}
-		chunk.children[rootTail] = child
-	}
 	strategy := chunk.strategy
 	childTail := child.tailSlot
 	for _, bfIndexedColumn := range strategy.bloomFilterIndexedBlobColumns {
@@ -73,13 +73,12 @@ func (chunk *rawChunk) add(entry *Entry) bool {
 	}
 	child.children[childTail] = entry
 	chunk.tailOffset += 1
-	if child.tailSlot == 63 {
-		if chunk.tailSlot == 63 {
-			return true
-		}
+	child.tailSlot += 1
+	if child.tailSlot == 64 {
 		chunk.tailSlot += 1
-	} else {
-		child.tailSlot += 1
+	}
+	if chunk.tailSlot == 64 {
+		return true
 	}
 	return false
 }

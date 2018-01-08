@@ -301,7 +301,18 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 // removeRawSegments should only be used by indexer
 func (writer *writer) updateIndex(
 	ctx countlog.Context, indexingChunk *indexChunk) error {
-	panic("not implemented")
+	resultChan := make(chan error)
+	writer.asyncExecute(ctx, func(ctx countlog.Context) {
+		oldVersion := writer.currentVersion
+		newVersion := oldVersion.edit()
+		newVersion.indexingChunk = indexingChunk
+		writer.updateCurrentVersion(newVersion.seal())
+		resultChan <- nil
+		return
+	})
+	countlog.Debug("event!writer.updated index",
+		"indexingChunk.headOffset", indexingChunk.headOffset)
+	return <-resultChan
 }
 
 // rotateIndex should only be used by indexer

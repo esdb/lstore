@@ -86,7 +86,7 @@ func Test_reopen_tail_segment(t *testing.T) {
 
 func Test_write_rotation(t *testing.T) {
 	should := require.New(t)
-	store := tinyTestStore()
+	store := testStore(lstore.Config{TailSegmentMaxSize: 140})
 	defer store.Stop(ctx)
 	seq, err := store.Write(ctx, intEntry(1))
 	should.Nil(err)

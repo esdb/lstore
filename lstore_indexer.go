@@ -248,10 +248,12 @@ func (indexer *indexer) saveIndexingChunk(ctx countlog.Context, indexingSegment 
 	if err != nil {
 		return err
 	}
-	err = os.Rename(indexer.store.IndexingSegmentPath(), indexer.store.IndexedSegmentPath(indexingSegment.headOffset))
-	ctx.TraceCall("callee!os.Rename", err)
-	if err != nil {
-		return err
+	if indexingSegment.headOffset != 0 {
+		err = os.Rename(indexer.store.IndexingSegmentPath(), indexer.store.IndexedSegmentPath(indexingSegment.headOffset))
+		ctx.TraceCall("callee!os.Rename", err)
+		if err != nil {
+			return err
+		}
 	}
 	err = os.Rename(indexer.store.IndexingSegmentTmpPath(), indexer.store.IndexingSegmentPath())
 	ctx.TraceCall("callee!os.Rename", err)

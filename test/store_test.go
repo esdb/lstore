@@ -20,36 +20,6 @@ func TestMain(m *testing.M) {
 func testStore(config lstore.Config) *lstore.Store {
 	store := &lstore.Store{Config: config}
 	store.Directory = "/tmp/store"
-	store.TailSegmentMaxSize = 200 * 1024 * 1024
-	os.RemoveAll(store.Directory)
-	err := store.Start(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	return store
-}
-
-func tinyTestStore() *lstore.Store {
-	store := &lstore.Store{}
-	store.Directory = "/tmp/store"
-	store.TailSegmentMaxSize = 140
-	store.IndexingStrategy = lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
-	})
-	os.RemoveAll(store.Directory)
-	err := store.Start(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	return store
-}
-
-func smallTestStore(config lstore.Config) *lstore.Store {
-	store := &lstore.Store{Config: config}
-	store.Directory = "/tmp/store"
-	store.TailSegmentMaxSize = 280
-	store.IndexingStrategy = lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
-		BloomFilterIndexedBlobColumns: []int{0},
-	})
 	os.RemoveAll(store.Directory)
 	err := store.Start(context.Background())
 	if err != nil {
