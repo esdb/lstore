@@ -4,7 +4,6 @@ import (
 	"github.com/esdb/gocodec"
 	"context"
 	"github.com/v2pro/plz/countlog"
-	"github.com/v2pro/plz"
 	"errors"
 )
 
@@ -29,13 +28,7 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 		store:   store,
 		gocIter: gocodec.NewIterator(nil),
 	}
-	_, err := reader.Refresh(ctx)
-	ctx.DebugCall("callee!reader.Refresh", err,
-		"caller", "store.NewReader",
-		"tailOffset", reader.tailOffset)
-	if err != nil {
-		return nil, err
-	}
+	reader.Refresh(ctx)
 	store.blockManager.dataManager.Lock(reader)
 	store.slotIndexManager.dataManager.Lock(reader)
 	return reader, nil
@@ -46,30 +39,25 @@ func (reader *Reader) TailOffset() Offset {
 }
 
 // Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailChunk.tail
-func (reader *Reader) Refresh(ctx context.Context) (bool, error) {
+func (reader *Reader) Refresh(ctx context.Context) bool {
+	hasNew := false
 	latestVersion := reader.store.latest()
-	defer plz.Close(latestVersion, "ctx", ctx)
 	if reader.currentVersion != latestVersion {
-		// when reader moves forward, older version has a chance to die
-		if reader.currentVersion != nil {
-			if err := reader.currentVersion.Close(); err != nil {
-				return false, err
-			}
-		}
-		latestVersion.Acquire()
 		reader.currentVersion = latestVersion
+		hasNew = true
 	}
-
 	newTailOffset := reader.store.getTailOffset()
-	taiMoved := newTailOffset != reader.tailOffset
-	reader.tailOffset = newTailOffset
-	return taiMoved, nil
+	if newTailOffset != reader.tailOffset {
+		reader.tailOffset = newTailOffset
+		hasNew = true
+	}
+	return hasNew
 }
 
 func (reader *Reader) Close() error {
 	reader.store.blockManager.dataManager.Unlock(reader)
 	reader.store.slotIndexManager.dataManager.Unlock(reader)
-	return reader.currentVersion.Close()
+	return nil
 }
 
 func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, filter Filter, cb SearchCallback) error {

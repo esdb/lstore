@@ -10,6 +10,7 @@ type indexChunk struct {
 	*indexSegment
 	blockManager blockManager
 	// readSlotIndex might read from rwCache or roCache, depending on the segment is indexing or fully indexed
+	// TODO: always use roCache when gocodec supported MinimumCopy
 	readSlotIndex func(slotIndexSeq, level) (*slotIndex, error)
 }
 

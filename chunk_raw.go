@@ -9,6 +9,7 @@ import (
 
 type rawChunkRoot struct {
 	pbfs     []pbloom.ParallelBloomFilter // 64 slots
+	headSlot biter.Slot                   // some slots will be deleted, after entries moved into index segment
 	tailSlot biter.Slot
 }
 
@@ -20,9 +21,9 @@ type rawChunkChild struct {
 
 // rawChunk only resides in memory
 type rawChunk struct {
+	rawChunkRoot
 	headOffset Offset
 	tailOffset Offset
-	root       *rawChunkRoot
 	children   []*rawChunkChild
 	strategy   *IndexingStrategy
 }
@@ -43,17 +44,16 @@ func newRawChunk(strategy *IndexingStrategy, headOffset Offset) *rawChunk {
 		pbfs[i] = hashingStrategy.New()
 	}
 	return &rawChunk{
-		strategy:   strategy,
-		headOffset: headOffset,
-		tailOffset: headOffset,
-		children:   children,
-		root:       &rawChunkRoot{pbfs, 0},
+		strategy:     strategy,
+		headOffset:   headOffset,
+		tailOffset:   headOffset,
+		children:     children,
+		rawChunkRoot: rawChunkRoot{pbfs, 0, 0},
 	}
 }
 
 func (chunk *rawChunk) add(entry *Entry) bool {
-	root := chunk.root
-	rootTail := root.tailSlot
+	rootTail := chunk.tailSlot
 	child := chunk.children[rootTail]
 	strategy := chunk.strategy
 	childTail := child.tailSlot
@@ -63,16 +63,16 @@ func (chunk *rawChunk) add(entry *Entry) bool {
 		sourceValue := entry.BlobValues[sourceColumn]
 		asSlice := *(*[]byte)(unsafe.Pointer(&sourceValue))
 		bloom := strategy.tinyHashingStrategy.Hash(asSlice)
-		root.pbfs[indexedColumn].Put(biter.SetBits[rootTail], bloom)
+		chunk.pbfs[indexedColumn].Put(biter.SetBits[rootTail], bloom)
 		child.pbfs[indexedColumn].Put(biter.SetBits[childTail], bloom)
 		child.children[childTail] = entry
 	}
 	chunk.tailOffset += 1
 	if child.tailSlot == 63 {
-		if root.tailSlot == 63 {
+		if chunk.tailSlot == 63 {
 			return true
 		}
-		root.tailSlot += 1
+		chunk.tailSlot += 1
 	} else {
 		child.tailSlot += 1
 	}
@@ -81,12 +81,11 @@ func (chunk *rawChunk) add(entry *Entry) bool {
 
 func (chunk *rawChunk) searchForward(ctx countlog.Context, startOffset Offset,
 	filter Filter, cb SearchCallback) error {
-	root := chunk.root
-	rootResult := filter.searchTinyIndex(root.pbfs)
-	rootResult &= biter.SetBitsForwardUntil[root.tailSlot]
+	rootResult := filter.searchTinyIndex(chunk.pbfs)
+	rootResult &= biter.SetBitsForwardUntil[chunk.tailSlot]
 	delta := startOffset - chunk.headOffset
 	if delta < 4096 {
-		rootResult &= biter.SetBitsForwardFrom[delta >> 6]
+		rootResult &= biter.SetBitsForwardFrom[delta>>6]
 	}
 	rootIter := rootResult.ScanForward()
 	for {

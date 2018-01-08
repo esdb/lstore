@@ -57,17 +57,6 @@ func newIndexSegment(slotIndexManager slotIndexManager, prev *indexSegment) (*in
 	}, nil
 }
 
-func (segment *indexSegment) copy() *indexSegment {
-	return &indexSegment{
-		segmentHeader: segment.segmentHeader,
-		tailOffset: segment.tailOffset,
-		tailBlockSeq: segment.tailBlockSeq,
-		tailSlotIndexSeq: segment.tailSlotIndexSeq,
-		topLevel: segment.topLevel,
-		levels: append([]slotIndexSeq(nil), segment.levels...),
-	}
-}
-
 func openIndexSegment(ctx countlog.Context, indexedSegmentPath string) (*indexSegment, error) {
 	buf, err := ioutil.ReadFile(indexedSegmentPath)
 	ctx.TraceCall("callee!ioutil.ReadFile", err)
