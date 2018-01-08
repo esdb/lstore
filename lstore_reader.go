@@ -45,7 +45,7 @@ func (reader *Reader) TailOffset() Offset {
 	return reader.tailOffset
 }
 
-// Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailSegment.tail
+// Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailChunk.tail
 func (reader *Reader) Refresh(ctx context.Context) (bool, error) {
 	latestVersion := reader.store.latest()
 	defer plz.Close(latestVersion, "ctx", ctx)
@@ -78,18 +78,18 @@ func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, 
 	if filter == nil {
 		filter = dummyFilterInstance
 	}
-	for _, indexedSegment := range store.indexedSegments {
+	for _, indexedSegment := range store.indexedChunks {
 		if err := indexedSegment.searchForward(ctx, startOffset, filter, cb); err != nil {
 			return err
 		}
 	}
-	if startOffset < store.indexingSegment.tailOffset {
-		if err := store.indexingSegment.searchForward(ctx, startOffset, filter, cb); err != nil {
+	if startOffset < store.indexingChunk.tailOffset {
+		if err := store.indexingChunk.searchForward(ctx, startOffset, filter, cb); err != nil {
 			return err
 		}
-		startOffset = store.indexingSegment.tailOffset
+		startOffset = store.indexingChunk.tailOffset
 	}
-	for _, rawSegmentIndex := range store.rawSegmentIndices {
+	for _, rawSegmentIndex := range store.rawChunks {
 		if err := rawSegmentIndex.searchForward(ctx, startOffset, filter, cb); err != nil {
 			return err
 		}

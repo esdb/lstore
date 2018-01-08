@@ -7,12 +7,12 @@ import (
 	"github.com/esdb/biter"
 )
 
-func Test_build_raw_segment_index(t *testing.T) {
+func Test_build_raw_chunk(t *testing.T) {
 	should := require.New(t)
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
-	index := newRawSegmentIndex(strategy, 0)
+	index := newRawChunk(strategy, 0)
 	entry1 := blobEntry("hello")
 	index.add(entry1)
 	collector := &RowsCollector{}
@@ -20,12 +20,12 @@ func Test_build_raw_segment_index(t *testing.T) {
 	should.Equal(1, len(collector.Rows))
 }
 
-func Test_search_raw_segment_index(t *testing.T) {
+func Test_search_raw_chunk(t *testing.T) {
 	should := require.New(t)
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
-	index := newRawSegmentIndex(strategy, 0)
+	index := newRawChunk(strategy, 0)
 	for i := 0; i < 4095; i++ {
 		entry := blobEntry(Blob(fmt.Sprintf("hello%v", i)))
 		should.False(index.add(entry))
@@ -42,11 +42,11 @@ func Test_search_raw_segment_index(t *testing.T) {
 	should.Equal(4000, len(collector.Rows))
 }
 
-func Benchmark_raw_segment_index(b *testing.B) {
+func Benchmark_raw_chunk(b *testing.B) {
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
-	index := newRawSegmentIndex(strategy, 0)
+	index := newRawChunk(strategy, 0)
 	for i := 0; i < 4096; i++ {
 		entry := blobEntry(Blob(fmt.Sprintf("hello%v", i)))
 		index.add(entry)

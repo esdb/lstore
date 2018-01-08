@@ -4,8 +4,8 @@ type segmentType uint8
 
 type segmentHeader struct {
 	segmentType segmentType
-	startOffset Offset
+	headOffset  Offset
 }
 
-const segmentTypeTail segmentType = 1
-const segmentTypeHead segmentType = 2
+const segmentTypeRaw segmentType = 1
+const segmentTypeIndex segmentType = 2

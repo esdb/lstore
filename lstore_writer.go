@@ -14,10 +14,11 @@ import (
 type writerCommand func(ctx countlog.Context)
 
 type writer struct {
+	*tailChunk
 	store          *Store
 	commandQueue   chan writerCommand
 	currentVersion *StoreVersion
-	*tailSegment
+	rawSegments    []*rawSegment
 }
 
 type WriteResult struct {
@@ -38,7 +39,7 @@ func (store *Store) newWriter(ctx countlog.Context) (*writer, error) {
 }
 
 func (writer *writer) Close() error {
-	return writer.tailSegment.Close()
+	return writer.tailChunk.Close()
 }
 
 func (writer *writer) load(ctx countlog.Context) error {
@@ -46,106 +47,104 @@ func (writer *writer) load(ctx countlog.Context) error {
 	if err != nil {
 		return err
 	}
-	writer.updateTailOffset(writer.tailSegment.startOffset + Offset(len(writer.tailSegment.entries)))
 	return nil
 }
 
 func (writer *writer) loadInitialVersion(ctx countlog.Context) error {
 	version := StoreVersion{}.edit()
-	err := writer.loadIndexingAndIndexedSegments(ctx, version)
-	ctx.TraceCall("callee!writer.loadIndexingAndIndexedSegments", err)
+	err := writer.loadIndexingAndIndexedChunks(ctx, version)
+	ctx.TraceCall("callee!writer.loadIndexingAndIndexedChunks", err)
 	if err != nil {
 		return err
 	}
-	err = writer.loadTailAndRawSegments(ctx, version)
-	ctx.TraceCall("callee!writer.loadTailAndRawSegments", err)
+	err = writer.loadRawChunks(ctx, version)
+	ctx.TraceCall("callee!writer.loadRawChunks", err)
 	if err != nil {
 		return err
 	}
-	writer.loadRawSegmentIndices(ctx, version)
 	writer.updateCurrentVersion(version.seal())
 	return nil
 }
 
-func (writer *writer) loadIndexingAndIndexedSegments(ctx countlog.Context, version *EditingStoreVersion) error {
-	indexingSegment, err := openIndexingSegment(
-		ctx, writer.store.IndexingSegmentPath(), nil,
-		writer.store.blockManager, writer.store.slotIndexManager)
+func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version *EditingStoreVersion) error {
+	indexingSegment, err := openIndexSegment(
+		ctx, writer.store.IndexingSegmentPath())
 	ctx.TraceCall("callee!store.openIndexingSegment", err)
 	if err != nil {
 		return err
 	}
-	startOffset := indexingSegment.startOffset
-	var reversedIndexedSegments []*searchable
+	startOffset := indexingSegment.headOffset
+	var reversedIndexedChunks []*indexChunk
 	for {
 		indexedSegmentPath := writer.store.IndexedSegmentPath(startOffset)
-		indexedSegment, err := openIndexedSegment(ctx, indexedSegmentPath)
+		indexedSegment, err := openIndexSegment(ctx, indexedSegmentPath)
 		if os.IsNotExist(err) {
 			break
 		}
 		if err != nil {
 			return err
 		}
-		reversedIndexedSegments = append(reversedIndexedSegments, &searchable{
+		reversedIndexedChunks = append(reversedIndexedChunks, &indexChunk{
 			indexSegment:  indexedSegment,
 			blockManager:  writer.store.blockManager,
 			readSlotIndex: writer.store.slotIndexManager.readSlotIndex,
 		})
-		startOffset = indexedSegment.startOffset
+		startOffset = indexedSegment.headOffset
 	}
-	indexedSegments := make([]*searchable, len(reversedIndexedSegments))
-	for i := 0; i < len(reversedIndexedSegments); i++ {
-		indexedSegments[i] = reversedIndexedSegments[len(reversedIndexedSegments)-i-1]
+	indexedChunks := make([]*indexChunk, len(reversedIndexedChunks))
+	for i := 0; i < len(reversedIndexedChunks); i++ {
+		indexedChunks[i] = reversedIndexedChunks[len(reversedIndexedChunks)-i-1]
 	}
-	version.indexingSegment = indexingSegment
-	version.indexedSegments = indexedSegments
+	version.indexedChunks = indexedChunks
+	version.indexingChunk = &indexChunk{
+		indexSegment:  indexingSegment,
+		blockManager:  writer.store.blockManager,
+		readSlotIndex: writer.store.slotIndexManager.mapWritableSlotIndex,
+	}
 	return nil
 }
 
-func (writer *writer) loadTailAndRawSegments(ctx countlog.Context, version *EditingStoreVersion) error {
-	tailSegment, err := openTailSegment(ctx, writer.store.TailSegmentPath(), writer.store.TailSegmentMaxSize, 0)
+func (writer *writer) loadRawChunks(ctx countlog.Context, version *EditingStoreVersion) error {
+	tailChunk, entries, err := openTailChunk(
+		ctx, writer.store.TailSegmentPath(), writer.store.TailSegmentMaxSize, 0)
 	if err != nil {
 		return err
 	}
+	writer.setTailOffset(tailChunk.headOffset + Offset(tailChunk.tailEntriesCount))
+	headOffset := tailChunk.headOffset
 	var reversedRawSegments []*rawSegment
-	startOffset := tailSegment.startOffset
-	for startOffset > version.indexingSegment.tailOffset {
-		rawSegmentPath := writer.store.RawSegmentPath(startOffset)
-		rawSegment, err := openRawSegment(ctx, rawSegmentPath)
+	offset := tailChunk.headOffset
+	indexingSegmentTailOffset := version.indexedChunks[len(version.indexedChunks)-1].tailOffset
+	for offset > indexingSegmentTailOffset {
+		rawSegmentPath := writer.store.RawSegmentPath(offset)
+		rawSegment, segmentEntries, err := openRawSegment(ctx, rawSegmentPath)
 		if err != nil {
 			countlog.Error("event!lstore.failed to open raw segment",
 				"err", err, "rawSegmentPath", rawSegmentPath,
-				"headSegmentTailOffset", version.indexingSegment.tailOffset)
+				"indexingSegmentTailOffset", indexingSegmentTailOffset)
 			return err
 		}
 		reversedRawSegments = append(reversedRawSegments, rawSegment)
-		startOffset = rawSegment.startOffset
+		offset = rawSegment.headOffset
+		headOffset = rawSegment.headOffset
+		entries = append(segmentEntries, entries...)
 	}
 	rawSegments := make([]*rawSegment, len(reversedRawSegments))
 	for i := 0; i < len(reversedRawSegments); i++ {
 		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
 	}
-	writer.tailSegment = tailSegment
-	version.tailSegment = tailSegment.rawSegment
-	version.rawSegments = rawSegments
-	return nil
-}
-
-func (writer *writer) loadRawSegmentIndices(ctx countlog.Context, version *EditingStoreVersion) {
-	startOffset := version.tailSegment.startOffset
-	if len(version.rawSegments) > 0 {
-		startOffset = version.rawSegments[0].startOffset
-	}
-	currentIndex := newRawSegmentIndex(writer.store.IndexingStrategy, startOffset)
-	version.rawSegmentIndices = []*rawSegmentIndex{newRawSegmentIndex(writer.store.IndexingStrategy, startOffset)}
-	for _, rawSegment := range append(version.rawSegments, version.tailSegment) {
-		for _, entry := range rawSegment.entries {
-			if currentIndex.add(entry) {
-				currentIndex = newRawSegmentIndex(writer.store.IndexingStrategy, startOffset)
-				version.rawSegmentIndices = append(version.rawSegmentIndices, currentIndex)
-			}
+	rawChunk := newRawChunk(writer.store.IndexingStrategy, headOffset)
+	rawChunks := []*rawChunk{rawChunk}
+	for _, entry := range entries {
+		if rawChunk.add(entry) {
+			rawChunk = newRawChunk(writer.store.IndexingStrategy, headOffset)
+			rawChunks = append(rawChunks, rawChunk)
 		}
 	}
+	writer.tailChunk = tailChunk
+	writer.rawSegments = rawSegments
+	version.rawChunks = rawChunks
+	return nil
 }
 
 func (writer *writer) start() {
@@ -153,10 +152,6 @@ func (writer *writer) start() {
 		ctx := countlog.Ctx(ctxObj)
 		defer func() {
 			countlog.Info("event!writer.stop")
-			err := writer.currentVersion.Close()
-			if err != nil {
-				countlog.Error("event!store.failed to close", "err", err)
-			}
 		}()
 		countlog.Info("event!writer.start")
 		stream := gocodec.NewStream(nil)
@@ -195,7 +190,7 @@ func handleCommand(ctx countlog.Context, cmd writerCommand) {
 func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultChan chan<- WriteResult) {
 	ctx := countlog.Ctx(ctxObj)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
-		if len(writer.entries) >= blockLength {
+		if writer.tailEntriesCount >= blockLength {
 			err := writer.rotateTail(ctx, writer.currentVersion)
 			ctx.TraceCall("callee!writer.rotate", err)
 			if err != nil {
@@ -203,9 +198,10 @@ func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultCha
 				return
 			}
 		}
-		seq, err := writer.tryWrite(ctx, entry)
+		offset := Offset(writer.store.tailOffset)
+		err := writer.tryWrite(ctx, entry)
 		if err == nil {
-			resultChan <- WriteResult{seq, nil}
+			resultChan <- WriteResult{offset, nil}
 			return
 		}
 		if err == SegmentOverflowError {
@@ -215,12 +211,12 @@ func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultCha
 				resultChan <- WriteResult{0, err}
 				return
 			}
-			seq, err = writer.tryWrite(ctx, entry)
+			err = writer.tryWrite(ctx, entry)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
 				return
 			}
-			resultChan <- WriteResult{seq, nil}
+			resultChan <- WriteResult{offset, nil}
 			return
 		}
 		resultChan <- WriteResult{0, err}
@@ -245,45 +241,39 @@ func (writer *writer) Write(ctxObj context.Context, entry *Entry) (Offset, error
 	}
 }
 
-func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) (Offset, error) {
+func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
 	stream := ctx.Value("stream").(*gocodec.Stream)
 	stream.Reset(writer.writeBuf[:0])
 	size := stream.Marshal(*entry)
 	if stream.Error != nil {
-		return 0, stream.Error
+		return stream.Error
 	}
 	if size >= uint64(len(writer.writeBuf)) {
-		return 0, SegmentOverflowError
+		return SegmentOverflowError
 	}
 	writer.writeBuf = writer.writeBuf[size:]
-	offset := writer.startOffset + Offset(len(writer.entries))
-	writer.entries = append(writer.entries, entry)
-	countlog.Trace("event!writer.tryWrite", "offset", offset)
+	rawChunks := writer.currentVersion.rawChunks
+	if rawChunks[len(rawChunks)-1].add(entry) {
+		panic("TODO: rotate raw chunk")
+	}
 	// reader will know if read the tail using atomic
-	writer.updateTailOffset(offset + 1)
-	indices := writer.currentVersion.rawSegmentIndices
-	indices[len(indices) - 1].add(entry)
-	return offset, nil
+	countlog.Trace("event!writer.tryWrite", "offset", writer.store.tailOffset)
+	writer.incrementTailOffset()
+	return nil
 }
 
 func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion) error {
-	err := writer.tailSegment.Close()
-	ctx.TraceCall("callee!tailSegment.Close", err)
+	err := writer.tailChunk.Close()
+	ctx.TraceCall("callee!tailChunk.Close", err)
 	if err != nil {
 		return err
 	}
-	tailSegmentTmpFile, err := createTailSegment(writer.store.TailSegmentTmpPath(), writer.store.TailSegmentMaxSize,
+	newTailChunk, _, err := openTailChunk(ctx, writer.store.TailSegmentTmpPath(), writer.store.TailSegmentMaxSize,
 		Offset(writer.store.tailOffset))
 	if err != nil {
 		return err
 	}
-	plz.Close(tailSegmentTmpFile)
-	newVersion := oldVersion.edit()
-	newVersion.rawSegments = make([]*rawSegment, len(oldVersion.rawSegments)+1)
-	i := 0
-	for ; i < len(oldVersion.rawSegments); i++ {
-		newVersion.rawSegments[i] = oldVersion.rawSegments[i]
-	}
+	writer.tailChunk = newTailChunk
 	rotatedTo := writer.store.RawSegmentPath(Offset(writer.store.tailOffset))
 	if err = os.Rename(writer.store.TailSegmentPath(), rotatedTo); err != nil {
 		return err
@@ -291,19 +281,11 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 	if err = os.Rename(writer.store.TailSegmentTmpPath(), writer.store.TailSegmentPath()); err != nil {
 		return err
 	}
-	// use writer.tailRows to build a raw segment without loading from file
-	newVersion.rawSegments[i] = writer.tailSegment.rawSegment
-	writer.tailSegment, err = openTailSegment(
-		ctx, writer.store.TailSegmentPath(), writer.store.TailSegmentMaxSize, Offset(writer.store.tailOffset))
-	if err != nil {
-		return err
-	}
-	newVersion.tailSegment = writer.tailSegment.rawSegment
-	sealedNewVersion := newVersion.seal()
-	writer.updateCurrentVersion(sealedNewVersion)
+	writer.rawSegments = append(writer.rawSegments, &rawSegment{
+		segmentHeader: segmentHeader{segmentTypeRaw, Offset(writer.store.tailOffset)},
+		path: rotatedTo,
+	})
 	countlog.Debug("event!store.rotated tail",
-		"tail", sealedNewVersion.tailSegment.startOffset,
-		"rawSegmentsCount", len(sealedNewVersion.rawSegments),
 		"rotatedTo", rotatedTo)
 	return nil
 }
@@ -316,7 +298,7 @@ func (writer *writer) removeRawSegments(
 		oldVersion := writer.currentVersion
 		removedRawSegments := oldVersion.rawSegments[:removedRawSegmentsCount]
 		for _, segment := range removedRawSegments {
-			segmentPath := writer.store.RawSegmentPath(segment.startOffset + Offset(len(segment.entries)))
+			segmentPath := writer.store.RawSegmentPath(segment.headOffset + Offset(len(segment.entries)))
 			err := os.Remove(segmentPath)
 			ctx.TraceCall("callee!os.Remove", err)
 		}
@@ -333,19 +315,19 @@ func (writer *writer) removeRawSegments(
 
 // rotateIndex should only be used by indexer
 func (writer *writer) rotateIndex(
-	ctx countlog.Context, indexedSegment *searchable, indexingSegment *indexingSegment) error {
+	ctx countlog.Context, indexedChunk *indexChunk, indexingChunk *indexChunk) error {
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
 		newVersion := oldVersion.edit()
-		newVersion.indexedSegments = append(newVersion.indexedSegments, indexedSegment)
-		newVersion.indexingSegment = indexingSegment
+		newVersion.indexedChunks = append(newVersion.indexedChunks, indexedChunk)
+		newVersion.indexingChunk = indexingChunk
 		writer.updateCurrentVersion(newVersion.seal())
 		resultChan <- nil
 		return
 	})
 	countlog.Debug("event!writer.rotated index",
-		"indexingSegment.startOffset", indexingSegment.startOffset)
+		"indexingChunk.headOffset", indexingChunk.headOffset)
 	return <-resultChan
 }
 
@@ -356,7 +338,7 @@ func (writer *writer) removedIndexedSegments(
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
 		newVersion := oldVersion.edit()
-		newVersion.indexedSegments = newVersion.indexedSegments[removedIndexedSegmentsCount:]
+		newVersion.indexedChunks = newVersion.indexedChunks[removedIndexedSegmentsCount:]
 		writer.updateCurrentVersion(newVersion.seal())
 		resultChan <- nil
 		return
@@ -371,15 +353,14 @@ func (writer *writer) updateCurrentVersion(newVersion *StoreVersion) {
 		return
 	}
 	atomic.StorePointer(&writer.store.currentVersion, unsafe.Pointer(newVersion))
-	if writer.currentVersion != nil {
-		err := writer.currentVersion.Close()
-		if err != nil {
-			countlog.Error("event!store.failed to close", "err", err)
-		}
-	}
 	writer.currentVersion = newVersion
 }
 
-func (writer *writer) updateTailOffset(tailOffset Offset) {
-	atomic.StoreUint64(&writer.store.tailOffset, uint64(tailOffset))
+func (writer *writer) incrementTailOffset() {
+	writer.tailEntriesCount += 1
+	atomic.StoreUint64(&writer.store.tailOffset, writer.store.tailOffset + 1)
+}
+
+func (writer *writer) setTailOffset(tailOffset Offset) {
+	atomic.StoreUint64(&writer.store.tailOffset, tailOffset)
 }

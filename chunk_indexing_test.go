@@ -41,7 +41,7 @@ func intBlobEntry(intValue int64, blobValue Blob) *Entry {
 
 var ctx = countlog.Ctx(context.Background())
 
-func fakeEditingHead() *indexingSegment {
+func fakeEditingHead() *indexingChunk {
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
@@ -69,7 +69,7 @@ func (mgr *fakeBlockManager) readBlock(seq blockSeq) (*block, error) {
 	panic("not implemented")
 }
 
-func getLevel(editing *indexingSegment, level level) *slotIndex {
+func getLevel(editing *indexingChunk, level level) *slotIndex {
 	return editing.indexingLevels[level]
 }
 

@@ -15,6 +15,7 @@ type indexer struct {
 	store          *Store
 	commandQueue   chan indexerCommand
 	currentVersion *StoreVersion
+	indexingChunk  *indexingChunk
 }
 
 func (store *Store) newIndexer(ctx countlog.Context) *indexer {
@@ -34,10 +35,6 @@ func (indexer *indexer) start() {
 		ctx := countlog.Ctx(ctxObj)
 		defer func() {
 			countlog.Info("event!indexer.stop")
-			err := indexer.currentVersion.Close()
-			if err != nil {
-				countlog.Error("event!store.failed to close", "err", err)
-			}
 		}()
 		countlog.Info("event!indexer.start")
 		for {
@@ -55,9 +52,6 @@ func (indexer *indexer) start() {
 					return
 				}
 			} else {
-				if err := indexer.currentVersion.Close(); err != nil {
-					countlog.Error("event!indexer.failed to close version", "err", err)
-				}
 				indexer.currentVersion = store.latest()
 			}
 			if cmd == nil {
@@ -117,8 +111,8 @@ func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err 
 	var removedIndexedSegmentsCount int
 	var tailBlockSeq blockSeq
 	var tailSlotIndexSeq slotIndexSeq
-	for i, indexedSegment := range indexer.currentVersion.indexedSegments {
-		if indexedSegment.startOffset >= untilOffset {
+	for i, indexedSegment := range indexer.currentVersion.indexedChunks {
+		if indexedSegment.headOffset >= untilOffset {
 			break
 		}
 		if indexedSegment.tailOffset <= untilOffset {
@@ -146,8 +140,8 @@ func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err 
 
 func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	countlog.Debug("event!indexer.doRotateIndex")
-	prev := indexer.currentVersion.indexingSegment.searchable.indexSegment
-	newIndexedSegment := &searchable{
+	prev := indexer.indexingChunk.indexSegment
+	newIndexedSegment := &indexChunk{
 		indexSegment:  prev.copy(),
 		blockManager:  indexer.store.blockManager,
 		readSlotIndex: indexer.store.slotIndexManager.readSlotIndex,
@@ -172,7 +166,7 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	}
 	indexer.store.writer.rotateIndex(ctx, newIndexedSegment, newIndexingSegment)
 	ctx.Info("event!indexer.rotated index",
-		"indexedSegment.startOffset", newIndexedSegment.startOffset,
+		"indexedSegment.headOffset", newIndexedSegment.headOffset,
 		"indexedSegment.tailOffset", newIndexedSegment.tailOffset)
 	return nil
 }
@@ -181,17 +175,17 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	countlog.Debug("event!indexer.doUpdateIndex")
 	store := indexer.currentVersion
 	if len(store.rawSegments) == 0 {
-		countlog.Trace("event!indexingSegment.doUpdateIndex do not find enough raw segments",
+		countlog.Trace("event!indexingChunk.doUpdateIndex do not find enough raw segments",
 			"rawSegmentsCount", len(store.rawSegments))
 		return nil
 	}
-	indexing := store.indexingSegment
+	indexing := store.indexingChunk
 	originalTailOffset := indexing.tailOffset
 	var blockRows []*Entry
 	blockStartOffset := indexing.tailOffset
 	var removedRawSegmentsCount int
 	for rawSegmentCount, rawSegment := range store.rawSegments {
-		begin := rawSegment.startOffset
+		begin := rawSegment.headOffset
 		end := begin + Offset(len(rawSegment.entries))
 		blockTailOffset := blockStartOffset + Offset(len(blockRows))
 		if blockTailOffset < begin {
@@ -199,7 +193,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 				"indexing.tailOffset", indexing.tailOffset,
 				"blockStartOffset", blockStartOffset,
 				"blockRowsCount", len(blockRows),
-				"rawSegment.startOffset", begin)
+				"rawSegment.headOffset", begin)
 			return errors.New("offset is not continuous")
 		}
 		if blockTailOffset >= end {
@@ -221,7 +215,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		}
 	}
 	if originalTailOffset == indexing.tailOffset {
-		countlog.Trace("event!indexingSegment.doUpdateIndex can not find enough rows to build block",
+		countlog.Trace("event!indexingChunk.doUpdateIndex can not find enough rows to build block",
 			"originalTailOffset", originalTailOffset,
 			"rawSegmentsCount", len(store.rawSegments),
 			"blockRowsCount", len(blockRows))
@@ -230,7 +224,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	// ensure blocks are persisted
 	gocodec.UpdateChecksum(indexing.writeMMap)
 	err = indexing.writeMMap.Flush()
-	countlog.TraceCall("callee!indexingSegment.Flush", err,
+	countlog.TraceCall("callee!indexingChunk.Flush", err,
 		"tailBlockSeq", indexing.tailBlockSeq,
 		"tailSlotIndexSeq", indexing.tailSlotIndexSeq,
 		"originalTailOffset", originalTailOffset,

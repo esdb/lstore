@@ -64,51 +64,27 @@ type Store struct {
 	executor         *concurrent.UnboundedExecutor // owns writer and indexer
 }
 
-// StoreVersion is a view on the directory, keeping handle to opened files to avoid file being deleted or moved
 type StoreVersion struct {
-	*ref.ReferenceCounted
-	indexedSegments   []*searchable
-	indexingSegment   *indexingSegment
-	rawSegmentIndices []*rawSegmentIndex
-	rawSegments       []*rawSegment
-	tailSegment       *rawSegment
-}
-
-func (version StoreVersion) edit() *EditingStoreVersion {
-	return &EditingStoreVersion{
-		StoreVersion{
-			indexedSegments: append([]*searchable(nil), version.indexedSegments...),
-			indexingSegment: version.indexingSegment,
-			rawSegments:     append([]*rawSegment(nil), version.rawSegments...),
-			tailSegment:     version.tailSegment,
-		},
-	}
+	indexedChunks []*indexChunk
+	indexingChunk *indexChunk
+	rawChunks     []*rawChunk
 }
 
 type EditingStoreVersion struct {
 	StoreVersion
 }
 
+func (version StoreVersion) edit() *EditingStoreVersion {
+	return &EditingStoreVersion{
+		StoreVersion{
+			indexedChunks: append([]*indexChunk(nil), version.indexedChunks...),
+			rawChunks:     append([]*rawChunk(nil), version.rawChunks...),
+		},
+	}
+}
+
 func (edt EditingStoreVersion) seal() *StoreVersion {
-	version := &edt.StoreVersion
-	if !version.tailSegment.Acquire() {
-		panic("acquire reference counter should not fail during version rotation")
-	}
-	resources := []io.Closer{version.tailSegment}
-	for _, rawSegment := range version.rawSegments {
-		if !rawSegment.Acquire() {
-			panic("acquire reference counter should not fail during version rotation")
-		}
-		resources = append(resources, rawSegment)
-	}
-	if version.indexingSegment != nil {
-		if !version.indexingSegment.Acquire() {
-			panic("acquire reference counter should not fail during version rotation")
-		}
-		resources = append(resources, version.indexingSegment)
-	}
-	version.ReferenceCounted = ref.NewReferenceCounted("store version", resources...)
-	return version
+	return &edt.StoreVersion
 }
 
 func (store *Store) Start(ctxObj context.Context) error {
@@ -166,12 +142,7 @@ func (store *Store) Remove(untilOffset Offset) error {
 func (store *Store) latest() *StoreVersion {
 	for {
 		version := (*StoreVersion)(atomic.LoadPointer(&store.currentVersion))
-		if version == nil {
-			return nil
-		}
-		if version.Acquire() {
-			return version
-		}
+		return version
 	}
 }
 

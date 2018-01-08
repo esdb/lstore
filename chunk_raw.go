@@ -1,0 +1,119 @@
+package lstore
+
+import (
+	"github.com/esdb/biter"
+	"github.com/esdb/pbloom"
+	"unsafe"
+	"github.com/v2pro/plz/countlog"
+)
+
+type rawChunkRoot struct {
+	pbfs     []pbloom.ParallelBloomFilter // 64 slots
+	tailSlot biter.Slot
+}
+
+type rawChunkChild struct {
+	pbfs     []pbloom.ParallelBloomFilter // 64 slots
+	children []*Entry
+	tailSlot biter.Slot
+}
+
+// rawChunk only resides in memory
+type rawChunk struct {
+	headOffset Offset
+	tailOffset Offset
+	root       *rawChunkRoot
+	children   []*rawChunkChild
+	strategy   *IndexingStrategy
+}
+
+func newRawChunk(strategy *IndexingStrategy, headOffset Offset) *rawChunk {
+	children := make([]*rawChunkChild, 65)
+	for i := 0; i < 65; i++ {
+		hashingStrategy := strategy.tinyHashingStrategy
+		pbfs := make([]pbloom.ParallelBloomFilter, strategy.bloomFilterIndexedColumnsCount())
+		for i := 0; i < len(pbfs); i++ {
+			pbfs[i] = hashingStrategy.New()
+		}
+		children[i] = &rawChunkChild{pbfs, make([]*Entry, 64), 0}
+	}
+	hashingStrategy := strategy.tinyHashingStrategy
+	pbfs := make([]pbloom.ParallelBloomFilter, strategy.bloomFilterIndexedColumnsCount())
+	for i := 0; i < len(pbfs); i++ {
+		pbfs[i] = hashingStrategy.New()
+	}
+	return &rawChunk{
+		strategy:   strategy,
+		headOffset: headOffset,
+		tailOffset: headOffset,
+		children:   children,
+		root:       &rawChunkRoot{pbfs, 0},
+	}
+}
+
+func (chunk *rawChunk) add(entry *Entry) bool {
+	root := chunk.root
+	rootTail := root.tailSlot
+	child := chunk.children[rootTail]
+	strategy := chunk.strategy
+	childTail := child.tailSlot
+	for _, bfIndexedColumn := range strategy.bloomFilterIndexedBlobColumns {
+		indexedColumn := bfIndexedColumn.IndexedColumn()
+		sourceColumn := bfIndexedColumn.SourceColumn()
+		sourceValue := entry.BlobValues[sourceColumn]
+		asSlice := *(*[]byte)(unsafe.Pointer(&sourceValue))
+		bloom := strategy.tinyHashingStrategy.Hash(asSlice)
+		root.pbfs[indexedColumn].Put(biter.SetBits[rootTail], bloom)
+		child.pbfs[indexedColumn].Put(biter.SetBits[childTail], bloom)
+		child.children[childTail] = entry
+	}
+	chunk.tailOffset += 1
+	if child.tailSlot == 63 {
+		if root.tailSlot == 63 {
+			return true
+		}
+		root.tailSlot += 1
+	} else {
+		child.tailSlot += 1
+	}
+	return false
+}
+
+func (chunk *rawChunk) searchForward(ctx countlog.Context, startOffset Offset,
+	filter Filter, cb SearchCallback) error {
+	root := chunk.root
+	rootResult := filter.searchTinyIndex(root.pbfs)
+	rootResult &= biter.SetBitsForwardUntil[root.tailSlot]
+	delta := startOffset - chunk.headOffset
+	if delta < 4096 {
+		rootResult &= biter.SetBitsForwardFrom[delta >> 6]
+	}
+	rootIter := rootResult.ScanForward()
+	for {
+		rootSlot := rootIter()
+		if rootSlot == biter.NotFound {
+			return nil
+		}
+		child := chunk.children[rootSlot]
+		childResult := filter.searchTinyIndex(child.pbfs)
+		childResult &= biter.SetBitsForwardUntil[child.tailSlot]
+		baseOffset := chunk.headOffset + (Offset(rootSlot) << 6) // * 64
+		delta := startOffset - baseOffset
+		if delta < 64 {
+			childResult &= biter.SetBitsForwardFrom[delta]
+		}
+		childIter := childResult.ScanForward()
+		for {
+			childSlot := childIter()
+			if childSlot == biter.NotFound {
+				break
+			}
+			entry := child.children[childSlot]
+			if filter.matchesEntry(entry) {
+				if err := cb.HandleRow(baseOffset+Offset(childSlot), entry); err != nil {
+					return err
+				}
+			}
+		}
+	}
+}
