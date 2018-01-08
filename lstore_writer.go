@@ -8,7 +8,6 @@ import (
 	"unsafe"
 	"sync/atomic"
 	"github.com/esdb/gocodec"
-	"github.com/v2pro/plz"
 )
 
 type writerCommand func(ctx countlog.Context)
@@ -69,8 +68,17 @@ func (writer *writer) loadInitialVersion(ctx countlog.Context) error {
 func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version *EditingStoreVersion) error {
 	indexingSegment, err := openIndexSegment(
 		ctx, writer.store.IndexingSegmentPath())
-	ctx.TraceCall("callee!store.openIndexingSegment", err)
-	if err != nil {
+	if os.IsNotExist(err) {
+		indexingSegment, err = newIndexSegment(writer.store.slotIndexManager, nil)
+		if err != nil {
+			return err
+		}
+		err = createIndexSegment(ctx, writer.store.IndexingSegmentPath(), indexingSegment)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		ctx.TraceCall("callee!store.openIndexingSegment", err)
 		return err
 	}
 	startOffset := indexingSegment.headOffset
@@ -114,7 +122,7 @@ func (writer *writer) loadRawChunks(ctx countlog.Context, version *EditingStoreV
 	headOffset := tailChunk.headOffset
 	var reversedRawSegments []*rawSegment
 	offset := tailChunk.headOffset
-	indexingSegmentTailOffset := version.indexedChunks[len(version.indexedChunks)-1].tailOffset
+	indexingSegmentTailOffset := version.indexingChunk.tailOffset
 	for offset > indexingSegmentTailOffset {
 		rawSegmentPath := writer.store.RawSegmentPath(offset)
 		rawSegment, segmentEntries, err := openRawSegment(ctx, rawSegmentPath)
@@ -133,8 +141,8 @@ func (writer *writer) loadRawChunks(ctx countlog.Context, version *EditingStoreV
 	for i := 0; i < len(reversedRawSegments); i++ {
 		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
 	}
-	rawChunk := newRawChunk(writer.store.IndexingStrategy, headOffset)
-	rawChunks := []*rawChunk{rawChunk}
+	rawChunks := newRawChunks(writer.store.IndexingStrategy, headOffset)
+	rawChunk := rawChunks[0]
 	for _, entry := range entries {
 		if rawChunk.add(entry) {
 			rawChunk = newRawChunk(writer.store.IndexingStrategy, headOffset)
@@ -293,24 +301,7 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 // removeRawSegments should only be used by indexer
 func (writer *writer) updateIndex(
 	ctx countlog.Context, indexingChunk *indexChunk) error {
-	resultChan := make(chan error)
-	writer.asyncExecute(ctx, func(ctx countlog.Context) {
-		oldVersion := writer.currentVersion
-		removedRawSegments := oldVersion.rawSegments[:removedRawSegmentsCount]
-		for _, segment := range removedRawSegments {
-			segmentPath := writer.store.RawSegmentPath(segment.headOffset + Offset(len(segment.entries)))
-			err := os.Remove(segmentPath)
-			ctx.TraceCall("callee!os.Remove", err)
-		}
-		newVersion := oldVersion.edit()
-		newVersion.rawSegments = oldVersion.rawSegments[removedRawSegmentsCount:]
-		writer.updateCurrentVersion(newVersion.seal())
-		resultChan <- nil
-		return
-	})
-	countlog.Debug("event!writer.removed raw segments",
-		"count", removedRawSegmentsCount)
-	return <-resultChan
+	panic("not implemented")
 }
 
 // rotateIndex should only be used by indexer
@@ -362,5 +353,5 @@ func (writer *writer) incrementTailOffset() {
 }
 
 func (writer *writer) setTailOffset(tailOffset Offset) {
-	atomic.StoreUint64(&writer.store.tailOffset, tailOffset)
+	atomic.StoreUint64(&writer.store.tailOffset, uint64(tailOffset))
 }

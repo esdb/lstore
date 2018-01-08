@@ -75,8 +75,7 @@ func Test_reopen_tail_segment(t *testing.T) {
 	should.Equal([]int64{1}, collector.Rows[0].IntValues)
 
 	// refresh, should read new rows now
-	hasNew, err := reader.Refresh(ctx)
-	should.Nil(err)
+	hasNew := reader.Refresh(ctx)
 	should.True(hasNew)
 	collector = &lstore.RowsCollector{LimitSize: 2}
 	reader.SearchForward(ctx, 0, nil, collector)

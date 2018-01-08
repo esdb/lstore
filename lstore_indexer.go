@@ -5,7 +5,6 @@ import (
 	"time"
 	"errors"
 	"context"
-	"github.com/esdb/gocodec"
 	"os"
 )
 
@@ -266,4 +265,5 @@ func (indexer *indexer) saveIndexingChunk(ctx countlog.Context, indexingSegment 
 			return err
 		}
 	}
+	return nil
 }

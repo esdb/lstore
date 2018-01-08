@@ -32,13 +32,13 @@ func (chunk *tailChunk) Close() error {
 
 func openTailChunk(ctx countlog.Context, path string, maxSize int64, headOffset Offset) (*tailChunk, []*Entry, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0666)
-	ctx.TraceCall("callee!os.OpenFile", err)
 	if os.IsNotExist(err) {
 		file, err = createRawSegment(path, maxSize, headOffset)
 		if err != nil {
 			return nil, nil, err
 		}
 	} else if err != nil {
+		ctx.TraceCall("callee!os.OpenFile", err)
 		return nil, nil, err
 	}
 	defer plz.Close(file)

@@ -5,8 +5,6 @@ import (
 	"sync/atomic"
 	"github.com/v2pro/plz/concurrent"
 	"path"
-	"github.com/esdb/lstore/ref"
-	"io"
 	"fmt"
 	"context"
 	"github.com/v2pro/plz/countlog"

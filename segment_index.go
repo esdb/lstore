@@ -59,7 +59,6 @@ func newIndexSegment(slotIndexManager slotIndexManager, prev *indexSegment) (*in
 
 func openIndexSegment(ctx countlog.Context, indexedSegmentPath string) (*indexSegment, error) {
 	buf, err := ioutil.ReadFile(indexedSegmentPath)
-	ctx.TraceCall("callee!ioutil.ReadFile", err)
 	if err != nil {
 		return nil, err
 	}

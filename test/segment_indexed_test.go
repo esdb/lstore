@@ -38,8 +38,7 @@ func Test_indexed_segment(t *testing.T) {
 	}
 	should.Nil(store.UpdateIndex())
 
-	hasNew, err := reader.Refresh(ctx)
-	should.Nil(err)
+	hasNew := reader.Refresh(ctx)
 	should.True(hasNew)
 	collector = &lstore.RowsCollector{}
 	reader.SearchForward(ctx, 0, nil, collector)
@@ -80,8 +79,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	}
 	should.Nil(store.UpdateIndex())
 
-	hasNew, err := reader.Refresh(ctx)
-	should.Nil(err)
+	hasNew := reader.Refresh(ctx)
 	should.True(hasNew)
 	collector = &lstore.RowsCollector{}
 	reader.SearchForward(ctx, 0, nil, collector)
