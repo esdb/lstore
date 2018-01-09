@@ -49,7 +49,7 @@ func openTailChunk(ctx countlog.Context, path string, maxSize int64, headOffset 
 	}
 	chunk := &tailChunk{writeMMap: writeMMap}
 	iter := gocodec.NewIterator(writeMMap)
-	segmentHeader, _ := iter.Copy((*segmentHeader)(nil)).(*segmentHeader)
+	segmentHeader, _ := iter.CopyThenUnmarshal((*segmentHeader)(nil)).(*segmentHeader)
 	ctx.TraceCall("callee!iter.Copy", iter.Error)
 	if iter.Error != nil {
 		plz.Close(plz.WrapCloser(writeMMap.Unmap))
@@ -57,7 +57,7 @@ func openTailChunk(ctx countlog.Context, path string, maxSize int64, headOffset 
 	}
 	var entries []*Entry
 	for {
-		entry, _ := iter.Copy((*Entry)(nil)).(*Entry)
+		entry, _ := iter.CopyThenUnmarshal((*Entry)(nil)).(*Entry)
 		if iter.Error == io.EOF {
 			break
 		}

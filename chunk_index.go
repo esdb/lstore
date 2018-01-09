@@ -8,10 +8,8 @@ import (
 // indexChunk makes the indexSegment searchable
 type indexChunk struct {
 	*indexSegment
-	blockManager blockManager
-	// readSlotIndex might read from rwCache or roCache, depending on the segment is indexing or fully indexed
-	// TODO: always use roCache when gocodec supported MinimumCopy
-	readSlotIndex func(slotIndexSeq, level) (*slotIndex, error)
+	blockManager     blockManager
+	slotIndexManager slotIndexManager
 }
 
 func (chunk *indexChunk) searchForward(
@@ -19,7 +17,7 @@ func (chunk *indexChunk) searchForward(
 	if startOffset >= chunk.tailOffset {
 		return nil
 	}
-	slotIndex, err := chunk.readSlotIndex(chunk.levels[chunk.topLevel], chunk.topLevel)
+	slotIndex, err := chunk.slotIndexManager.readSlotIndex(chunk.levels[chunk.topLevel], chunk.topLevel)
 	if err != nil {
 		return err
 	}
@@ -29,9 +27,17 @@ func (chunk *indexChunk) searchForward(
 func (chunk *indexChunk) searchForwardAt(
 	ctx countlog.Context, startOffset Offset, filter Filter,
 	levelIndex *slotIndex, level level, cb SearchCallback) error {
+	result := levelIndex.search(level, filter)
+	result &= biter.SetBitsForwardUntil[*levelIndex.tailSlot]
+	iter := result.ScanForward()
 	if level == level0 {
-		for slot := biter.Slot(0); slot < levelIndex.tailSlot; slot++ {
-			blk, err := chunk.blockManager.readBlock(blockSeq(levelIndex.children[slot]))
+		for {
+			slot := iter()
+			if slot == biter.NotFound {
+				return nil
+			}
+			blkSeq := blockSeq(levelIndex.children[slot])
+			blk, err := chunk.blockManager.readBlock(blkSeq)
 			ctx.TraceCall("callee!blockManager.readBlock", err)
 			if err != nil {
 				return err
@@ -42,9 +48,6 @@ func (chunk *indexChunk) searchForwardAt(
 			}
 		}
 	} else {
-		result := levelIndex.search(level, filter)
-		result &= biter.SetBitsForwardUntil[levelIndex.tailSlot]
-		iter := result.ScanForward()
 		for {
 			slot := iter()
 			if slot == biter.NotFound {
@@ -52,7 +55,7 @@ func (chunk *indexChunk) searchForwardAt(
 			}
 			childLevel := level - 1
 			childSlotIndexSeq := slotIndexSeq(levelIndex.children[slot])
-			childSlotIndex, err := chunk.readSlotIndex(childSlotIndexSeq, childLevel)
+			childSlotIndex, err := chunk.slotIndexManager.readSlotIndex(childSlotIndexSeq, childLevel)
 			ctx.TraceCall("callee!slotIndexManager.mapWritableSlotIndex", err)
 			if err != nil {
 				return err

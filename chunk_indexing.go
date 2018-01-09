@@ -35,7 +35,7 @@ func (chunk *indexingChunk) addBlock(ctx countlog.Context, blk *block) error {
 	level1SlotIndex := chunk.indexingLevels[1]
 	level2SlotIndex := chunk.indexingLevels[2]
 	level0SlotIndex.children[slots[0]] = uint64(blockSeq)
-	level0SlotIndex.tailSlot = slots[0] + 1
+	level0SlotIndex.setTailSlot(slots[0] + 1)
 	for i, hashColumn := range blkHash {
 		pbf0 := level0SlotIndex.pbfs[i]
 		pbf1 := level1SlotIndex.pbfs[i]
@@ -169,15 +169,12 @@ func (chunk *indexingChunk) rotate(level level, slot biter.Slot) (err error) {
 		chunk.levels[level+1] = slotIndexSeq
 		chunk.indexingLevels[level+1] = slotIndex
 		slotIndex.updateSlot(biter.SetBits[0], chunk.indexingLevels[level])
-		slotIndex.tailSlot = 1
+		slotIndex.setTailSlot(1)
 	}
 	parentLevel := chunk.indexingLevels[level+1]
 	parentLevel.children[slot] = uint64(chunk.levels[level])
-	parentLevel.tailSlot = slot + 1
+	parentLevel.setTailSlot(slot + 1)
 	slotIndexManager := chunk.slotIndexManager
-	if err := slotIndexManager.updateChecksum(chunk.levels[level], level); err != nil {
-		return err
-	}
 	chunk.levels[level], chunk.tailSlotIndexSeq, chunk.indexingLevels[level], err = slotIndexManager.newSlotIndex(
 		chunk.tailSlotIndexSeq, level)
 	return

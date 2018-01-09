@@ -169,7 +169,7 @@ func (mgr *DataManager) openReadMMap(fileBlockSeq uint64) (mmap.MMap, error) {
 	if readMMap != nil {
 		return readMMap, nil
 	}
-	readMMap, err = mmap.Map(file, mmap.COPY, 0)
+	readMMap, err = mmap.Map(file, mmap.RDONLY, 0)
 	countlog.TraceCall("callee!mmap.Map", err)
 	if err != nil {
 		return nil, err

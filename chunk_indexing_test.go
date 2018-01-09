@@ -50,12 +50,14 @@ func fakeEditingHead() *indexingChunk {
 	slotIndexManager := newSlotIndexManager(&slotIndexManagerConfig{
 		IndexDirectory: "/tmp/store/index",
 	}, strategy)
-	headSegment, err := openIndexingSegment(ctx, "/tmp/store/head.segment", nil,
-		&fakeBlockManager{}, slotIndexManager)
+	indexSegment, err := openIndexSegment(ctx, "/tmp/store/head.segment")
 	if err != nil {
 		panic(err)
 	}
-	return headSegment
+	return &indexingChunk{
+		indexSegment: indexSegment,
+		slotIndexManager: slotIndexManager,
+	}
 }
 
 type fakeBlockManager struct {

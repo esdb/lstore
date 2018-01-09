@@ -46,6 +46,11 @@ func (writer *writer) load(ctx countlog.Context) error {
 	if err != nil {
 		return err
 	}
+	ctx.Info("event!writer.loadInitialVersion",
+		"indexingTailOffset", writer.currentVersion.indexingChunk.tailOffset,
+		"tailHeadOffset", writer.tailChunk.headOffset,
+		"storeTailOffset", writer.store.tailOffset,
+			"rawChunkHeadOffset", writer.currentVersion.rawChunks[0].headOffset)
 	return nil
 }
 
@@ -95,7 +100,7 @@ func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version
 		reversedIndexedChunks = append(reversedIndexedChunks, &indexChunk{
 			indexSegment:  indexedSegment,
 			blockManager:  writer.store.blockManager,
-			readSlotIndex: writer.store.slotIndexManager.readSlotIndex,
+			slotIndexManager: writer.store.slotIndexManager,
 		})
 		startOffset = indexedSegment.headOffset
 	}
@@ -107,7 +112,7 @@ func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version
 	version.indexingChunk = &indexChunk{
 		indexSegment:  indexingSegment,
 		blockManager:  writer.store.blockManager,
-		readSlotIndex: writer.store.slotIndexManager.mapWritableSlotIndex,
+		slotIndexManager: writer.store.slotIndexManager,
 	}
 	return nil
 }
@@ -256,7 +261,7 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
 	if stream.Error != nil {
 		return stream.Error
 	}
-	if size >= uint64(len(writer.writeBuf)) {
+	if size >= uint32(len(writer.writeBuf)) {
 		return SegmentOverflowError
 	}
 	writer.writeBuf = writer.writeBuf[size:]
@@ -291,7 +296,7 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 	}
 	writer.rawSegments = append(writer.rawSegments, &rawSegment{
 		segmentHeader: segmentHeader{segmentTypeRaw, Offset(writer.store.tailOffset)},
-		path: rotatedTo,
+		path:          rotatedTo,
 	})
 	countlog.Debug("event!store.rotated tail",
 		"rotatedTo", rotatedTo)
@@ -312,7 +317,7 @@ func (writer *writer) movedBlockIntoIndex(
 		} else {
 			newVersion.rawChunks[0] = &firstRawChunk
 		}
-		headOffset := newVersion.rawChunks[0].headOffset + Offset(newVersion.rawChunks[0].headSlot << 6)
+		headOffset := newVersion.rawChunks[0].headOffset + Offset(newVersion.rawChunks[0].headSlot<<6)
 		removedRawSegmentsCount := 0
 		for i, rawSegment := range writer.rawSegments {
 			if rawSegment.headOffset <= headOffset {
@@ -381,7 +386,7 @@ func (writer *writer) updateCurrentVersion(newVersion *StoreVersion) {
 
 func (writer *writer) incrementTailOffset() {
 	writer.tailEntriesCount += 1
-	atomic.StoreUint64(&writer.store.tailOffset, writer.store.tailOffset + 1)
+	atomic.StoreUint64(&writer.store.tailOffset, writer.store.tailOffset+1)
 }
 
 func (writer *writer) setTailOffset(tailOffset Offset) {

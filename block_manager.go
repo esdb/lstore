@@ -1,7 +1,6 @@
 package lstore
 
 import (
-	"github.com/hashicorp/golang-lru"
 	"github.com/esdb/gocodec"
 	"github.com/esdb/lstore/lz4"
 	"fmt"
@@ -24,7 +23,6 @@ func calcCompressedBlockHeaderSize() uint32 {
 type blockManagerConfig struct {
 	BlockDirectory            string
 	BlockFileSizeInPowerOfTwo uint8
-	BlockCacheSize            int
 	BlockCompressed           bool
 }
 
@@ -39,7 +37,6 @@ type blockManager interface {
 // retain lru block cache
 type mmapBlockManager struct {
 	dataManager *dheap.DataManager
-	blockCache  *lru.ARCCache
 	// tmp assume there is single writer
 	blockCompressTmp []byte
 	blockCompressed  bool
@@ -49,13 +46,8 @@ func newBlockManager(config *blockManagerConfig) *mmapBlockManager {
 	if config.BlockFileSizeInPowerOfTwo == 0 {
 		config.BlockFileSizeInPowerOfTwo = 30
 	}
-	if config.BlockCacheSize == 0 {
-		config.BlockCacheSize = 1024
-	}
-	blockCache, _ := lru.NewARC(config.BlockCacheSize)
 	return &mmapBlockManager{
 		blockCompressed: config.BlockCompressed,
-		blockCache:      blockCache,
 		dataManager:     dheap.New(config.BlockDirectory, config.BlockFileSizeInPowerOfTwo),
 	}
 }
@@ -65,7 +57,6 @@ func (mgr *mmapBlockManager) Close() error {
 }
 
 func (mgr *mmapBlockManager) writeBlock(seq blockSeq, block *block) (blockSeq, blockSeq, error) {
-	mgr.blockCache.Add(seq, block)
 	var buf []byte
 	if mgr.blockCompressed {
 		buf = mgr.compressBlock(block)
@@ -112,10 +103,6 @@ func (mgr *mmapBlockManager) marshalBlock(block *block) []byte {
 }
 
 func (mgr *mmapBlockManager) readBlock(seq blockSeq) (blk *block, err error) {
-	blkObj, found := mgr.blockCache.Get(seq)
-	if found {
-		return blkObj.(*block), nil
-	}
 	if mgr.blockCompressed {
 		blk, err = mgr.uncompressBlock(seq)
 	} else {
@@ -124,7 +111,6 @@ func (mgr *mmapBlockManager) readBlock(seq blockSeq) (blk *block, err error) {
 	if err != nil {
 		return nil, err
 	}
-	mgr.blockCache.Add(seq, blk)
 	return blk, nil
 }
 
@@ -133,7 +119,7 @@ func (mgr *mmapBlockManager) uncompressBlock(seq blockSeq) (*block, error) {
 	if err != nil {
 		return nil, err
 	}
-	iter := gocodec.NewIterator(headerBuf)
+	iter := gocodec.ReadonlyConfig.NewIterator(headerBuf)
 	compressedBlockHeader, _ := iter.Unmarshal((*compressedBlockHeader)(nil)).(*compressedBlockHeader)
 	if iter.Error != nil {
 		return nil, fmt.Errorf("unmarshal compressedBlockHeader failed: %s", iter.Error)
@@ -164,7 +150,7 @@ func (mgr *mmapBlockManager) unmarshalBlock(seq blockSeq) (*block, error) {
 	if err != nil {
 		return nil, err
 	}
-	iter := gocodec.NewIterator(buf)
+	iter := gocodec.ReadonlyConfig.NewIterator(buf)
 	blk, _ := iter.Unmarshal((*block)(nil)).(*block)
 	if iter.Error != nil {
 		return nil, fmt.Errorf("unmarshal block failed: %s", iter.Error)
@@ -173,10 +159,5 @@ func (mgr *mmapBlockManager) unmarshalBlock(seq blockSeq) (*block, error) {
 }
 
 func (mgr *mmapBlockManager) remove(untilSeq blockSeq) {
-	for _, key := range mgr.blockCache.Keys() {
-		if key.(blockSeq) < untilSeq {
-			mgr.blockCache.Remove(key)
-		}
-	}
 	mgr.dataManager.Remove(uint64(untilSeq))
 }

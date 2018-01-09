@@ -32,7 +32,7 @@ func Test_search_raw_chunk(t *testing.T) {
 	}
 	entry := blobEntry("hell4095")
 	should.True(index.add(entry))
-	should.Equal(biter.Slot(63), index.root.tailSlot)
+	should.Equal(biter.Slot(63), index.tailSlot)
 	should.Equal(biter.Slot(63), index.children[63].tailSlot)
 	collector := &RowsCollector{}
 	index.searchForward(ctx, 0, strategy.NewBlobValueFilter(0, Blob("hello4003")), collector)

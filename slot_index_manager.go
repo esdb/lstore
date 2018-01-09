@@ -1,7 +1,6 @@
 package lstore
 
 import (
-	"github.com/hashicorp/golang-lru"
 	"github.com/esdb/gocodec"
 	"fmt"
 	"github.com/esdb/lstore/dheap"
@@ -10,14 +9,12 @@ import (
 type slotIndexManagerConfig struct {
 	IndexDirectory            string
 	IndexFileSizeInPowerOfTwo uint8
-	IndexCacheSize            int
 }
 
 type slotIndexManager interface {
 	newSlotIndex(seq slotIndexSeq, level level) (slotIndexSeq, slotIndexSeq, *slotIndex, error)
 	mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error)
 	readSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error)
-	updateChecksum(seq slotIndexSeq, level level) error
 	indexingStrategy() *IndexingStrategy
 }
 
@@ -29,24 +26,15 @@ type mmapSlotIndexManager struct {
 	strategy       *IndexingStrategy
 	slotIndexSizes []uint32
 	dataManager    *dheap.DataManager
-	rwCache        *lru.ARCCache
-	roCache        *lru.ARCCache
 }
 
 func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrategy) *mmapSlotIndexManager {
 	if config.IndexFileSizeInPowerOfTwo == 0 {
 		config.IndexFileSizeInPowerOfTwo = 30
 	}
-	if config.IndexCacheSize == 0 {
-		config.IndexCacheSize = 1024
-	}
-	rwCache, _ := lru.NewARC(levelsCount)
-	roCache, _ := lru.NewARC(config.IndexCacheSize)
 	return &mmapSlotIndexManager{
 		strategy:       strategy,
 		slotIndexSizes: make([]uint32, levelsCount),
-		rwCache:        rwCache,
-		roCache:        roCache,
 		dataManager:    dheap.New(config.IndexDirectory, config.IndexFileSizeInPowerOfTwo),
 	}
 }
@@ -71,14 +59,12 @@ func (mgr *mmapSlotIndexManager) newSlotIndex(seq slotIndexSeq, level level) (sl
 	if stream.Error != nil {
 		return 0, 0, nil, stream.Error
 	}
-	iter := gocodec.NewIterator(buf)
+	iter := gocodec.ReadonlyConfig.NewIterator(buf)
 	// re-construct the object on the mmap heap
 	obj, _ = iter.Unmarshal((*slotIndex)(nil)).(*slotIndex)
 	if iter.Error != nil {
 		return 0, 0, nil, fmt.Errorf("newSlotIndex failed: %s", iter.Error.Error())
 	}
-	gocodec.UpdateChecksum(buf)
-	mgr.rwCache.Add(slotIndexSeq(newSeq), obj)
 	return slotIndexSeq(newSeq), slotIndexSeq(newSeq) + slotIndexSeq(size), obj, nil
 }
 
@@ -96,63 +82,33 @@ func (mgr *mmapSlotIndexManager) getSlotIndexSize(level level) uint32 {
 }
 
 func (mgr *mmapSlotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
-	cache, found := mgr.rwCache.Get(seq)
-	if found {
-		return cache.(*slotIndex), nil
-	}
 	size := mgr.getSlotIndexSize(level)
 	buf, err := mgr.dataManager.MapWritableBuf(uint64(seq), size)
 	if err != nil {
 		return nil, err
 	}
-	iter := gocodec.NewIterator(buf)
+	iter := gocodec.ReadonlyConfig.NewIterator(buf)
 	idx, _ := iter.Unmarshal((*slotIndex)(nil)).(*slotIndex)
 	if iter.Error != nil {
 		return nil, fmt.Errorf("mapWritableSlotIndex failed: %s", iter.Error.Error())
 	}
-	gocodec.UpdateChecksum(buf)
-	mgr.rwCache.Add(seq, idx)
 	return idx, nil
 }
 
 func (mgr *mmapSlotIndexManager) readSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
-	cache, found := mgr.roCache.Get(seq)
-	if found {
-		return cache.(*slotIndex), nil
-	}
 	size := mgr.getSlotIndexSize(level)
 	buf, err := mgr.dataManager.ReadBuf(uint64(seq), size)
 	if err != nil {
 		return nil, err
 	}
-	iter := gocodec.NewIterator(buf)
+	iter := gocodec.ReadonlyConfig.NewIterator(buf)
 	idx, _ := iter.Unmarshal((*slotIndex)(nil)).(*slotIndex)
 	if iter.Error != nil {
 		return nil, fmt.Errorf("readSlotIndex failed: %s", iter.Error.Error())
 	}
-	mgr.roCache.Add(seq, idx)
 	return idx, nil
 }
 
-func (mgr *mmapSlotIndexManager) updateChecksum(seq slotIndexSeq, level level) error {
-	buf, err := mgr.dataManager.MapWritableBuf(uint64(seq), mgr.getSlotIndexSize(level))
-	if err != nil {
-		return err
-	}
-	gocodec.UpdateChecksum(buf)
-	return nil
-}
-
 func (mgr *mmapSlotIndexManager) remove(untilSeq slotIndexSeq) {
-	for _, key := range mgr.rwCache.Keys() {
-		if key.(slotIndexSeq) < untilSeq {
-			mgr.rwCache.Remove(key)
-		}
-	}
-	for _, key := range mgr.roCache.Keys() {
-		if key.(slotIndexSeq) < untilSeq {
-			mgr.rwCache.Remove(key)
-		}
-	}
 	mgr.dataManager.Remove(uint64(untilSeq))
 }

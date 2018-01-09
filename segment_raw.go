@@ -31,7 +31,7 @@ func openRawSegment(ctx countlog.Context, path string) (*rawSegment, []*Entry, e
 	}
 	defer plz.Close(plz.WrapCloser(readMMap.Unmap))
 	iter := gocodec.NewIterator(readMMap)
-	segmentHeader, _ := iter.Copy((*segmentHeader)(nil)).(*segmentHeader)
+	segmentHeader, _ := iter.CopyThenUnmarshal((*segmentHeader)(nil)).(*segmentHeader)
 	ctx.TraceCall("callee!iter.Copy", iter.Error)
 	if iter.Error != nil {
 		return nil, nil, fmt.Errorf("openRawSegment: %s", iter.Error.Error())
@@ -48,7 +48,7 @@ func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator
 	var rows []*Entry
 	for {
 		iter.Reset(iter.Buffer())
-		entry, _ := iter.Copy((*Entry)(nil)).(*Entry)
+		entry, _ := iter.CopyThenUnmarshal((*Entry)(nil)).(*Entry)
 		if iter.Error == io.EOF {
 			return rows, nil
 		}

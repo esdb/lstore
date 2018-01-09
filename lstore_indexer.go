@@ -163,7 +163,7 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	indexer.store.writer.rotatedIndex(ctx, currentVersion.indexingChunk, &indexChunk{
 		indexSegment:  newIndexingSegment,
 		blockManager:  indexer.store.blockManager,
-		readSlotIndex: indexer.store.slotIndexManager.mapWritableSlotIndex,
+		slotIndexManager: indexer.store.slotIndexManager,
 	})
 	ctx.Info("event!indexer.rotated index",
 		"indexedSegment.headOffset", oldIndexingSegment.headOffset,
@@ -217,7 +217,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	err = indexer.store.writer.movedBlockIntoIndex(ctx, &indexChunk{
 		indexSegment:  indexingChunk.indexSegment,
 		blockManager:  indexer.store.blockManager,
-		readSlotIndex: indexer.store.slotIndexManager.mapWritableSlotIndex,
+		slotIndexManager: indexer.store.slotIndexManager,
 	})
 	if err != nil {
 		return err
@@ -260,13 +260,6 @@ func (indexer *indexer) saveIndexingChunk(ctx countlog.Context, indexingSegment 
 	ctx.TraceCall("callee!os.Rename", err)
 	if err != nil {
 		return err
-	}
-	for level := level0; level <= indexingSegment.topLevel; level++ {
-		err = indexer.store.slotIndexManager.updateChecksum(indexingSegment.levels[level], level)
-		ctx.TraceCall("callee!slotIndexManager.updateChecksum", err)
-		if err != nil {
-			return err
-		}
 	}
 	return nil
 }

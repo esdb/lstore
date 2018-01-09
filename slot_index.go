@@ -10,7 +10,7 @@ type slotIndexSeq uint64
 type slotIndex struct {
 	pbfs     []pbloom.ParallelBloomFilter // 64 slots
 	children []uint64                     // 64 slots, can be blockSeq or slotIndexSeq
-	tailSlot biter.Slot
+	tailSlot *biter.Slot
 }
 
 func newSlotIndex(indexingStrategy *IndexingStrategy, level level) *slotIndex {
@@ -19,7 +19,8 @@ func newSlotIndex(indexingStrategy *IndexingStrategy, level level) *slotIndex {
 	for i := 0; i < len(pbfs); i++ {
 		pbfs[i] = hashingStrategy.New()
 	}
-	return &slotIndex{pbfs, make([]uint64, 64), 0}
+	var tailSlot biter.Slot = 0
+	return &slotIndex{pbfs, make([]uint64, 64), &tailSlot}
 }
 
 func (idx *slotIndex) copy() *slotIndex {
@@ -30,6 +31,10 @@ func (idx *slotIndex) copy() *slotIndex {
 	}
 	newVersion.children = append([]uint64(nil), idx.children...)
 	return newVersion
+}
+
+func (idx *slotIndex) setTailSlot(tailSlot biter.Slot) {
+	*idx.tailSlot = tailSlot
 }
 
 func (idx *slotIndex) updateSlot(slotMask biter.Bits, child *slotIndex) {

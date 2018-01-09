@@ -66,7 +66,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{}
-	reader.SearchForward(ctx, 0, nil, collector)
+	should.NoError(reader.SearchForward(ctx, 0, nil, collector))
 	should.Equal(260, len(collector.Rows))
 	for _, row := range collector.Rows {
 		should.Equal(row.IntValues[0], int64(row.Offset))
