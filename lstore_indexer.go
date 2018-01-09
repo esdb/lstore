@@ -6,6 +6,7 @@ import (
 	"errors"
 	"context"
 	"os"
+	"fmt"
 )
 
 type indexerCommand func(ctx countlog.Context)
@@ -44,14 +45,7 @@ func (indexer *indexer) start() {
 			case <-timer.C:
 			case cmd = <-indexer.commandQueue:
 			}
-			if store.isLatest(indexer.currentVersion) {
-				countlog.Trace("event!indexer.check is latest", "isLatest", true)
-				if cmd == nil {
-					return
-				}
-			} else {
-				indexer.currentVersion = store.latest()
-			}
+			indexer.currentVersion = store.latest()
 			if cmd == nil {
 				cmd = func(ctx countlog.Context) {
 					indexer.doUpdateIndex(ctx)
@@ -161,8 +155,8 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 		return err
 	}
 	indexer.store.writer.rotatedIndex(ctx, currentVersion.indexingChunk, &indexChunk{
-		indexSegment:  newIndexingSegment,
-		blockManager:  indexer.store.blockManager,
+		indexSegment:     newIndexingSegment,
+		blockManager:     indexer.store.blockManager,
 		slotIndexManager: indexer.store.slotIndexManager,
 	})
 	ctx.Info("event!indexer.rotated index",
@@ -188,9 +182,21 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		countlog.Fatal("event!indexer.doUpdateIndex find offset inconsistent")
 		return errors.New("inconsistent tail offset")
 	}
+	if firstRawChunk.tailSlot < firstRawChunk.headSlot + 4 {
+		countlog.Fatal("event!indexer.doUpdateIndex find firstRawChunk not fully filled",
+			"tailSlot", firstRawChunk.tailSlot,
+				"headSlot", firstRawChunk.headSlot)
+		return errors.New("firstRawChunk not fully filled")
+	}
 	var blockRows []*Entry
 	for _, rawChunkChild := range firstRawChunk.children[firstRawChunk.headSlot:firstRawChunk.headSlot+4] {
 		blockRows = append(blockRows, rawChunkChild.children...)
+	}
+	for _, row := range blockRows {
+		if row == nil {
+			fmt.Println("!!!!", firstRawChunk.headSlot, firstRawChunk.headOffset)
+			return nil
+		}
 	}
 	blk := newBlock(oldIndexingTailOffset, blockRows[:blockLength])
 	indexingChunk, err := indexer.newIndexingChunk(oldIndexingSegment.copy())
@@ -215,8 +221,8 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		return err
 	}
 	err = indexer.store.writer.movedBlockIntoIndex(ctx, &indexChunk{
-		indexSegment:  indexingChunk.indexSegment,
-		blockManager:  indexer.store.blockManager,
+		indexSegment:     indexingChunk.indexSegment,
+		blockManager:     indexer.store.blockManager,
 		slotIndexManager: indexer.store.slotIndexManager,
 	})
 	if err != nil {

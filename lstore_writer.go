@@ -266,8 +266,10 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
 	}
 	writer.writeBuf = writer.writeBuf[size:]
 	rawChunks := writer.currentVersion.rawChunks
-	if rawChunks[len(rawChunks)-1].add(entry) {
-		panic("TODO: rotate raw chunk")
+	tailRawChunk := rawChunks[len(rawChunks)-1]
+	if tailRawChunk.add(entry) {
+		writer.currentVersion.rawChunks = append(rawChunks, newRawChunk(
+			writer.store.IndexingStrategy, tailRawChunk.headOffset + 4096))
 	}
 	// reader will know if read the tail using atomic
 	countlog.Trace("event!writer.tryWrite", "offset", writer.store.tailOffset)

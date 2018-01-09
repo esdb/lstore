@@ -96,6 +96,7 @@ func (mgr *mmapSlotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level le
 }
 
 func (mgr *mmapSlotIndexManager) readSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
+	fmt.Println(seq)
 	size := mgr.getSlotIndexSize(level)
 	buf, err := mgr.dataManager.ReadBuf(uint64(seq), size)
 	if err != nil {
