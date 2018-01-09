@@ -55,7 +55,7 @@ func (writer *writer) load(ctx countlog.Context) error {
 }
 
 func (writer *writer) loadInitialVersion(ctx countlog.Context) error {
-	version := StoreVersion{}.edit()
+	version := &StoreVersion{}
 	err := writer.loadIndexingAndIndexedChunks(ctx, version)
 	ctx.TraceCall("callee!writer.loadIndexingAndIndexedChunks", err)
 	if err != nil {
@@ -66,11 +66,11 @@ func (writer *writer) loadInitialVersion(ctx countlog.Context) error {
 	if err != nil {
 		return err
 	}
-	writer.updateCurrentVersion(version.seal())
+	writer.updateCurrentVersion(version)
 	return nil
 }
 
-func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version *EditingStoreVersion) error {
+func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version *StoreVersion) error {
 	indexingSegment, err := openIndexSegment(
 		ctx, writer.store.IndexingSegmentPath())
 	if os.IsNotExist(err) {
@@ -117,7 +117,7 @@ func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version
 	return nil
 }
 
-func (writer *writer) loadRawChunks(ctx countlog.Context, version *EditingStoreVersion) error {
+func (writer *writer) loadRawChunks(ctx countlog.Context, version *StoreVersion) error {
 	tailChunk, entries, err := openTailChunk(
 		ctx, writer.store.TailSegmentPath(), writer.store.TailSegmentMaxSize, 0)
 	if err != nil {
@@ -268,8 +268,14 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
 	rawChunks := writer.currentVersion.rawChunks
 	tailRawChunk := rawChunks[len(rawChunks)-1]
 	if tailRawChunk.add(entry) {
-		writer.currentVersion.rawChunks = append(rawChunks, newRawChunk(
+		rawChunks = append(rawChunks, newRawChunk(
 			writer.store.IndexingStrategy, tailRawChunk.headOffset + 4096))
+		newVersion := &StoreVersion{
+			indexedChunks: append([]*indexChunk(nil), writer.currentVersion.indexedChunks...),
+			indexingChunk: writer.currentVersion.indexingChunk,
+			rawChunks:     rawChunks,
+		}
+		writer.updateCurrentVersion(newVersion)
 	}
 	// reader will know if read the tail using atomic
 	countlog.Trace("event!writer.tryWrite", "offset", writer.store.tailOffset)
@@ -311,7 +317,11 @@ func (writer *writer) movedBlockIntoIndex(
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
-		newVersion := oldVersion.edit()
+		newVersion := &StoreVersion{
+			indexedChunks: append([]*indexChunk(nil), oldVersion.indexedChunks...),
+			indexingChunk: indexingChunk,
+			rawChunks: append([]*rawChunk(nil), oldVersion.rawChunks...),
+		}
 		firstRawChunk := *newVersion.rawChunks[0] // copy the first raw chunk
 		firstRawChunk.headSlot += 4
 		if firstRawChunk.headSlot == 64 {
@@ -331,10 +341,10 @@ func (writer *writer) movedBlockIntoIndex(
 		writer.rawSegments = writer.rawSegments[removedRawSegmentsCount:]
 		for _, removedRawSegment := range removedRawSegments {
 			err := os.Remove(removedRawSegment.path)
-			ctx.TraceCall("callee!os.Remove", err)
+			ctx.TraceCall("callee!os.Remove", err,
+				"path", removedRawSegment.path)
 		}
-		newVersion.indexingChunk = indexingChunk
-		writer.updateCurrentVersion(newVersion.seal())
+		writer.updateCurrentVersion(newVersion)
 		resultChan <- nil
 		return
 	})
@@ -349,10 +359,12 @@ func (writer *writer) rotatedIndex(
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
-		newVersion := oldVersion.edit()
-		newVersion.indexedChunks = append(newVersion.indexedChunks, indexedChunk)
-		newVersion.indexingChunk = indexingChunk
-		writer.updateCurrentVersion(newVersion.seal())
+		newVersion := &StoreVersion{
+			indexedChunks: append(oldVersion.indexedChunks, indexedChunk),
+			indexingChunk: indexingChunk,
+			rawChunks: oldVersion.rawChunks,
+		}
+		writer.updateCurrentVersion(newVersion)
 		resultChan <- nil
 		return
 	})
@@ -367,9 +379,12 @@ func (writer *writer) removedIndex(
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
-		newVersion := oldVersion.edit()
-		newVersion.indexedChunks = newVersion.indexedChunks[removedIndexedChunksCount:]
-		writer.updateCurrentVersion(newVersion.seal())
+		newVersion := &StoreVersion{
+			indexedChunks: oldVersion.indexedChunks[removedIndexedChunksCount:],
+			indexingChunk: oldVersion.indexingChunk,
+			rawChunks: oldVersion.rawChunks,
+		}
+		writer.updateCurrentVersion(newVersion)
 		resultChan <- nil
 		return
 	})

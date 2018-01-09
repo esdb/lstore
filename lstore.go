@@ -68,23 +68,6 @@ type StoreVersion struct {
 	rawChunks     []*rawChunk
 }
 
-type EditingStoreVersion struct {
-	StoreVersion
-}
-
-func (version StoreVersion) edit() *EditingStoreVersion {
-	return &EditingStoreVersion{
-		StoreVersion{
-			indexedChunks: append([]*indexChunk(nil), version.indexedChunks...),
-			rawChunks:     append([]*rawChunk(nil), version.rawChunks...),
-		},
-	}
-}
-
-func (edt EditingStoreVersion) seal() *StoreVersion {
-	return &edt.StoreVersion
-}
-
 func (store *Store) Start(ctxObj context.Context) error {
 	ctx := countlog.Ctx(ctxObj)
 	if store.CommandQueueSize == 0 {
