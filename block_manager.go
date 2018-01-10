@@ -36,7 +36,7 @@ type blockManager interface {
 // compress/decompress block from the mmap
 // retain lru block cache
 type mmapBlockManager struct {
-	dataManager *dheap.DataManager
+	diskManager *dheap.DiskManager
 	// tmp assume there is single writer
 	blockCompressTmp []byte
 	blockCompressed  bool
@@ -48,12 +48,12 @@ func newBlockManager(config *blockManagerConfig) *mmapBlockManager {
 	}
 	return &mmapBlockManager{
 		blockCompressed: config.BlockCompressed,
-		dataManager:     dheap.New(config.BlockDirectory, config.BlockFileSizeInPowerOfTwo),
+		diskManager:     dheap.New(config.BlockDirectory, config.BlockFileSizeInPowerOfTwo),
 	}
 }
 
 func (mgr *mmapBlockManager) Close() error {
-	return mgr.dataManager.Close()
+	return mgr.diskManager.Close()
 }
 
 func (mgr *mmapBlockManager) writeBlock(seq blockSeq, block *block) (blockSeq, blockSeq, error) {
@@ -63,7 +63,7 @@ func (mgr *mmapBlockManager) writeBlock(seq blockSeq, block *block) (blockSeq, b
 	} else {
 		buf = mgr.marshalBlock(block)
 	}
-	newSeq, err := mgr.dataManager.WriteBuf(uint64(seq), buf)
+	newSeq, err := mgr.diskManager.WriteBuf(uint64(seq), buf)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -115,7 +115,7 @@ func (mgr *mmapBlockManager) readBlock(seq blockSeq) (blk *block, err error) {
 }
 
 func (mgr *mmapBlockManager) uncompressBlock(seq blockSeq) (*block, error) {
-	headerBuf, err := mgr.dataManager.ReadBuf(uint64(seq), compressedBlockHeaderSize)
+	headerBuf, err := mgr.diskManager.ReadBuf(uint64(seq), compressedBlockHeaderSize)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func (mgr *mmapBlockManager) uncompressBlock(seq blockSeq) (*block, error) {
 		return nil, fmt.Errorf("unmarshal compressedBlockHeader failed: %s", iter.Error)
 	}
 	decompressed := make([]byte, compressedBlockHeader.blockOriginalSize)
-	compressedBuf, err := mgr.dataManager.ReadBuf(
+	compressedBuf, err := mgr.diskManager.ReadBuf(
 		uint64(seq)+uint64(compressedBlockHeaderSize),
 		compressedBlockHeader.blockCompressedSize)
 	if err != nil {
@@ -141,12 +141,12 @@ func (mgr *mmapBlockManager) uncompressBlock(seq blockSeq) (*block, error) {
 }
 
 func (mgr *mmapBlockManager) unmarshalBlock(seq blockSeq) (*block, error) {
-	sizeBuf, err := mgr.dataManager.ReadBuf(uint64(seq), 8)
+	sizeBuf, err := mgr.diskManager.ReadBuf(uint64(seq), 8)
 	if err != nil {
 		return nil, err
 	}
 	size := (*uint64)(unsafe.Pointer(&sizeBuf[0]))
-	buf, err := mgr.dataManager.ReadBuf(uint64(seq), uint32(*size))
+	buf, err := mgr.diskManager.ReadBuf(uint64(seq), uint32(*size))
 	if err != nil {
 		return nil, err
 	}
@@ -159,5 +159,5 @@ func (mgr *mmapBlockManager) unmarshalBlock(seq blockSeq) (*block, error) {
 }
 
 func (mgr *mmapBlockManager) remove(untilSeq blockSeq) {
-	mgr.dataManager.Remove(uint64(untilSeq))
+	mgr.diskManager.Remove(uint64(untilSeq))
 }

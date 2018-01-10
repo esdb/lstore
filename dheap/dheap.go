@@ -15,7 +15,12 @@ import (
 	"strconv"
 )
 
-type DataManager struct {
+
+type pageSeq uint64
+type ObjectSeq uint64
+
+// DiskManager is thread safe
+type DiskManager struct {
 	// only lock the modification of following maps
 	// does not cover reading or writing
 	mapMutex             *sync.Mutex
@@ -29,8 +34,8 @@ type DataManager struct {
 	fileSize             uint64
 }
 
-func New(directory string, fileSizeInPowerOfTwo uint8) *DataManager {
-	return &DataManager{
+func New(directory string, fileSizeInPowerOfTwo uint8) *DiskManager {
+	return &DiskManager{
 		directory:            directory,
 		fileSizeInPowerOfTwo: fileSizeInPowerOfTwo,
 		fileSize:             1 << fileSizeInPowerOfTwo,
@@ -42,7 +47,7 @@ func New(directory string, fileSizeInPowerOfTwo uint8) *DataManager {
 	}
 }
 
-func (mgr *DataManager) Close() error {
+func (mgr *DiskManager) Close() error {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
 	var errs []error
@@ -50,30 +55,30 @@ func (mgr *DataManager) Close() error {
 		err := writeMMap.Unmap()
 		if err != nil {
 			errs = append(errs, err)
-			countlog.Error("event!DataManager.failed to close writeMMap", "err", err)
+			countlog.Error("event!DiskManager.failed to close writeMMap", "err", err)
 		}
 	}
 	for _, readMMap := range mgr.readMMaps {
 		err := readMMap.Unmap()
 		if err != nil {
 			errs = append(errs, err)
-			countlog.Error("event!DataManager.failed to close readMMap", "err", err)
+			countlog.Error("event!DiskManager.failed to close readMMap", "err", err)
 		}
 	}
 	for _, file := range mgr.files {
 		err := file.Close()
 		if err != nil {
 			errs = append(errs, err)
-			countlog.Error("event!DataManager.failed to close file", "err", err)
+			countlog.Error("event!DiskManager.failed to close file", "err", err)
 		}
 	}
 	return plz.MergeErrors(errs...)
 }
 
-func (mgr *DataManager) WriteBuf(seq uint64, buf []byte) (uint64, error) {
-	fileBlockSeq := seq >> mgr.fileSizeInPowerOfTwo
-	relativeOffset := int(seq - (fileBlockSeq << mgr.fileSizeInPowerOfTwo))
-	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
+func (mgr *DiskManager) WriteBuf(seq uint64, buf []byte) (uint64, error) {
+	pageSeq := seq >> mgr.fileSizeInPowerOfTwo
+	relativeOffset := int(seq - (pageSeq << mgr.fileSizeInPowerOfTwo))
+	writeMMap, err := mgr.openWriteMMap(pageSeq)
 	if err != nil {
 		return 0, err
 	}
@@ -96,10 +101,10 @@ func (mgr *DataManager) WriteBuf(seq uint64, buf []byte) (uint64, error) {
 	return seq, writeMMap.Flush()
 }
 
-func (mgr *DataManager) AllocateBuf(seq uint64, size uint32) (uint64, []byte, error) {
-	fileBlockSeq := seq >> mgr.fileSizeInPowerOfTwo
-	relativeOffset := int(seq - (fileBlockSeq << mgr.fileSizeInPowerOfTwo))
-	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
+func (mgr *DiskManager) AllocateBuf(seq uint64, size uint32) (uint64, []byte, error) {
+	pageSeq := seq >> mgr.fileSizeInPowerOfTwo
+	relativeOffset := int(seq - (pageSeq << mgr.fileSizeInPowerOfTwo))
+	writeMMap, err := mgr.openWriteMMap(pageSeq)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -121,10 +126,10 @@ func (mgr *DataManager) AllocateBuf(seq uint64, size uint32) (uint64, []byte, er
 	return seq, dst[:size], nil
 }
 
-func (mgr *DataManager) ReadBuf(seq uint64, size uint32) ([]byte, error) {
-	fileBlockSeq := seq >> mgr.fileSizeInPowerOfTwo
-	relativeOffset := seq - (fileBlockSeq << mgr.fileSizeInPowerOfTwo)
-	readMMap, err := mgr.openReadMMap(fileBlockSeq)
+func (mgr *DiskManager) ReadBuf(seq uint64, size uint32) ([]byte, error) {
+	pageSeq := seq >> mgr.fileSizeInPowerOfTwo
+	relativeOffset := seq - (pageSeq << mgr.fileSizeInPowerOfTwo)
+	readMMap, err := mgr.openReadMMap(pageSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -135,10 +140,10 @@ func (mgr *DataManager) ReadBuf(seq uint64, size uint32) ([]byte, error) {
 	return buf[:size], nil
 }
 
-func (mgr *DataManager) MapWritableBuf(seq uint64, size uint32) ([]byte, error) {
-	fileBlockSeq := seq >> mgr.fileSizeInPowerOfTwo
-	relativeOffset := seq - (fileBlockSeq << mgr.fileSizeInPowerOfTwo)
-	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
+func (mgr *DiskManager) MapWritableBuf(seq uint64, size uint32) ([]byte, error) {
+	pageSeq := seq >> mgr.fileSizeInPowerOfTwo
+	relativeOffset := seq - (pageSeq << mgr.fileSizeInPowerOfTwo)
+	writeMMap, err := mgr.openWriteMMap(pageSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -149,23 +154,23 @@ func (mgr *DataManager) MapWritableBuf(seq uint64, size uint32) ([]byte, error) 
 	return buf[:size], nil
 }
 
-func (mgr *DataManager) flush(seq uint64) (error) {
-	fileBlockSeq := seq >> mgr.fileSizeInPowerOfTwo
-	writeMMap, err := mgr.openWriteMMap(fileBlockSeq)
+func (mgr *DiskManager) flush(seq uint64) (error) {
+	pageSeq := seq >> mgr.fileSizeInPowerOfTwo
+	writeMMap, err := mgr.openWriteMMap(pageSeq)
 	if err != nil {
 		return err
 	}
 	return writeMMap.Flush()
 }
 
-func (mgr *DataManager) openReadMMap(fileBlockSeq uint64) (mmap.MMap, error) {
+func (mgr *DiskManager) openReadMMap(pageSeq uint64) (mmap.MMap, error) {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
-	file, err := mgr.openFile(fileBlockSeq)
+	file, err := mgr.openFile(pageSeq)
 	if err != nil {
 		return nil, err
 	}
-	readMMap := mgr.readMMaps[fileBlockSeq]
+	readMMap := mgr.readMMaps[pageSeq]
 	if readMMap != nil {
 		return readMMap, nil
 	}
@@ -174,18 +179,18 @@ func (mgr *DataManager) openReadMMap(fileBlockSeq uint64) (mmap.MMap, error) {
 	if err != nil {
 		return nil, err
 	}
-	mgr.readMMaps[fileBlockSeq] = readMMap
+	mgr.readMMaps[pageSeq] = readMMap
 	return readMMap, nil
 }
 
-func (mgr *DataManager) openWriteMMap(fileBlockSeq uint64) (mmap.MMap, error) {
+func (mgr *DiskManager) openWriteMMap(pageSeq uint64) (mmap.MMap, error) {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
-	file, err := mgr.openFile(fileBlockSeq)
+	file, err := mgr.openFile(pageSeq)
 	if err != nil {
 		return nil, err
 	}
-	writeMMap := mgr.writeMMaps[fileBlockSeq]
+	writeMMap := mgr.writeMMaps[pageSeq]
 	if writeMMap != nil {
 		return writeMMap, nil
 	}
@@ -194,16 +199,16 @@ func (mgr *DataManager) openWriteMMap(fileBlockSeq uint64) (mmap.MMap, error) {
 	if err != nil {
 		return nil, fmt.Errorf("map RDWR for block failed: %s", err.Error())
 	}
-	mgr.writeMMaps[fileBlockSeq] = writeMMap
+	mgr.writeMMaps[pageSeq] = writeMMap
 	return writeMMap, nil
 }
 
-func (mgr *DataManager) openFile(fileBlockSeq uint64) (*os.File, error) {
-	file := mgr.files[fileBlockSeq]
+func (mgr *DiskManager) openFile(pageSeq uint64) (*os.File, error) {
+	file := mgr.files[pageSeq]
 	if file != nil {
 		return file, nil
 	}
-	filePath := path.Join(mgr.directory, strconv.Itoa(int(fileBlockSeq)))
+	filePath := path.Join(mgr.directory, strconv.Itoa(int(pageSeq)))
 	file, err := os.OpenFile(filePath, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
 		os.MkdirAll(path.Dir(filePath), 0777)
@@ -219,17 +224,18 @@ func (mgr *DataManager) openFile(fileBlockSeq uint64) (*os.File, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	mgr.files[fileBlockSeq] = file
+	mgr.files[pageSeq] = file
 	return file, nil
 }
 
-func (mgr *DataManager) Lock(reader interface{}) {
+// TODO: lock should specify startSeq, not lock everything
+func (mgr *DiskManager) Lock(reader interface{}) {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
 	mgr.activeReaders[reader] = struct{}{}
 }
 
-func (mgr *DataManager) Unlock(reader interface{}) {
+func (mgr *DiskManager) Unlock(reader interface{}) {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
 	delete(mgr.activeReaders, reader)
@@ -240,7 +246,7 @@ func (mgr *DataManager) Unlock(reader interface{}) {
 	}
 }
 
-func (mgr *DataManager) Remove(untilSeq uint64) {
+func (mgr *DiskManager) Remove(untilSeq uint64) {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
 	if len(mgr.activeReaders) > 0 {
@@ -253,16 +259,16 @@ func (mgr *DataManager) Remove(untilSeq uint64) {
 	mgr.removeFiles(untilSeq)
 }
 
-func (mgr *DataManager) removeFiles(untilSeq uint64) {
+func (mgr *DiskManager) removeFiles(untilSeq uint64) {
 	minFileName, err := getMinFileName(mgr.directory)
 	countlog.TraceCall("callee!getMinFileName", err)
 	if err != nil {
 		return
 	}
-	fileBlockSeq := untilSeq >> mgr.fileSizeInPowerOfTwo
+	pageSeq := untilSeq >> mgr.fileSizeInPowerOfTwo
 	var resources []io.Closer
-	countlog.Debug("event!dheap.remove files", "from", minFileName, "to", fileBlockSeq)
-	for i := minFileName; i < fileBlockSeq; i++ {
+	countlog.Debug("event!dheap.remove files", "from", minFileName, "to", pageSeq)
+	for i := minFileName; i < pageSeq; i++ {
 		if readMMap := mgr.readMMaps[i]; readMMap != nil {
 			resources = append(resources, plz.WrapCloser(readMMap.Unmap))
 			delete(mgr.readMMaps, i)
@@ -282,7 +288,7 @@ func (mgr *DataManager) removeFiles(untilSeq uint64) {
 		go func() {
 			plz.CloseAll(resources,
 				"dataManager.removeUntil", untilSeq,
-				"fileBlockSeq", fileBlockSeq)
+				"pageSeq", pageSeq)
 		}()
 	}
 }

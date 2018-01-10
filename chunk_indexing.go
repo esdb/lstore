@@ -4,6 +4,7 @@ import (
 	"github.com/v2pro/plz/countlog"
 	"github.com/esdb/biter"
 	"github.com/esdb/pbloom"
+	"fmt"
 )
 
 type indexingChunk struct {
@@ -57,6 +58,7 @@ func (chunk *indexingChunk) addBlock(ctx countlog.Context, blk *block) error {
 	for i, hashColumn := range blkHash {
 		pbf0 := level0SlotIndex.pbfs[i]
 		pbf1 := level1SlotIndex.pbfs[i]
+		fmt.Println("!!!", chunk.levels[1], level1SlotIndex.pbfs[0][:1])
 		pbf2 := level2SlotIndex.pbfs[i]
 		for _, hashedElement := range hashColumn {
 			// level0, level1, level2 are computed from block hash

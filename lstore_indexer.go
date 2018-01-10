@@ -6,7 +6,6 @@ import (
 	"errors"
 	"context"
 	"os"
-	"fmt"
 )
 
 type indexerCommand func(ctx countlog.Context)
@@ -58,11 +57,11 @@ func (indexer *indexer) start() {
 
 func (indexer *indexer) runCommand(ctx countlog.Context, cmd indexerCommand) {
 	slotIndexManager := indexer.store.slotIndexManager
-	slotIndexManager.dataManager.Lock(indexer)
-	defer slotIndexManager.dataManager.Unlock(indexer)
+	slotIndexManager.diskManager.Lock(indexer)
+	defer slotIndexManager.diskManager.Unlock(indexer)
 	blockManager := indexer.store.blockManager
-	blockManager.dataManager.Lock(indexer)
-	defer blockManager.dataManager.Unlock(indexer)
+	blockManager.diskManager.Lock(indexer)
+	defer blockManager.diskManager.Unlock(indexer)
 	cmd(ctx)
 }
 
@@ -191,12 +190,6 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	var blockRows []*Entry
 	for _, rawChunkChild := range firstRawChunk.children[firstRawChunk.headSlot:firstRawChunk.headSlot+4] {
 		blockRows = append(blockRows, rawChunkChild.children...)
-	}
-	for _, row := range blockRows {
-		if row == nil {
-			fmt.Println("!!!!", firstRawChunk.headSlot, firstRawChunk.headOffset)
-			return nil
-		}
 	}
 	blk := newBlock(oldIndexingTailOffset, blockRows[:blockLength])
 	indexingChunk, err := newIndexingChunk(oldIndexingSegment.copy(),

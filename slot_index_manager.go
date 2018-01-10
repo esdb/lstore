@@ -25,7 +25,7 @@ type slotIndexManager interface {
 type mmapSlotIndexManager struct {
 	strategy       *IndexingStrategy
 	slotIndexSizes []uint32
-	dataManager    *dheap.DataManager
+	diskManager    *dheap.DiskManager
 }
 
 func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrategy) *mmapSlotIndexManager {
@@ -35,12 +35,12 @@ func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrat
 	return &mmapSlotIndexManager{
 		strategy:       strategy,
 		slotIndexSizes: make([]uint32, levelsCount),
-		dataManager:    dheap.New(config.IndexDirectory, config.IndexFileSizeInPowerOfTwo),
+		diskManager:    dheap.New(config.IndexDirectory, config.IndexFileSizeInPowerOfTwo),
 	}
 }
 
 func (mgr *mmapSlotIndexManager) Close() error {
-	return mgr.dataManager.Close()
+	return mgr.diskManager.Close()
 }
 
 func (mgr *mmapSlotIndexManager) indexingStrategy() *IndexingStrategy {
@@ -49,7 +49,7 @@ func (mgr *mmapSlotIndexManager) indexingStrategy() *IndexingStrategy {
 
 func (mgr *mmapSlotIndexManager) newSlotIndex(seq slotIndexSeq, level level) (slotIndexSeq, slotIndexSeq, *slotIndex, error) {
 	size := mgr.getSlotIndexSize(level)
-	newSeq, buf, err := mgr.dataManager.AllocateBuf(uint64(seq), size)
+	newSeq, buf, err := mgr.diskManager.AllocateBuf(uint64(seq), size)
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -83,7 +83,7 @@ func (mgr *mmapSlotIndexManager) getSlotIndexSize(level level) uint32 {
 
 func (mgr *mmapSlotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
 	size := mgr.getSlotIndexSize(level)
-	buf, err := mgr.dataManager.MapWritableBuf(uint64(seq), size)
+	buf, err := mgr.diskManager.MapWritableBuf(uint64(seq), size)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (mgr *mmapSlotIndexManager) mapWritableSlotIndex(seq slotIndexSeq, level le
 func (mgr *mmapSlotIndexManager) readSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error) {
 	fmt.Println(seq)
 	size := mgr.getSlotIndexSize(level)
-	buf, err := mgr.dataManager.ReadBuf(uint64(seq), size)
+	buf, err := mgr.diskManager.ReadBuf(uint64(seq), size)
 	if err != nil {
 		return nil, err
 	}
@@ -111,5 +111,5 @@ func (mgr *mmapSlotIndexManager) readSlotIndex(seq slotIndexSeq, level level) (*
 }
 
 func (mgr *mmapSlotIndexManager) remove(untilSeq slotIndexSeq) {
-	mgr.dataManager.Remove(uint64(untilSeq))
+	mgr.diskManager.Remove(uint64(untilSeq))
 }

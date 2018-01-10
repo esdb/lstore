@@ -10,6 +10,7 @@ import (
 	"os"
 	"github.com/v2pro/plz/concurrent"
 	"github.com/v2pro/plz"
+	"runtime/debug"
 )
 
 func TestMain(m *testing.M) {
@@ -254,6 +255,7 @@ func Test_add_64x64_plus_1_blocks(t *testing.T) {
 }
 
 func Test_add_64x64x64_blocks(t *testing.T) {
+	debug.SetGCPercent(-1)
 	blockLength = 2
 	blockLengthInPowerOfTwo = 1
 	should := require.New(t)

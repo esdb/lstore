@@ -29,8 +29,8 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 		gocIter: gocodec.NewIterator(nil),
 	}
 	reader.Refresh(ctx)
-	store.blockManager.dataManager.Lock(reader)
-	store.slotIndexManager.dataManager.Lock(reader)
+	store.blockManager.diskManager.Lock(reader)
+	store.slotIndexManager.diskManager.Lock(reader)
 	return reader, nil
 }
 
@@ -55,8 +55,8 @@ func (reader *Reader) Refresh(ctx context.Context) bool {
 }
 
 func (reader *Reader) Close() error {
-	reader.store.blockManager.dataManager.Unlock(reader)
-	reader.store.slotIndexManager.dataManager.Unlock(reader)
+	reader.store.blockManager.diskManager.Unlock(reader)
+	reader.store.slotIndexManager.diskManager.Unlock(reader)
 	return nil
 }
 
