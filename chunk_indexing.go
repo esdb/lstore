@@ -14,6 +14,24 @@ type indexingChunk struct {
 	strategy         *IndexingStrategy
 }
 
+func newIndexingChunk(indexingSegment *indexSegment, slotIndexManager slotIndexManager, blockManager blockManager) (*indexingChunk, error) {
+	indexingChunk := &indexingChunk{
+		indexSegment:     indexingSegment,
+		indexingLevels:   make([]*slotIndex, levelsCount),
+		blockManager:     blockManager,
+		slotIndexManager: slotIndexManager,
+		strategy:         slotIndexManager.indexingStrategy(),
+	}
+	for i := level0; i <= indexingSegment.topLevel; i++ {
+		var err error
+		indexingChunk.indexingLevels[i], err = slotIndexManager.mapWritableSlotIndex(indexingChunk.levels[i], i)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return indexingChunk, nil
+}
+
 func (chunk *indexingChunk) addBlock(ctx countlog.Context, blk *block) error {
 	var err error
 	slots, err := chunk.nextSlot(ctx)

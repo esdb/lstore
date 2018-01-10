@@ -60,7 +60,7 @@ func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator
 	}
 }
 
-func createRawSegment(segmentPath string, maxSize int64, headOffset Offset) (*os.File, error) {
+func createRawSegment(ctx countlog.Context, segmentPath string, maxSize int64, headOffset Offset) (*os.File, error) {
 	os.MkdirAll(path.Dir(segmentPath), 0777)
 	file, err := os.OpenFile(segmentPath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
@@ -77,6 +77,8 @@ func createRawSegment(segmentPath string, maxSize int64, headOffset Offset) (*os
 		return nil, stream.Error
 	}
 	_, err = file.Write(stream.Buffer())
+	ctx.DebugCall("callee!createRawSegment", err,
+		"segmentPath", segmentPath, "headOffset", headOffset)
 	if err != nil {
 		return nil, err
 	}

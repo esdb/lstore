@@ -79,7 +79,8 @@ func createIndexSegment(ctx countlog.Context, segmentPath string, segment *index
 	}
 	os.MkdirAll(path.Dir(segmentPath), 0777)
 	err := ioutil.WriteFile(segmentPath, stream.Buffer(), 0666)
-	ctx.TraceCall("callee!ioutil.WriteFile", err)
+	ctx.DebugCall("callee!createIndexSegment", err, "segmentPath", segmentPath,
+		"headOffset", segment.headOffset, "tailOffset", segment.tailOffset)
 	if err != nil {
 		return err
 	}

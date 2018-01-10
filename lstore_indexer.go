@@ -199,7 +199,8 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		}
 	}
 	blk := newBlock(oldIndexingTailOffset, blockRows[:blockLength])
-	indexingChunk, err := indexer.newIndexingChunk(oldIndexingSegment.copy())
+	indexingChunk, err := newIndexingChunk(oldIndexingSegment.copy(),
+		indexer.store.slotIndexManager, indexer.store.blockManager)
 	if err != nil {
 		return err
 	}
@@ -229,25 +230,6 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		return err
 	}
 	return nil
-}
-
-func (indexer *indexer) newIndexingChunk(indexingSegment *indexSegment) (*indexingChunk, error) {
-	slotIndexManager := indexer.store.slotIndexManager
-	indexingChunk := &indexingChunk{
-		indexSegment:     indexingSegment,
-		indexingLevels:   make([]*slotIndex, levelsCount),
-		blockManager:     indexer.store.blockManager,
-		slotIndexManager: slotIndexManager,
-		strategy:         indexer.store.IndexingStrategy,
-	}
-	for i := level0; i <= indexingSegment.topLevel; i++ {
-		var err error
-		indexingChunk.indexingLevels[i], err = slotIndexManager.mapWritableSlotIndex(indexingChunk.levels[i], i)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return indexingChunk, nil
 }
 
 func (indexer *indexer) saveIndexingChunk(ctx countlog.Context, indexingSegment *indexSegment, shouldRotate bool) error {

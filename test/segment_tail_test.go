@@ -84,10 +84,15 @@ func Test_reopen_tail_segment(t *testing.T) {
 	should.Equal([]int64{2}, collector.Rows[1].IntValues)
 }
 
-func Test_write_rotation(t *testing.T) {
+func Test_rotate_raw_segment_file(t *testing.T) {
 	should := require.New(t)
 	store := testStore(lstore.Config{TailSegmentMaxSize: 140})
 	defer store.Stop(ctx)
+	reader, err := store.NewReader(ctx)
+	should.NoError(err)
+	collector := &lstore.OffsetsCollector{}
+	reader.SearchForward(ctx, 0, nil, collector)
+	should.Len(collector.Offsets, 0)
 	seq, err := store.Write(ctx, intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), seq)
@@ -97,4 +102,46 @@ func Test_write_rotation(t *testing.T) {
 	seq, err = store.Write(ctx, intEntry(3))
 	should.Nil(err)
 	should.Equal(lstore.Offset(2), seq)
+	should.True(reader.Refresh(ctx))
+	collector = &lstore.OffsetsCollector{}
+	reader.SearchForward(ctx, 0, nil, collector)
+	should.Len(collector.Offsets, 3)
+}
+
+func Test_rotate_raw_chunk_child(t *testing.T) {
+	should := require.New(t)
+	store := testStore(lstore.Config{})
+	defer store.Stop(ctx)
+	reader, err := store.NewReader(ctx)
+	should.NoError(err)
+	collector := &lstore.OffsetsCollector{}
+	reader.SearchForward(ctx, 0, nil, collector)
+	for i := 0; i < 65; i++ {
+		seq, err := store.Write(ctx, intEntry(1))
+		should.Nil(err)
+		should.Equal(lstore.Offset(i), seq)
+	}
+	should.True(reader.Refresh(ctx))
+	collector = &lstore.OffsetsCollector{}
+	reader.SearchForward(ctx, 0, nil, collector)
+	should.Equal(65, len(collector.Offsets))
+}
+
+func Test_rotate_raw_chunk(t *testing.T) {
+	should := require.New(t)
+	store := testStore(lstore.Config{})
+	defer store.Stop(ctx)
+	reader, err := store.NewReader(ctx)
+	should.NoError(err)
+	collector := &lstore.OffsetsCollector{}
+	reader.SearchForward(ctx, 0, nil, collector)
+	for i := 0; i < 4097; i++ {
+		seq, err := store.Write(ctx, intEntry(1))
+		should.Nil(err)
+		should.Equal(lstore.Offset(i), seq)
+	}
+	should.True(reader.Refresh(ctx))
+	collector = &lstore.OffsetsCollector{}
+	reader.SearchForward(ctx, 0, nil, collector)
+	should.Equal(4097, len(collector.Offsets))
 }

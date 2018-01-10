@@ -48,9 +48,7 @@ func (writer *writer) load(ctx countlog.Context) error {
 	}
 	ctx.Info("event!writer.loadInitialVersion",
 		"indexingTailOffset", writer.currentVersion.indexingChunk.tailOffset,
-		"tailHeadOffset", writer.tailChunk.headOffset,
-		"storeTailOffset", writer.store.tailOffset,
-			"rawChunkHeadOffset", writer.currentVersion.rawChunks[0].headOffset)
+		"storeTailOffset", writer.store.tailOffset)
 	return nil
 }
 
@@ -98,8 +96,8 @@ func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version
 			return err
 		}
 		reversedIndexedChunks = append(reversedIndexedChunks, &indexChunk{
-			indexSegment:  indexedSegment,
-			blockManager:  writer.store.blockManager,
+			indexSegment:     indexedSegment,
+			blockManager:     writer.store.blockManager,
 			slotIndexManager: writer.store.slotIndexManager,
 		})
 		startOffset = indexedSegment.headOffset
@@ -110,8 +108,8 @@ func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version
 	}
 	version.indexedChunks = indexedChunks
 	version.indexingChunk = &indexChunk{
-		indexSegment:  indexingSegment,
-		blockManager:  writer.store.blockManager,
+		indexSegment:     indexingSegment,
+		blockManager:     writer.store.blockManager,
 		slotIndexManager: writer.store.slotIndexManager,
 	}
 	return nil
@@ -205,7 +203,7 @@ func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultCha
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		if writer.tailEntriesCount >= blockLength {
 			err := writer.rotateTail(ctx, writer.currentVersion)
-			ctx.TraceCall("callee!writer.rotate", err)
+			ctx.TraceCall("callee!writer.rotateTail", err)
 			if err != nil {
 				resultChan <- WriteResult{0, err}
 				return
@@ -243,13 +241,10 @@ func (writer *writer) Write(ctxObj context.Context, entry *Entry) (Offset, error
 	writer.AsyncWrite(ctx, entry, resultChan)
 	select {
 	case result := <-resultChan:
-		ctx.DebugCall("callee!writer.AsyncWrite", result.Error, "offset", result.Offset,
-			"tail", func() interface{} {
-				return writer.store.getTailOffset()
-			})
+		ctx.TraceCall("callee!writer.Write", result.Error, "offset", result.Offset)
 		return result.Offset, result.Error
 	case <-ctx.Done():
-		ctx.DebugCall("callee!writer.AsyncWrite", ctx.Err())
+		ctx.TraceCall("callee!writer.Write", ctx.Err())
 		return 0, ctx.Err()
 	}
 }
@@ -269,16 +264,17 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
 	tailRawChunk := rawChunks[len(rawChunks)-1]
 	if tailRawChunk.add(entry) {
 		rawChunks = append(rawChunks, newRawChunk(
-			writer.store.IndexingStrategy, tailRawChunk.headOffset + 4096))
+			writer.store.IndexingStrategy, tailRawChunk.tailOffset))
 		newVersion := &StoreVersion{
 			indexedChunks: append([]*indexChunk(nil), writer.currentVersion.indexedChunks...),
 			indexingChunk: writer.currentVersion.indexingChunk,
 			rawChunks:     rawChunks,
 		}
+		countlog.Debug("event!writer.rotated raw chunk",
+			"tailOffset", tailRawChunk.tailOffset)
 		writer.updateCurrentVersion(newVersion)
 	}
 	// reader will know if read the tail using atomic
-	countlog.Trace("event!writer.tryWrite", "offset", writer.store.tailOffset)
 	writer.incrementTailOffset()
 	return nil
 }
@@ -306,7 +302,7 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 		segmentHeader: segmentHeader{segmentTypeRaw, Offset(writer.store.tailOffset)},
 		path:          rotatedTo,
 	})
-	countlog.Debug("event!store.rotated tail",
+	countlog.Debug("event!writer.rotated tail",
 		"rotatedTo", rotatedTo)
 	return nil
 }
@@ -320,7 +316,7 @@ func (writer *writer) movedBlockIntoIndex(
 		newVersion := &StoreVersion{
 			indexedChunks: append([]*indexChunk(nil), oldVersion.indexedChunks...),
 			indexingChunk: indexingChunk,
-			rawChunks: append([]*rawChunk(nil), oldVersion.rawChunks...),
+			rawChunks:     append([]*rawChunk(nil), oldVersion.rawChunks...),
 		}
 		firstRawChunk := *newVersion.rawChunks[0] // copy the first raw chunk
 		firstRawChunk.headSlot += 4
@@ -362,7 +358,7 @@ func (writer *writer) rotatedIndex(
 		newVersion := &StoreVersion{
 			indexedChunks: append(oldVersion.indexedChunks, indexedChunk),
 			indexingChunk: indexingChunk,
-			rawChunks: oldVersion.rawChunks,
+			rawChunks:     oldVersion.rawChunks,
 		}
 		writer.updateCurrentVersion(newVersion)
 		resultChan <- nil
@@ -382,7 +378,7 @@ func (writer *writer) removedIndex(
 		newVersion := &StoreVersion{
 			indexedChunks: oldVersion.indexedChunks[removedIndexedChunksCount:],
 			indexingChunk: oldVersion.indexingChunk,
-			rawChunks: oldVersion.rawChunks,
+			rawChunks:     oldVersion.rawChunks,
 		}
 		writer.updateCurrentVersion(newVersion)
 		resultChan <- nil

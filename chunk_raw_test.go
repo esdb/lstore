@@ -7,7 +7,7 @@ import (
 	"github.com/esdb/biter"
 )
 
-func Test_build_raw_chunk(t *testing.T) {
+func Test_raw_chunk_with_1(t *testing.T) {
 	should := require.New(t)
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
@@ -20,18 +20,59 @@ func Test_build_raw_chunk(t *testing.T) {
 	should.Equal(1, len(collector.Rows))
 }
 
-func Test_search_raw_chunk(t *testing.T) {
+func Test_raw_chunk_with_64(t *testing.T) {
+	should := require.New(t)
+	strategy := NewIndexingStrategy(IndexingStrategyConfig{
+		BloomFilterIndexedBlobColumns: []int{0},
+	})
+	index := newRawChunk(strategy, 0)
+	for i := 0; i < 64; i++ {
+		index.add(blobEntry("hello"))
+	}
+	collector := &RowsCollector{}
+	index.searchForward(ctx, 0, dummyFilterInstance, collector)
+	should.Equal(64, len(collector.Rows))
+}
+
+func Test_raw_chunk_with_65(t *testing.T) {
+	should := require.New(t)
+	strategy := NewIndexingStrategy(IndexingStrategyConfig{
+		BloomFilterIndexedBlobColumns: []int{0},
+	})
+	index := newRawChunk(strategy, 0)
+	for i := 0; i < 65; i++ {
+		index.add(blobEntry("hello"))
+	}
+	collector := &RowsCollector{}
+	index.searchForward(ctx, 0, dummyFilterInstance, collector)
+	should.Equal(65, len(collector.Rows))
+}
+
+func Test_raw_chunk_with_4096(t *testing.T) {
 	should := require.New(t)
 	strategy := NewIndexingStrategy(IndexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newRawChunk(strategy, 0)
 	for i := 0; i < 4095; i++ {
-		entry := blobEntry(Blob(fmt.Sprintf("hello%v", i)))
-		should.False(index.add(entry))
+		should.False(index.add(blobEntry("hello")))
 	}
-	entry := blobEntry("hell4095")
-	should.True(index.add(entry))
+	should.True(index.add(blobEntry("hello")))
+	collector := &RowsCollector{}
+	index.searchForward(ctx, 0, dummyFilterInstance, collector)
+	should.Equal(4096, len(collector.Rows))
+}
+
+func Test_search_raw_chunk(t *testing.T) {
+	should := require.New(t)
+	strategy := NewIndexingStrategy(IndexingStrategyConfig{
+		BloomFilterIndexedBlobColumns: []int{0},
+	})
+	index := newRawChunk(strategy, 0)
+	for i := 0; i < 4096; i++ {
+		entry := blobEntry(Blob(fmt.Sprintf("hello%v", i)))
+		index.add(entry)
+	}
 	should.Equal(biter.Slot(63), index.tailSlot)
 	should.Equal(biter.Slot(63), index.children[63].tailSlot)
 	collector := &RowsCollector{}

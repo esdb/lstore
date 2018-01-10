@@ -41,14 +41,14 @@ func (reader *Reader) TailOffset() Offset {
 // Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailChunk.tail
 func (reader *Reader) Refresh(ctx context.Context) bool {
 	hasNew := false
-	latestVersion := reader.store.latest()
-	if reader.currentVersion != latestVersion {
-		reader.currentVersion = latestVersion
-		hasNew = true
-	}
 	newTailOffset := reader.store.getTailOffset()
 	if newTailOffset != reader.tailOffset {
 		reader.tailOffset = newTailOffset
+		hasNew = true
+	}
+	latestVersion := reader.store.latest()
+	if reader.currentVersion != latestVersion {
+		reader.currentVersion = latestVersion
 		hasNew = true
 	}
 	return hasNew
