@@ -17,7 +17,6 @@ import (
 
 
 type pageSeq uint64
-type ObjectSeq uint64
 
 // DiskManager is thread safe
 type DiskManager struct {
