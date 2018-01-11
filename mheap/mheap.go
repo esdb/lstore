@@ -8,8 +8,6 @@ import (
 	"math"
 )
 
-type pageSeq uint64
-
 // MemoryManager is not thread safe
 type MemoryManager struct {
 	startSeq     gocodec.ObjectSeq
@@ -24,6 +22,7 @@ type MemoryManager struct {
 	pageSizeInPowerOfTwo uint8 // 2 ^ x
 	pageSize             int
 	maxOldPagesCount     int
+	iter                 *gocodec.Iterator
 }
 
 func New(pageSizeInPowerOfTwo uint8, maxPagesCount int) *MemoryManager {
@@ -32,14 +31,19 @@ func New(pageSizeInPowerOfTwo uint8, maxPagesCount int) *MemoryManager {
 	if err != nil {
 		panic(err)
 	}
-	return &MemoryManager{
+	iter := gocodec.ReadonlyConfig.NewIterator(nil)
+	mgr := &MemoryManager{
 		pageSizeInPowerOfTwo: pageSizeInPowerOfTwo,
 		pageSize:             1 << pageSizeInPowerOfTwo,
 		maxOldPagesCount:     maxPagesCount - 1,
 		lastPage:             lastPage,
 		lastPageBuf:          lastPage[:],
 		lastPageRef:          math.MaxUint64,
+		iter:                 iter,
+		objects:              map[gocodec.ObjectSeq]interface{}{},
 	}
+	iter.Allocator(mgr)
+	return mgr
 }
 
 func (mgr *MemoryManager) Close() error {
@@ -68,16 +72,21 @@ func (mgr *MemoryManager) Allocate(objectSeq gocodec.ObjectSeq, original []byte)
 		if err != nil {
 			panic(err)
 		}
+		mgr.oldPageRefs = append(mgr.oldPageRefs, mgr.lastPageRefs)
 		mgr.oldPages = append(mgr.oldPages, mgr.lastPage)
 		mgr.lastPage = newPage
 		mgr.lastPageBuf = newPage[:]
 		if len(mgr.oldPages) > mgr.maxOldPagesCount {
 			expiresCount := len(mgr.oldPages) - mgr.maxOldPagesCount
 			expiredPages := mgr.oldPages[:expiresCount]
-			for _, page := range expiredPages {
+			for i, page := range expiredPages {
+				for _, refObjectSeq := range mgr.oldPageRefs[i] {
+					delete(mgr.objects, refObjectSeq)
+				}
 				err = page.Unmap()
 				countlog.TraceCall("callee!page.Unmap", err)
 			}
+			mgr.lastPageRefs = mgr.lastPageRefs[expiresCount:]
 			mgr.oldPages = mgr.oldPages[expiresCount:]
 		}
 	}
@@ -89,4 +98,19 @@ func (mgr *MemoryManager) Allocate(objectSeq gocodec.ObjectSeq, original []byte)
 		mgr.lastPageRefs = append(mgr.lastPageRefs, objectSeq)
 	}
 	return allocated
+}
+
+func (mgr *MemoryManager) Unmarshal(objectSeq gocodec.ObjectSeq, buf []byte, candidatePointer interface{}) (interface{}, error) {
+	obj := mgr.objects[objectSeq]
+	if obj != nil {
+		return obj, nil
+	}
+	mgr.iter.ObjectSeq(objectSeq)
+	mgr.iter.Reset(buf)
+	obj = mgr.iter.Unmarshal(candidatePointer)
+	if mgr.iter.Error != nil {
+		return nil, mgr.iter.Error
+	}
+	mgr.objects[objectSeq] = obj
+	return obj, nil
 }
