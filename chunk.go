@@ -7,35 +7,35 @@ import (
 	"github.com/v2pro/plz/countlog"
 )
 
-type rawChunkRoot struct {
+type chunkRoot struct {
 	pbfs     []pbloom.ParallelBloomFilter // 64 slots
 	headSlot biter.Slot                   // some slots will be deleted, after entries moved into index segment
 	tailSlot biter.Slot
 }
 
-type rawChunkChild struct {
+type chunkChild struct {
 	pbfs     []pbloom.ParallelBloomFilter // 64 slots
 	children []*Entry
 	tailSlot biter.Slot
 }
 
-// rawChunk only resides in memory
-type rawChunk struct {
-	rawChunkRoot
+// chunk only resides in memory
+type chunk struct {
+	chunkRoot
 	headOffset Offset
 	tailOffset Offset
-	children   []*rawChunkChild
+	children   []*chunkChild
 	strategy   *IndexingStrategy
 }
 
-func newRawChunks(strategy *IndexingStrategy, headOffset Offset) []*rawChunk {
-	return []*rawChunk{newRawChunk(strategy, headOffset)}
+func newChunks(strategy *IndexingStrategy, headOffset Offset) []*chunk {
+	return []*chunk{newChunk(strategy, headOffset)}
 }
 
-func newRawChunk(strategy *IndexingStrategy, headOffset Offset) *rawChunk {
-	children := make([]*rawChunkChild, 64)
+func newChunk(strategy *IndexingStrategy, headOffset Offset) *chunk {
+	children := make([]*chunkChild, 64)
 	for i := 0; i < len(children); i++ {
-		child := &rawChunkChild{nil, make([]*Entry, 64), 0}
+		child := &chunkChild{nil, make([]*Entry, 64), 0}
 		children[i] = child
 	}
 	hashingStrategy := strategy.tinyHashingStrategy
@@ -43,22 +43,22 @@ func newRawChunk(strategy *IndexingStrategy, headOffset Offset) *rawChunk {
 	for i := 0; i < len(pbfs); i++ {
 		pbfs[i] = hashingStrategy.New()
 	}
-	return &rawChunk{
-		strategy:     strategy,
-		headOffset:   headOffset,
-		tailOffset:   headOffset,
-		children:     children,
-		rawChunkRoot: rawChunkRoot{pbfs, 0, 0},
+	return &chunk{
+		strategy:   strategy,
+		headOffset: headOffset,
+		tailOffset: headOffset,
+		children:   children,
+		chunkRoot:  chunkRoot{pbfs, 0, 0},
 	}
 }
 
-func (chunk *rawChunk) add(entry *Entry) bool {
+func (chunk *chunk) add(entry *Entry) bool {
 	child := chunk.children[chunk.tailSlot]
 	strategy := chunk.strategy
 	if child.tailSlot == 63 {
 		chunk.tailSlot += 1
 		if countlog.ShouldLog(countlog.LevelTrace) {
-			countlog.Trace("event!rawChunk.rotated child",
+			countlog.Trace("event!chunk.rotated child",
 				"chunkHeadOffset", chunk.headOffset,
 				"chunkTailOffset", chunk.tailOffset,
 				"chunkTailSlot", chunk.tailSlot)
@@ -86,7 +86,7 @@ func (chunk *rawChunk) add(entry *Entry) bool {
 	}
 	child.children[child.tailSlot] = entry
 	chunk.tailOffset += 1
-	countlog.Trace("event!rawChunk.add",
+	countlog.Trace("event!chunk.add",
 		"chunkHeadOffset", chunk.headOffset,
 		"chunkTailOffset", chunk.tailOffset,
 		"chunkTailSlot", chunk.tailSlot,
@@ -97,11 +97,10 @@ func (chunk *rawChunk) add(entry *Entry) bool {
 	return false
 }
 
-func (chunk *rawChunk) searchForward(ctx countlog.Context, startOffset Offset,
-	filter Filter, cb SearchCallback) error {
-	rootResult := filter.searchTinyIndex(chunk.pbfs)
+func (chunk *chunk) searchForward(ctx countlog.Context, req *SearchRequest) error {
+	rootResult := req.Filter.searchTinyIndex(chunk.pbfs)
 	rootResult &= biter.SetBitsForwardUntil[chunk.tailSlot]
-	delta := startOffset - chunk.headOffset
+	delta := req.StartOffset - chunk.headOffset
 	if delta < 4096 {
 		rootResult &= biter.SetBitsForwardFrom[delta>>6]
 	}
@@ -112,10 +111,10 @@ func (chunk *rawChunk) searchForward(ctx countlog.Context, startOffset Offset,
 			return nil
 		}
 		child := chunk.children[rootSlot]
-		childResult := filter.searchTinyIndex(child.pbfs)
+		childResult := req.Filter.searchTinyIndex(child.pbfs)
 		childResult &= biter.SetBitsForwardUntil[child.tailSlot]
 		baseOffset := chunk.headOffset + (Offset(rootSlot) << 6) // * 64
-		delta := startOffset - baseOffset
+		delta := req.StartOffset - baseOffset
 		if delta < 64 {
 			childResult &= biter.SetBitsForwardFrom[delta]
 		}
@@ -126,8 +125,8 @@ func (chunk *rawChunk) searchForward(ctx countlog.Context, startOffset Offset,
 				break
 			}
 			entry := child.children[childSlot]
-			if filter.matchesEntry(entry) {
-				if err := cb.HandleRow(baseOffset+Offset(childSlot), entry); err != nil {
+			if req.Filter.matchesEntry(entry) {
+				if err := req.Callback.HandleRow(baseOffset+Offset(childSlot), entry); err != nil {
 					return err
 				}
 			}

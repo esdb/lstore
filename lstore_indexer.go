@@ -6,24 +6,33 @@ import (
 	"errors"
 	"context"
 	"os"
+	"github.com/v2pro/plz"
 )
 
 type indexerCommand func(ctx countlog.Context)
 
 type indexer struct {
-	store          *Store
-	commandQueue   chan indexerCommand
-	currentVersion *StoreVersion
+	store           *Store
+	commandQueue    chan indexerCommand
+	currentVersion  *StoreVersion
+	slotIndexWriter slotIndexWriter
+	blockWriter     blockWriter
 }
 
 func (store *Store) newIndexer(ctx countlog.Context) *indexer {
 	indexer := &indexer{
-		store:          store,
-		currentVersion: store.latest(),
-		commandQueue:   make(chan indexerCommand, 1),
+		store:           store,
+		currentVersion:  store.latest(),
+		commandQueue:    make(chan indexerCommand, 1),
+		slotIndexWriter: store.slotIndexManager.newWriter(10, 4),
+		blockWriter:     store.blockManager.newWriter(),
 	}
 	indexer.start()
 	return indexer
+}
+
+func (indexer *indexer) Close() error {
+	return plz.Close(indexer.slotIndexWriter)
 }
 
 func (indexer *indexer) start() {
@@ -57,11 +66,11 @@ func (indexer *indexer) start() {
 
 func (indexer *indexer) runCommand(ctx countlog.Context, cmd indexerCommand) {
 	slotIndexManager := indexer.store.slotIndexManager
-	slotIndexManager.diskManager.Lock(indexer)
-	defer slotIndexManager.diskManager.Unlock(indexer)
+	slotIndexManager.lock(indexer, indexer.currentVersion.HeadOffset())
+	defer slotIndexManager.unlock(indexer)
 	blockManager := indexer.store.blockManager
-	blockManager.diskManager.Lock(indexer)
-	defer blockManager.diskManager.Unlock(indexer)
+	blockManager.lock(indexer, indexer.currentVersion.HeadOffset())
+	defer blockManager.unlock(indexer)
 	cmd(ctx)
 }
 
@@ -102,7 +111,7 @@ func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err 
 	var removedIndexedSegmentsCount int
 	var tailBlockSeq blockSeq
 	var tailSlotIndexSeq slotIndexSeq
-	for i, indexedSegment := range indexer.currentVersion.indexedChunks {
+	for i, indexedSegment := range indexer.currentVersion.indexedSegments {
 		if indexedSegment.headOffset >= untilOffset {
 			break
 		}
@@ -124,16 +133,16 @@ func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err 
 	if err != nil {
 		return err
 	}
-	indexer.store.slotIndexManager.remove(tailSlotIndexSeq)
-	indexer.store.blockManager.remove(tailBlockSeq)
+	indexer.slotIndexWriter.remove(tailSlotIndexSeq)
+	indexer.blockWriter.remove(tailBlockSeq)
 	return nil
 }
 
 func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	countlog.Debug("event!indexer.doRotateIndex")
 	currentVersion := indexer.currentVersion
-	oldIndexingSegment := currentVersion.indexingChunk.indexSegment
-	newIndexingSegment, err := newIndexSegment(indexer.store.slotIndexManager, oldIndexingSegment)
+	oldIndexingSegment := currentVersion.indexingSegment
+	newIndexingSegment, err := newIndexSegment(indexer.slotIndexWriter, oldIndexingSegment)
 	if err != nil {
 		return err
 	}
@@ -153,11 +162,7 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	indexer.store.writer.rotatedIndex(ctx, currentVersion.indexingChunk, &indexChunk{
-		indexSegment:     newIndexingSegment,
-		blockManager:     indexer.store.blockManager,
-		slotIndexManager: indexer.store.slotIndexManager,
-	})
+	indexer.store.writer.rotatedIndex(ctx, currentVersion.indexingSegment, newIndexingSegment)
 	ctx.Info("event!indexer.rotated index",
 		"indexedSegment.headOffset", oldIndexingSegment.headOffset,
 		"indexedSegment.tailOffset", oldIndexingSegment.tailOffset)
@@ -167,7 +172,7 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	currentVersion := indexer.currentVersion
 	storeTailOffset := indexer.store.getTailOffset()
-	oldIndexingSegment := currentVersion.indexingChunk.indexSegment
+	oldIndexingSegment := currentVersion.indexingSegment
 	oldIndexingTailOffset := oldIndexingSegment.tailOffset
 	countlog.Debug("event!indexer.doUpdateIndex",
 		"storeTailOffset", storeTailOffset,
@@ -176,15 +181,15 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		countlog.Debug("event!indexer.doUpdateIndex do not find enough raw entries")
 		return nil
 	}
-	firstRawChunk := currentVersion.rawChunks[0]
+	firstRawChunk := currentVersion.chunks[0]
 	if firstRawChunk.headOffset+Offset(firstRawChunk.headSlot<<6) != oldIndexingTailOffset {
 		countlog.Fatal("event!indexer.doUpdateIndex find offset inconsistent")
 		return errors.New("inconsistent tail offset")
 	}
-	if firstRawChunk.tailSlot < firstRawChunk.headSlot + 4 {
+	if firstRawChunk.tailSlot < firstRawChunk.headSlot+4 {
 		countlog.Fatal("event!indexer.doUpdateIndex find firstRawChunk not fully filled",
 			"tailSlot", firstRawChunk.tailSlot,
-				"headSlot", firstRawChunk.headSlot)
+			"headSlot", firstRawChunk.headSlot)
 		return errors.New("firstRawChunk not fully filled")
 	}
 	var blockRows []*Entry
@@ -192,33 +197,25 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		blockRows = append(blockRows, rawChunkChild.children...)
 	}
 	blk := newBlock(oldIndexingTailOffset, blockRows[:blockLength])
-	indexingChunk, err := newIndexingChunk(oldIndexingSegment.copy(),
-		indexer.store.slotIndexManager, indexer.store.blockManager)
+	indexingSegment := oldIndexingSegment.copy()
 	if err != nil {
 		return err
 	}
-	err = indexingChunk.addBlock(ctx, blk)
-	ctx.TraceCall("callee!indexingChunk.addBlock", err,
+	err = indexingSegment.addBlock(ctx, indexer.slotIndexWriter, indexer.blockWriter, blk)
+	ctx.TraceCall("callee!indexingSegment.addBlock", err,
 		"blockStartOffset", oldIndexingTailOffset,
-		"tailBlockSeq", indexingChunk.tailBlockSeq,
-		"tailSlotIndexSeq", indexingChunk.tailSlotIndexSeq,
-		"level0.tailSlot", indexingChunk.indexingLevels[0].tailSlot,
-		"level1.tailSlot", indexingChunk.indexingLevels[1].tailSlot,
-		"level2.tailSlot", indexingChunk.indexingLevels[2].tailSlot)
+		"tailBlockSeq", indexingSegment.tailBlockSeq,
+		"tailSlotIndexSeq", indexingSegment.tailSlotIndexSeq)
 	if err != nil {
 		return err
 	}
 	// TODO: rotate
-	err = indexer.saveIndexingChunk(ctx, indexingChunk.indexSegment, false)
-	ctx.TraceCall("callee!indexingChunk.save", err)
+	err = indexer.saveIndexingChunk(ctx, indexingSegment, false)
+	ctx.TraceCall("callee!indexingSegment.save", err)
 	if err != nil {
 		return err
 	}
-	err = indexer.store.writer.movedBlockIntoIndex(ctx, &indexChunk{
-		indexSegment:     indexingChunk.indexSegment,
-		blockManager:     indexer.store.blockManager,
-		slotIndexManager: indexer.store.slotIndexManager,
-	})
+	err = indexer.store.writer.movedBlockIntoIndex(ctx, indexingSegment)
 	if err != nil {
 		return err
 	}

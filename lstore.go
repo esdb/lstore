@@ -9,6 +9,7 @@ import (
 	"context"
 	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/plz"
+	"io"
 )
 
 const IndexingSegmentFileName = "indexing.segment"
@@ -55,17 +56,24 @@ type Store struct {
 	Config
 	writer           *writer
 	indexer          *indexer
-	blockManager     *mmapBlockManager
-	slotIndexManager *mmapSlotIndexManager
+	blockManager     blockManager
+	slotIndexManager slotIndexManager
 	currentVersion   unsafe.Pointer                // pointer to StoreVersion, writer use atomic to notify readers
 	tailOffset       uint64                        // offset, writer use atomic to notify readers
 	executor         *concurrent.UnboundedExecutor // owns writer and indexer
 }
 
 type StoreVersion struct {
-	indexedChunks []*indexChunk
-	indexingChunk *indexChunk
-	rawChunks     []*rawChunk
+	indexedSegments []*indexSegment
+	indexingSegment *indexSegment
+	chunks          []*chunk
+}
+
+func (version *StoreVersion) HeadOffset() Offset {
+	if len(version.indexedSegments) != 0 {
+		return version.indexedSegments[0].headOffset
+	}
+	return version.indexingSegment.headOffset
 }
 
 func (store *Store) Start(ctxObj context.Context) error {
@@ -102,7 +110,12 @@ func (store *Store) Start(ctxObj context.Context) error {
 
 func (store *Store) Stop(ctx context.Context) error {
 	store.executor.StopAndWait(ctx)
-	return plz.Close(store.writer)
+	return plz.CloseAll([]io.Closer{
+		store.writer,
+		store.indexer,
+		store.slotIndexManager,
+		store.blockManager,
+	})
 }
 
 func (store *Store) Write(ctxObj context.Context, entry *Entry) (Offset, error) {

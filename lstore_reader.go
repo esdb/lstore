@@ -1,18 +1,26 @@
 package lstore
 
 import (
-	"github.com/esdb/gocodec"
 	"context"
 	"github.com/v2pro/plz/countlog"
 	"errors"
+	"github.com/v2pro/plz"
+	"io"
 )
 
 // Reader is not thread safe, can only be used from one goroutine
 type Reader struct {
-	store          *Store
-	currentVersion *StoreVersion
-	tailOffset     Offset
-	gocIter        *gocodec.Iterator
+	store           *Store
+	currentVersion  *StoreVersion
+	tailOffset      Offset
+	slotIndexReader slotIndexReader
+	blockReader     blockReader
+}
+
+type SearchRequest struct {
+	StartOffset Offset
+	Filter      Filter
+	Callback    SearchCallback
 }
 
 // SearchAborted should be returned if you want to end the scanForward from callback
@@ -25,12 +33,13 @@ type SearchCallback interface {
 func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 	ctx := countlog.Ctx(ctxObj)
 	reader := &Reader{
-		store:   store,
-		gocIter: gocodec.NewIterator(nil),
+		store:         store,
+		slotIndexReader: store.slotIndexManager.newReader(10, 4),
+		blockReader: store.blockManager.newReader(10, 4),
 	}
 	reader.Refresh(ctx)
-	store.blockManager.diskManager.Lock(reader)
-	store.slotIndexManager.diskManager.Lock(reader)
+	store.blockManager.lock(reader, reader.currentVersion.HeadOffset())
+	store.slotIndexManager.lock(reader, reader.currentVersion.HeadOffset())
 	return reader, nil
 }
 
@@ -55,36 +64,39 @@ func (reader *Reader) Refresh(ctx context.Context) bool {
 }
 
 func (reader *Reader) Close() error {
-	reader.store.blockManager.diskManager.Unlock(reader)
-	reader.store.slotIndexManager.diskManager.Unlock(reader)
-	return nil
+	reader.store.blockManager.unlock(reader)
+	reader.store.slotIndexManager.unlock(reader)
+	return plz.CloseAll([]io.Closer{
+		reader.slotIndexReader,
+		reader.blockReader,
+	})
 }
 
-func (reader *Reader) SearchForward(ctxObj context.Context, startOffset Offset, filter Filter, cb SearchCallback) error {
+func (reader *Reader) SearchForward(ctxObj context.Context, req *SearchRequest) error {
 	ctx := countlog.Ctx(ctxObj)
 	store := reader.currentVersion
-	if filter == nil {
-		filter = dummyFilterInstance
+	if req.Filter == nil {
+		req.Filter = dummyFilterInstance
 	}
-	for _, indexedSegment := range store.indexedChunks {
-		if err := indexedSegment.searchForward(ctx, startOffset, filter, cb); err != nil {
+	for _, indexedSegment := range store.indexedSegments {
+		if err := indexedSegment.searchForward(ctx, reader.slotIndexReader, reader.blockReader, req); err != nil {
 			return err
 		}
 	}
-	if startOffset < store.indexingChunk.tailOffset {
-		if err := store.indexingChunk.searchForward(ctx, startOffset, filter, cb); err != nil {
+	if req.StartOffset < store.indexingSegment.tailOffset {
+		if err := store.indexingSegment.searchForward(ctx, reader.slotIndexReader, reader.blockReader, req); err != nil {
 			return err
 		}
-		startOffset = store.indexingChunk.tailOffset
+		req.StartOffset = store.indexingSegment.tailOffset
 	}
-	lastRawChunk := len(store.rawChunks) - 1
-	for _, rawSegmentIndex := range store.rawChunks[:lastRawChunk] {
-		if err := rawSegmentIndex.searchForward(ctx, startOffset, filter, cb); err != nil {
+	lastRawChunk := len(store.chunks) - 1
+	for _, rawSegmentIndex := range store.chunks[:lastRawChunk] {
+		if err := rawSegmentIndex.searchForward(ctx, req); err != nil {
 			return err
 		}
 	}
-	if err := store.rawChunks[lastRawChunk].searchForward(
-		ctx, startOffset, filter, &StopAt{reader.tailOffset, cb}); err != nil {
+	req.Callback = &StopAt{reader.tailOffset, req.Callback}
+	if err := store.chunks[lastRawChunk].searchForward(ctx, req); err != nil {
 		return err
 	}
 	return nil

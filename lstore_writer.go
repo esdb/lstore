@@ -8,6 +8,7 @@ import (
 	"unsafe"
 	"sync/atomic"
 	"github.com/esdb/gocodec"
+	"github.com/v2pro/plz"
 )
 
 type writerCommand func(ctx countlog.Context)
@@ -47,7 +48,7 @@ func (writer *writer) load(ctx countlog.Context) error {
 		return err
 	}
 	ctx.Info("event!writer.loadInitialVersion",
-		"indexingTailOffset", writer.currentVersion.indexingChunk.tailOffset,
+		"indexingTailOffset", writer.currentVersion.indexingSegment.tailOffset,
 		"storeTailOffset", writer.store.tailOffset)
 	return nil
 }
@@ -72,7 +73,9 @@ func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version
 	indexingSegment, err := openIndexSegment(
 		ctx, writer.store.IndexingSegmentPath())
 	if os.IsNotExist(err) {
-		indexingSegment, err = newIndexSegment(writer.store.slotIndexManager, nil)
+		slotIndexWriter := writer.store.slotIndexManager.newWriter(10, 4)
+		defer plz.Close(slotIndexWriter)
+		indexingSegment, err = newIndexSegment(slotIndexWriter, nil)
 		if err != nil {
 			return err
 		}
@@ -85,7 +88,7 @@ func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version
 		return err
 	}
 	startOffset := indexingSegment.headOffset
-	var reversedIndexedChunks []*indexChunk
+	var reversedIndexedSegments []*indexSegment
 	for {
 		indexedSegmentPath := writer.store.IndexedSegmentPath(startOffset)
 		indexedSegment, err := openIndexSegment(ctx, indexedSegmentPath)
@@ -95,23 +98,15 @@ func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version
 		if err != nil {
 			return err
 		}
-		reversedIndexedChunks = append(reversedIndexedChunks, &indexChunk{
-			indexSegment:     indexedSegment,
-			blockManager:     writer.store.blockManager,
-			slotIndexManager: writer.store.slotIndexManager,
-		})
+		reversedIndexedSegments = append(reversedIndexedSegments, indexedSegment)
 		startOffset = indexedSegment.headOffset
 	}
-	indexedChunks := make([]*indexChunk, len(reversedIndexedChunks))
-	for i := 0; i < len(reversedIndexedChunks); i++ {
-		indexedChunks[i] = reversedIndexedChunks[len(reversedIndexedChunks)-i-1]
+	indexedSegments := make([]*indexSegment, len(reversedIndexedSegments))
+	for i := 0; i < len(reversedIndexedSegments); i++ {
+		indexedSegments[i] = reversedIndexedSegments[len(reversedIndexedSegments)-i-1]
 	}
-	version.indexedChunks = indexedChunks
-	version.indexingChunk = &indexChunk{
-		indexSegment:     indexingSegment,
-		blockManager:     writer.store.blockManager,
-		slotIndexManager: writer.store.slotIndexManager,
-	}
+	version.indexedSegments = indexedSegments
+	version.indexingSegment = indexingSegment
 	return nil
 }
 
@@ -125,7 +120,7 @@ func (writer *writer) loadRawChunks(ctx countlog.Context, version *StoreVersion)
 	headOffset := tailChunk.headOffset
 	var reversedRawSegments []*rawSegment
 	offset := tailChunk.headOffset
-	indexingSegmentTailOffset := version.indexingChunk.tailOffset
+	indexingSegmentTailOffset := version.indexingSegment.tailOffset
 	for offset > indexingSegmentTailOffset {
 		rawSegmentPath := writer.store.RawSegmentPath(offset)
 		rawSegment, segmentEntries, err := openRawSegment(ctx, rawSegmentPath)
@@ -144,17 +139,17 @@ func (writer *writer) loadRawChunks(ctx countlog.Context, version *StoreVersion)
 	for i := 0; i < len(reversedRawSegments); i++ {
 		rawSegments[i] = reversedRawSegments[len(reversedRawSegments)-i-1]
 	}
-	rawChunks := newRawChunks(writer.store.IndexingStrategy, headOffset)
+	rawChunks := newChunks(writer.store.IndexingStrategy, headOffset)
 	rawChunk := rawChunks[0]
 	for _, entry := range entries {
 		if rawChunk.add(entry) {
-			rawChunk = newRawChunk(writer.store.IndexingStrategy, headOffset)
+			rawChunk = newChunk(writer.store.IndexingStrategy, headOffset)
 			rawChunks = append(rawChunks, rawChunk)
 		}
 	}
 	writer.tailChunk = tailChunk
 	writer.rawSegments = rawSegments
-	version.rawChunks = rawChunks
+	version.chunks = rawChunks
 	return nil
 }
 
@@ -260,15 +255,15 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
 		return SegmentOverflowError
 	}
 	writer.writeBuf = writer.writeBuf[size:]
-	rawChunks := writer.currentVersion.rawChunks
+	rawChunks := writer.currentVersion.chunks
 	tailRawChunk := rawChunks[len(rawChunks)-1]
 	if tailRawChunk.add(entry) {
-		rawChunks = append(rawChunks, newRawChunk(
+		rawChunks = append(rawChunks, newChunk(
 			writer.store.IndexingStrategy, tailRawChunk.tailOffset))
 		newVersion := &StoreVersion{
-			indexedChunks: append([]*indexChunk(nil), writer.currentVersion.indexedChunks...),
-			indexingChunk: writer.currentVersion.indexingChunk,
-			rawChunks:     rawChunks,
+			indexedSegments: append([]*indexSegment(nil), writer.currentVersion.indexedSegments...),
+			indexingSegment: writer.currentVersion.indexingSegment,
+			chunks:          rawChunks,
 		}
 		countlog.Debug("event!writer.rotated raw chunk",
 			"tailOffset", tailRawChunk.tailOffset)
@@ -309,23 +304,23 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 
 // movedBlockIntoIndex should only be used by indexer
 func (writer *writer) movedBlockIntoIndex(
-	ctx countlog.Context, indexingChunk *indexChunk) error {
+	ctx countlog.Context, indexingSegment *indexSegment) error {
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
 		newVersion := &StoreVersion{
-			indexedChunks: append([]*indexChunk(nil), oldVersion.indexedChunks...),
-			indexingChunk: indexingChunk,
-			rawChunks:     append([]*rawChunk(nil), oldVersion.rawChunks...),
+			indexedSegments: append([]*indexSegment(nil), oldVersion.indexedSegments...),
+			indexingSegment: indexingSegment,
+			chunks:          append([]*chunk(nil), oldVersion.chunks...),
 		}
-		firstRawChunk := *newVersion.rawChunks[0] // copy the first raw chunk
+		firstRawChunk := *newVersion.chunks[0] // copy the first raw chunk
 		firstRawChunk.headSlot += 4
 		if firstRawChunk.headSlot == 64 {
-			newVersion.rawChunks = newVersion.rawChunks[1:]
+			newVersion.chunks = newVersion.chunks[1:]
 		} else {
-			newVersion.rawChunks[0] = &firstRawChunk
+			newVersion.chunks[0] = &firstRawChunk
 		}
-		headOffset := newVersion.rawChunks[0].headOffset + Offset(newVersion.rawChunks[0].headSlot<<6)
+		headOffset := newVersion.chunks[0].headOffset + Offset(newVersion.chunks[0].headSlot<<6)
 		removedRawSegmentsCount := 0
 		for i, rawSegment := range writer.rawSegments {
 			if rawSegment.headOffset <= headOffset {
@@ -345,27 +340,27 @@ func (writer *writer) movedBlockIntoIndex(
 		return
 	})
 	countlog.Debug("event!writer.movedBlockIntoIndex",
-		"indexingChunk.headOffset", indexingChunk.headOffset)
+		"indexingSegment.headOffset", indexingSegment.headOffset)
 	return <-resultChan
 }
 
 // rotatedIndex should only be used by indexer
 func (writer *writer) rotatedIndex(
-	ctx countlog.Context, indexedChunk *indexChunk, indexingChunk *indexChunk) error {
+	ctx countlog.Context, indexedSegment *indexSegment, indexingSegment *indexSegment) error {
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
 		newVersion := &StoreVersion{
-			indexedChunks: append(oldVersion.indexedChunks, indexedChunk),
-			indexingChunk: indexingChunk,
-			rawChunks:     oldVersion.rawChunks,
+			indexedSegments: append(oldVersion.indexedSegments, indexedSegment),
+			indexingSegment: indexingSegment,
+			chunks:          oldVersion.chunks,
 		}
 		writer.updateCurrentVersion(newVersion)
 		resultChan <- nil
 		return
 	})
 	countlog.Debug("event!writer.rotated index",
-		"indexingChunk.headOffset", indexingChunk.headOffset)
+		"indexingSegment.headOffset", indexingSegment.headOffset)
 	return <-resultChan
 }
 
@@ -376,9 +371,9 @@ func (writer *writer) removedIndex(
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
 		newVersion := &StoreVersion{
-			indexedChunks: oldVersion.indexedChunks[removedIndexedChunksCount:],
-			indexingChunk: oldVersion.indexingChunk,
-			rawChunks:     oldVersion.rawChunks,
+			indexedSegments: oldVersion.indexedSegments[removedIndexedChunksCount:],
+			indexingSegment: oldVersion.indexingSegment,
+			chunks:          oldVersion.chunks,
 		}
 		writer.updateCurrentVersion(newVersion)
 		resultChan <- nil

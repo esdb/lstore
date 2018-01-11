@@ -88,18 +88,18 @@ func (blk *block) Hash(strategy *IndexingStrategy) blockHash {
 	return blockHash
 }
 
-func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filter Filter, cb SearchCallback) error {
+func (blk *block) scanForward(ctx countlog.Context, req *SearchRequest) error {
 	for _, beginSlot := range [4]biter.Slot{0, 64, 128, 192} {
 		mask := biter.SetAllBits
 		beginOffset := blk.startOffset + Offset(beginSlot)
 		endOffset := beginOffset + Offset(64)
-		if startOffset >= endOffset {
+		if req.StartOffset >= endOffset {
 			continue
 		}
-		if startOffset > beginOffset {
-			mask = biter.SetBitsForwardFrom[startOffset-beginOffset]
+		if req.StartOffset > beginOffset {
+			mask = biter.SetBitsForwardFrom[req.StartOffset-beginOffset]
 		}
-		mask &= filter.searchBlock(blk, beginSlot)
+		mask &= req.Filter.searchBlock(blk, beginSlot)
 		iter := mask.ScanForward()
 		for {
 			i := iter()
@@ -107,7 +107,7 @@ func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filter F
 				break
 			}
 			currentSlot := i + beginSlot
-			if !filter.matchesBlockSlot(blk, currentSlot) {
+			if !req.Filter.matchesBlockSlot(blk, currentSlot) {
 				continue
 			}
 			intColumnsCount := len(blk.intColumns)
@@ -120,7 +120,7 @@ func (blk *block) scanForward(ctx countlog.Context, startOffset Offset, filter F
 			for j := 0; j < blobColumnsCount; j++ {
 				blobValues[j] = blk.blobColumns[j][currentSlot]
 			}
-			err := cb.HandleRow(blk.startOffset+Offset(currentSlot), &Entry{
+			err := req.Callback.HandleRow(blk.startOffset+Offset(currentSlot), &Entry{
 				EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues})
 			if err != nil {
 				return err
