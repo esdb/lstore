@@ -5,6 +5,7 @@ import (
 	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/plz"
 	"github.com/esdb/gocodec"
+	"math"
 )
 
 type pageSeq uint64
@@ -17,12 +18,12 @@ type MemoryManager struct {
 	lastPage     mmap.MMap
 	lastPageBuf  []byte
 	lastPageRefs []gocodec.ObjectSeq
-	lastPageRef  *gocodec.ObjectSeq
+	lastPageRef  gocodec.ObjectSeq
 	// TODO: make sure objects can release memory when delete()
 	objects              map[gocodec.ObjectSeq]interface{}
 	pageSizeInPowerOfTwo uint8 // 2 ^ x
 	pageSize             int
-	maxPagesCount        int
+	maxOldPagesCount     int
 }
 
 func New(pageSizeInPowerOfTwo uint8, maxPagesCount int) *MemoryManager {
@@ -34,9 +35,10 @@ func New(pageSizeInPowerOfTwo uint8, maxPagesCount int) *MemoryManager {
 	return &MemoryManager{
 		pageSizeInPowerOfTwo: pageSizeInPowerOfTwo,
 		pageSize:             1 << pageSizeInPowerOfTwo,
-		maxPagesCount:        maxPagesCount,
+		maxOldPagesCount:     maxPagesCount - 1,
 		lastPage:             lastPage,
 		lastPageBuf:          lastPage[:],
+		lastPageRef:          math.MaxUint64,
 	}
 }
 
@@ -69,9 +71,22 @@ func (mgr *MemoryManager) Allocate(objectSeq gocodec.ObjectSeq, original []byte)
 		mgr.oldPages = append(mgr.oldPages, mgr.lastPage)
 		mgr.lastPage = newPage
 		mgr.lastPageBuf = newPage[:]
+		if len(mgr.oldPages) > mgr.maxOldPagesCount {
+			expiresCount := len(mgr.oldPages) - mgr.maxOldPagesCount
+			expiredPages := mgr.oldPages[:expiresCount]
+			for _, page := range expiredPages {
+				err = page.Unmap()
+				countlog.TraceCall("callee!page.Unmap", err)
+			}
+			mgr.oldPages = mgr.oldPages[expiresCount:]
+		}
 	}
 	allocated := mgr.lastPageBuf[:size]
 	mgr.lastPageBuf = mgr.lastPageBuf[size:]
 	copy(allocated, original)
+	if mgr.lastPageRef != objectSeq {
+		mgr.lastPageRef = objectSeq
+		mgr.lastPageRefs = append(mgr.lastPageRefs, objectSeq)
+	}
 	return allocated
 }
