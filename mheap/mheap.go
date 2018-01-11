@@ -21,15 +21,15 @@ type MemoryManager struct {
 	// TODO: make sure objects can release memory when delete()
 	objects              map[gocodec.ObjectSeq]interface{}
 	pageSizeInPowerOfTwo uint8 // 2 ^ x
-	pageSize             gocodec.ObjectSeq
+	pageSize             int
 	maxPagesCount        int
 }
 
-func New(pageSizeInPowerOfTwo uint8, maxPagesCount int) (*MemoryManager, error) {
-	lastPage, err := mmap.MapRegion(nil, 1024*1024, mmap.RDWR, mmap.ANON, 0)
+func New(pageSizeInPowerOfTwo uint8, maxPagesCount int) *MemoryManager {
+	lastPage, err := mmap.MapRegion(nil, 1<<pageSizeInPowerOfTwo, mmap.RDWR, mmap.ANON, 0)
 	countlog.TraceCall("callee!mmap.MapRegion", err)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 	return &MemoryManager{
 		pageSizeInPowerOfTwo: pageSizeInPowerOfTwo,
@@ -37,7 +37,7 @@ func New(pageSizeInPowerOfTwo uint8, maxPagesCount int) (*MemoryManager, error) 
 		maxPagesCount:        maxPagesCount,
 		lastPage:             lastPage,
 		lastPageBuf:          lastPage[:],
-	}, nil
+	}
 }
 
 func (mgr *MemoryManager) Close() error {
@@ -54,6 +54,22 @@ func (mgr *MemoryManager) Close() error {
 
 func (mgr *MemoryManager) Allocate(objectSeq gocodec.ObjectSeq, original []byte) []byte {
 	size := len(original)
+	if size > len(mgr.lastPageBuf) {
+		if size > mgr.pageSize {
+			countlog.Fatal("event!mheap.page size is too small",
+				"size", size,
+				"pageSize", mgr.pageSize)
+			panic("page size is too small")
+		}
+		newPage, err := mmap.MapRegion(nil, mgr.pageSize, mmap.RDWR, mmap.ANON, 0)
+		countlog.TraceCall("callee!mmap.MapRegion", err)
+		if err != nil {
+			panic(err)
+		}
+		mgr.oldPages = append(mgr.oldPages, mgr.lastPage)
+		mgr.lastPage = newPage
+		mgr.lastPageBuf = newPage[:]
+	}
 	allocated := mgr.lastPageBuf[:size]
 	mgr.lastPageBuf = mgr.lastPageBuf[size:]
 	copy(allocated, original)
