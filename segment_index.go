@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"path"
 	"os"
-	"math"
 )
 
 const levelsCount = 9
@@ -28,8 +27,8 @@ type indexSegment struct {
 
 func newIndexSegment(slotIndexWriter slotIndexWriter, prev *indexSegment) (*indexSegment, error) {
 	levels := make([]slotIndexSeq, levelsCount)
-	tailSlotIndexSeq := slotIndexSeq(math.MaxUint64 / 2)
-	tailBlockSeq := blockSeq(3)
+	tailSlotIndexSeq := slotIndexSeq(0)
+	tailBlockSeq := blockSeq(0)
 	headOffset := Offset(0)
 	if prev != nil {
 		tailSlotIndexSeq = prev.tailSlotIndexSeq

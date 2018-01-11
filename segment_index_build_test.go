@@ -9,6 +9,7 @@ import (
 	"os"
 	"github.com/v2pro/plz/concurrent"
 	"github.com/v2pro/plz"
+	"fmt"
 )
 
 func TestMain(m *testing.M) {
@@ -272,29 +273,24 @@ func Test_add_first_block(t *testing.T) {
 //	should.Equal(biter.SetBits[1], result, "level2 still remembers")
 //}
 //
-//func Test_add_64x64x64_blocks(t *testing.T) {
-//	debug.SetGCPercent(-1)
-//	blockLength = 2
-//	blockLengthInPowerOfTwo = 1
-//	should := require.New(t)
-//	editing := fakeEditingHead()
-//	for i := 0; i < 64 * 64 * 64; i++ {
-//		editing.addBlock(ctx, newBlock(0, []*Entry{
-//			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
-//		}))
-//	}
-//	should.Equal(blockSeq(6*64*64*64 + 3), editing.tailBlockSeq)
-//	strategy := editing.strategy
-//	level0SlotIndex := getLevel(editing, 0)
-//	result := level0SlotIndex.search(0, strategy.NewBlobValueFilter(0, "hello262143"))
-//	should.Equal(biter.SetBits[63], result)
-//	level1SlotIndex := getLevel(editing, 1)
-//	result = level1SlotIndex.search(1, strategy.NewBlobValueFilter(0, "hello262143"))
-//	should.Equal(biter.SetBits[63], result)
-//	level2SlotIndex := getLevel(editing, 2)
-//	result = level2SlotIndex.search(2, strategy.NewBlobValueFilter(0, "hello262143"))
-//	should.Equal(biter.SetBits[63], result)
-//}
+func Test_add_64x64x64_blocks(t *testing.T) {
+	blockLength = 2
+	blockLengthInPowerOfTwo = 1
+	should := require.New(t)
+	segment := testIndexSegment()
+	for i := 0; i < 64 * 64 * 64; i++ {
+		segment.addBlock(ctx, segment.slotIndexWriter, segment.blockWriter, newBlock(0, []*Entry{
+			blobEntry(Blob(fmt.Sprintf("hello%d", i))),
+		}))
+	}
+	should.Equal(blockSeq(6*64*64*64), segment.tailBlockSeq)
+	result := segment.search(0, segment.NewBlobValueFilter(0, "hello262143"))
+	should.Equal(biter.SetBits[63], result)
+	result = segment.search(1, segment.NewBlobValueFilter(0, "hello262143"))
+	should.Equal(biter.SetBits[63], result)
+	result = segment.search(2, segment.NewBlobValueFilter(0, "hello262143"))
+	should.Equal(biter.SetBits[63], result)
+}
 //
 //func Test_add_64x64x64_plus_1_blocks(t *testing.T) {
 //	blockLength = 2

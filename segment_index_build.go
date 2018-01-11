@@ -24,8 +24,8 @@ func (segment *indexSegment) addBlock(ctx countlog.Context, slotIndexWriter slot
 	if err != nil {
 		return err
 	}
-	indices := make([]*slotIndex, segment.topLevel)
-	for i := level0; i < segment.topLevel; i++ {
+	indices := make([]*slotIndex, levelsCount)
+	for i := level0; i <= segment.topLevel; i++ {
 		indices[i], err = slotIndexWriter.mapWritableSlotIndex(segment.levels[i], i)
 		if err != nil {
 			return err
