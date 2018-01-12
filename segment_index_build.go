@@ -35,7 +35,7 @@ func (segment *indexSegment) addBlock(ctx countlog.Context, slotIndexWriter slot
 	level1SlotIndex := indices[1]
 	level2SlotIndex := indices[2]
 	level0SlotIndex.children[slots[0]] = uint64(blockSeq)
-	level0SlotIndex.setTailSlot(slots[0] + 1)
+	level0SlotIndex.setTailSlot(slots[0])
 	for i, hashColumn := range blkHash {
 		pbf0 := level0SlotIndex.pbfs[i]
 		pbf1 := level1SlotIndex.pbfs[i]
@@ -172,14 +172,14 @@ func (segment *indexSegment) rotate(slotIndexWriter slotIndexWriter, level level
 			return err
 		}
 		slotIndex.updateSlot(biter.SetBits[0], idx)
-		slotIndex.setTailSlot(1)
+		slotIndex.setTailSlot(0)
 	}
 	idx, err := slotIndexWriter.mapWritableSlotIndex(segment.levels[level+1], level+1)
 	if err != nil {
 		return err
 	}
 	idx.children[slot] = uint64(segment.levels[level])
-	idx.setTailSlot(slot + 1)
+	idx.setTailSlot(slot)
 	segment.levels[level], segment.tailSlotIndexSeq, _, err = slotIndexWriter.newSlotIndex(
 		segment.tailSlotIndexSeq, level)
 	return nil

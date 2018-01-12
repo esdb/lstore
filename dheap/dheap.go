@@ -75,6 +75,9 @@ func (mgr *DiskManager) Close() error {
 }
 
 func (mgr *DiskManager) WriteBuf(seq uint64, buf []byte) (uint64, error) {
+	if seq == 0 {
+		return 0, errors.New("sequence 0 is not a valid sequence number")
+	}
 	pageSeq := seq >> mgr.fileSizeInPowerOfTwo
 	relativeOffset := int(seq - (pageSeq << mgr.fileSizeInPowerOfTwo))
 	writeMMap, err := mgr.openWriteMMap(pageSeq)
@@ -101,6 +104,9 @@ func (mgr *DiskManager) WriteBuf(seq uint64, buf []byte) (uint64, error) {
 }
 
 func (mgr *DiskManager) AllocateBuf(seq uint64, size uint32) (uint64, []byte, error) {
+	if seq == 0 {
+		return 0, nil, errors.New("sequence 0 is not a valid sequence number")
+	}
 	pageSeq := seq >> mgr.fileSizeInPowerOfTwo
 	relativeOffset := int(seq - (pageSeq << mgr.fileSizeInPowerOfTwo))
 	writeMMap, err := mgr.openWriteMMap(pageSeq)
@@ -126,6 +132,9 @@ func (mgr *DiskManager) AllocateBuf(seq uint64, size uint32) (uint64, []byte, er
 }
 
 func (mgr *DiskManager) ReadBuf(seq uint64, size uint32) ([]byte, error) {
+	if seq == 0 {
+		return nil, errors.New("sequence 0 is not a valid sequence number")
+	}
 	pageSeq := seq >> mgr.fileSizeInPowerOfTwo
 	relativeOffset := seq - (pageSeq << mgr.fileSizeInPowerOfTwo)
 	readMMap, err := mgr.openReadMMap(pageSeq)
@@ -140,6 +149,9 @@ func (mgr *DiskManager) ReadBuf(seq uint64, size uint32) ([]byte, error) {
 }
 
 func (mgr *DiskManager) MapWritableBuf(seq uint64, size uint32) ([]byte, error) {
+	if seq == 0 {
+		return nil, errors.New("sequence 0 is not a valid sequence number")
+	}
 	pageSeq := seq >> mgr.fileSizeInPowerOfTwo
 	relativeOffset := seq - (pageSeq << mgr.fileSizeInPowerOfTwo)
 	writeMMap, err := mgr.openWriteMMap(pageSeq)

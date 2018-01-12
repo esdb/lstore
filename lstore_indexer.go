@@ -210,7 +210,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		return err
 	}
 	// TODO: rotate
-	err = indexer.saveIndexingChunk(ctx, indexingSegment, false)
+	err = indexer.saveIndexingSegment(ctx, indexingSegment, false)
 	ctx.TraceCall("callee!indexingSegment.save", err)
 	if err != nil {
 		return err
@@ -222,7 +222,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	return nil
 }
 
-func (indexer *indexer) saveIndexingChunk(ctx countlog.Context, indexingSegment *indexSegment, shouldRotate bool) error {
+func (indexer *indexer) saveIndexingSegment(ctx countlog.Context, indexingSegment *indexSegment, shouldRotate bool) error {
 	err := createIndexSegment(ctx, indexer.store.IndexingSegmentTmpPath(), indexingSegment)
 	if err != nil {
 		return err

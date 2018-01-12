@@ -178,7 +178,7 @@ func (reader *mmapBlockReader) readBlock(seq blockSeq) (blk *block, err error) {
 	if reader.blockCompressed {
 		blk, err = reader.uncompressBlock(seq)
 	} else {
-		blk, err = reader.unmarshalBlock(reader.memoryManager, seq)
+		blk, err = reader.unmarshalBlock(seq)
 	}
 	if err != nil {
 		return nil, err
@@ -212,7 +212,7 @@ func (reader *mmapBlockReader) uncompressBlock(seq blockSeq) (*block, error) {
 	return blk, nil
 }
 
-func (reader *mmapBlockReader) unmarshalBlock(memMgr *mheap.MemoryManager, seq blockSeq) (*block, error) {
+func (reader *mmapBlockReader) unmarshalBlock(seq blockSeq) (*block, error) {
 	sizeBuf, err := reader.diskManager.ReadBuf(uint64(seq), 8)
 	if err != nil {
 		return nil, err

@@ -27,8 +27,8 @@ type indexSegment struct {
 
 func newIndexSegment(slotIndexWriter slotIndexWriter, prev *indexSegment) (*indexSegment, error) {
 	levels := make([]slotIndexSeq, levelsCount)
-	tailSlotIndexSeq := slotIndexSeq(0)
-	tailBlockSeq := blockSeq(0)
+	tailSlotIndexSeq := slotIndexSeq(1)
+	tailBlockSeq := blockSeq(1)
 	headOffset := Offset(0)
 	if prev != nil {
 		tailSlotIndexSeq = prev.tailSlotIndexSeq
@@ -44,7 +44,7 @@ func newIndexSegment(slotIndexWriter slotIndexWriter, prev *indexSegment) (*inde
 		}
 		if i > level0 {
 			slotIndex.children[0] = uint64(levels[i-1])
-			slotIndex.setTailSlot(1)
+			slotIndex.setTailSlot(0)
 		}
 	}
 	return &indexSegment{
