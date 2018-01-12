@@ -111,7 +111,7 @@ func (writer *writer) loadIndexingAndIndexedChunks(ctx countlog.Context, version
 }
 
 func (writer *writer) loadRawChunks(ctx countlog.Context, version *StoreVersion) error {
-	tailChunk, entries, err := openTailChunk(
+	tailChunk, entries, err := openTailSegment(
 		ctx, writer.store.TailSegmentPath(), writer.store.TailSegmentMaxSize, 0)
 	if err != nil {
 		return err
@@ -275,17 +275,18 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
 }
 
 func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion) error {
+	oldTailSegmentHeadOffset := writer.tailSegment.headOffset
 	err := writer.tailSegment.Close()
 	ctx.TraceCall("callee!tailSegment.Close", err)
 	if err != nil {
 		return err
 	}
-	newTailChunk, _, err := openTailChunk(ctx, writer.store.TailSegmentTmpPath(), writer.store.TailSegmentMaxSize,
+	newTailSegment, _, err := openTailSegment(ctx, writer.store.TailSegmentTmpPath(), writer.store.TailSegmentMaxSize,
 		Offset(writer.store.tailOffset))
 	if err != nil {
 		return err
 	}
-	writer.tailSegment = newTailChunk
+	writer.tailSegment = newTailSegment
 	rotatedTo := writer.store.RawSegmentPath(Offset(writer.store.tailOffset))
 	if err = os.Rename(writer.store.TailSegmentPath(), rotatedTo); err != nil {
 		return err
@@ -294,7 +295,7 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 		return err
 	}
 	writer.rawSegments = append(writer.rawSegments, &rawSegment{
-		segmentHeader: segmentHeader{segmentTypeRaw, Offset(writer.store.tailOffset)},
+		segmentHeader: segmentHeader{segmentTypeRaw, oldTailSegmentHeadOffset},
 		path:          rotatedTo,
 	})
 	countlog.Debug("event!writer.rotated tail",
@@ -325,6 +326,7 @@ func (writer *writer) movedBlockIntoIndex(
 		for i, rawSegment := range writer.rawSegments {
 			if rawSegment.headOffset <= headOffset {
 				removedRawSegmentsCount = i
+			} else {
 				break
 			}
 		}
@@ -337,10 +339,11 @@ func (writer *writer) movedBlockIntoIndex(
 		}
 		writer.updateCurrentVersion(newVersion)
 		resultChan <- nil
+		countlog.Debug("event!writer.movedBlockIntoIndex",
+			"indexingSegment.headOffset", indexingSegment.headOffset,
+				"removedRawSegmentsCount", removedRawSegmentsCount)
 		return
 	})
-	countlog.Debug("event!writer.movedBlockIntoIndex",
-		"indexingSegment.headOffset", indexingSegment.headOffset)
 	return <-resultChan
 }
 

@@ -30,6 +30,9 @@ func (segment *indexSegment) searchForwardAt(
 				return nil
 			}
 			blkSeq := blockSeq(levelIndex.children[slot])
+			if blkSeq == 0 {
+				return nil
+			}
 			blk, err := blockReader.readBlock(blkSeq)
 			ctx.TraceCall("callee!blockManager.readBlock", err)
 			if err != nil {

@@ -7,6 +7,7 @@ import (
 	"github.com/esdb/lstore"
 	"github.com/rs/xid"
 	"fmt"
+	"context"
 )
 
 func Test_write_1_million(t *testing.T) {
@@ -27,8 +28,8 @@ func Test_write_1_million(t *testing.T) {
 				target = value
 			}
 			store.Write(ctx, blobEntry(value))
-			store.UpdateIndex()
 		}
+		store.UpdateIndex()
 	}
 	reader, err := store.NewReader(ctx)
 	should.NoError(err)
@@ -37,6 +38,55 @@ func Test_write_1_million(t *testing.T) {
 		0, strategy.NewBlobValueFilter(0, target), collector,
 	})
 	fmt.Println(collector.Rows)
+}
+
+func Test_search(t *testing.T) {
+	should := require.New(t)
+	strategy := lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
+		BloomFilterIndexedBlobColumns: []int{0},
+	})
+	store := &lstore.Store{Config: lstore.Config{
+		IndexingStrategy: strategy,
+	}}
+	store.Directory = "/tmp/store"
+	err := store.Start(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	reader, err := store.NewReader(ctx)
+	should.NoError(err)
+	collector := &lstore.RowsCollector{}
+	reader.SearchForward(ctx, &lstore.SearchRequest{
+		0, nil, collector,
+	})
+	fmt.Println(len(collector.Rows))
+	fmt.Println(collector.Rows[899487].BlobValues[0])
+}
+
+func Benchmark_search(b *testing.B) {
+	strategy := lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
+		BloomFilterIndexedBlobColumns: []int{0},
+	})
+	store := &lstore.Store{Config: lstore.Config{
+		IndexingStrategy: strategy,
+	}}
+	store.Directory = "/tmp/store"
+	err := store.Start(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	reader, err := store.NewReader(ctx)
+	if err != nil {
+		b.Error(err)
+	}
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		collector := &lstore.RowsCollector{LimitSize: 1}
+		reader.SearchForward(ctx, &lstore.SearchRequest{
+			0, strategy.NewBlobValueFilter(0, "b9c3b60t8744tkh6gl6g"), collector,
+		})
+	}
 }
 
 //func Test_write_read_latency(t *testing.T) {

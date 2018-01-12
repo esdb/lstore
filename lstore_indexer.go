@@ -186,7 +186,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		countlog.Fatal("event!indexer.doUpdateIndex find offset inconsistent")
 		return errors.New("inconsistent tail offset")
 	}
-	if firstRawChunk.tailSlot < firstRawChunk.headSlot+4 {
+	if firstRawChunk.tailSlot < firstRawChunk.headSlot+3 {
 		countlog.Fatal("event!indexer.doUpdateIndex find firstRawChunk not fully filled",
 			"tailSlot", firstRawChunk.tailSlot,
 			"headSlot", firstRawChunk.headSlot)

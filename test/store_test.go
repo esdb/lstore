@@ -12,7 +12,7 @@ import (
 
 func TestMain(m *testing.M) {
 	defer concurrent.GlobalUnboundedExecutor.StopAndWaitForever()
-	plz.LogLevel = countlog.LevelTrace
+	plz.LogLevel = countlog.LevelDebug
 	plz.PlugAndPlay()
 	m.Run()
 }

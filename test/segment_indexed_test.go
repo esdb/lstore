@@ -55,7 +55,6 @@ func Test_indexed_segment(t *testing.T) {
 func Test_reopen_indexed_segments(t *testing.T) {
 	should := require.New(t)
 	store := testStore(lstore.Config{})
-	defer store.Stop(ctx)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
@@ -66,6 +65,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	should.Nil(store.RotateIndex())
 
 	store = reopenTestStore(store)
+	defer store.Stop(ctx)
 
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)

@@ -30,7 +30,7 @@ func (chunk *tailSegment) Close() error {
 	return err
 }
 
-func openTailChunk(ctx countlog.Context, path string, maxSize int64, headOffset Offset) (*tailSegment, []*Entry, error) {
+func openTailSegment(ctx countlog.Context, path string, maxSize int64, headOffset Offset) (*tailSegment, []*Entry, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
 		file, err = createRawSegment(ctx, path, maxSize, headOffset)
@@ -53,7 +53,7 @@ func openTailChunk(ctx countlog.Context, path string, maxSize int64, headOffset 
 	ctx.TraceCall("callee!iter.Copy", iter.Error)
 	if iter.Error != nil {
 		plz.Close(plz.WrapCloser(writeMMap.Unmap))
-		return nil, nil, fmt.Errorf("openTailChunk: %s", iter.Error.Error())
+		return nil, nil, fmt.Errorf("openTailSegment: %s", iter.Error.Error())
 	}
 	var entries []*Entry
 	for {
@@ -64,7 +64,7 @@ func openTailChunk(ctx countlog.Context, path string, maxSize int64, headOffset 
 		ctx.TraceCall("callee!iter.Copy", iter.Error)
 		if iter.Error != nil {
 			plz.Close(plz.WrapCloser(writeMMap.Unmap))
-			return nil, nil, fmt.Errorf("openTailChunk: %s", iter.Error.Error())
+			return nil, nil, fmt.Errorf("openTailSegment: %s", iter.Error.Error())
 		}
 		entries = append(entries, entry)
 	}
