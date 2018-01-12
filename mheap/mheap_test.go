@@ -30,6 +30,9 @@ func Test_expire_old_page(t *testing.T) {
 	should.Equal([]byte{1, 2, 3}, allocated)
 	allocated = mgr.Allocate(7, []byte{1, 2, 3})
 	should.Equal([]byte{1, 2, 3}, allocated)
+	should.Equal(1, len(mgr.oldPages))
+	mgr.GC(func(seq gocodec.ObjectSeq) {
+	})
 	should.Equal(0, len(mgr.oldPages))
 }
 
@@ -51,22 +54,4 @@ func Test_goc_unmarshal_with_allocator(t *testing.T) {
 	should.Equal([]uint16{1, 2, 3}, *obj)
 	should.Equal(gocodec.ObjectSeq(7), mgr.lastPageRef)
 	should.Equal([]gocodec.ObjectSeq{7}, mgr.lastPageRefs)
-}
-
-func Test_expire_page_should_invalid_cache(t *testing.T) {
-	should := require.New(t)
-	stream := gocodec.NewStream(nil)
-	stream.Marshal([]uint16{1, 2, 3})
-	buf := stream.Buffer()
-	mgr := New(6, 1)
-	obj, err := mgr.Unmarshal(7, buf, (*[]uint16)(nil))
-	should.NoError(err)
-	should.Equal([]uint16{1, 2, 3}, *obj.(*[]uint16))
-	obj, err = mgr.Unmarshal(7, buf, (*[]uint16)(nil))
-	should.NoError(err)
-	should.Equal([]uint16{1, 2, 3}, *obj.(*[]uint16))
-	should.NotNil(mgr.objects[7])
-	obj, err = mgr.Unmarshal(8, buf, (*[]uint16)(nil))
-	obj, err = mgr.Unmarshal(9, buf, (*[]uint16)(nil))
-	should.Nil(mgr.objects[7])
 }
