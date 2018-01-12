@@ -14,7 +14,7 @@ import (
 type writerCommand func(ctx countlog.Context)
 
 type writer struct {
-	*tailChunk
+	*tailSegment
 	store          *Store
 	commandQueue   chan writerCommand
 	currentVersion *StoreVersion
@@ -39,7 +39,7 @@ func (store *Store) newWriter(ctx countlog.Context) (*writer, error) {
 }
 
 func (writer *writer) Close() error {
-	return writer.tailChunk.Close()
+	return writer.tailSegment.Close()
 }
 
 func (writer *writer) load(ctx countlog.Context) error {
@@ -147,7 +147,7 @@ func (writer *writer) loadRawChunks(ctx countlog.Context, version *StoreVersion)
 			rawChunks = append(rawChunks, rawChunk)
 		}
 	}
-	writer.tailChunk = tailChunk
+	writer.tailSegment = tailChunk
 	writer.rawSegments = rawSegments
 	version.chunks = rawChunks
 	return nil
@@ -275,8 +275,8 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
 }
 
 func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion) error {
-	err := writer.tailChunk.Close()
-	ctx.TraceCall("callee!tailChunk.Close", err)
+	err := writer.tailSegment.Close()
+	ctx.TraceCall("callee!tailSegment.Close", err)
 	if err != nil {
 		return err
 	}
@@ -285,7 +285,7 @@ func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *StoreVersion)
 	if err != nil {
 		return err
 	}
-	writer.tailChunk = newTailChunk
+	writer.tailSegment = newTailChunk
 	rotatedTo := writer.store.RawSegmentPath(Offset(writer.store.tailOffset))
 	if err = os.Rename(writer.store.TailSegmentPath(), rotatedTo); err != nil {
 		return err

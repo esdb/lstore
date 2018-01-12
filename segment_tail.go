@@ -13,15 +13,15 @@ import (
 
 var SegmentOverflowError = errors.New("please rotate to new chunk")
 
-// tailChunk is owned by writer
-type tailChunk struct {
+// tailSegment is owned by writer
+type tailSegment struct {
 	*segmentHeader
 	tailEntriesCount int
 	writeBuf         []byte
 	writeMMap        mmap.MMap
 }
 
-func (chunk *tailChunk) Close() error {
+func (chunk *tailSegment) Close() error {
 	if chunk.writeMMap == nil {
 		return nil
 	}
@@ -30,7 +30,7 @@ func (chunk *tailChunk) Close() error {
 	return err
 }
 
-func openTailChunk(ctx countlog.Context, path string, maxSize int64, headOffset Offset) (*tailChunk, []*Entry, error) {
+func openTailChunk(ctx countlog.Context, path string, maxSize int64, headOffset Offset) (*tailSegment, []*Entry, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if os.IsNotExist(err) {
 		file, err = createRawSegment(ctx, path, maxSize, headOffset)
@@ -47,7 +47,7 @@ func openTailChunk(ctx countlog.Context, path string, maxSize int64, headOffset 
 	if err != nil {
 		return nil, nil, err
 	}
-	chunk := &tailChunk{writeMMap: writeMMap}
+	chunk := &tailSegment{writeMMap: writeMMap}
 	iter := gocodec.NewIterator(writeMMap)
 	segmentHeader, _ := iter.CopyThenUnmarshal((*segmentHeader)(nil)).(*segmentHeader)
 	ctx.TraceCall("callee!iter.Copy", iter.Error)
