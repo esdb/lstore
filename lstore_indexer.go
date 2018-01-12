@@ -24,7 +24,7 @@ func (store *Store) newIndexer(ctx countlog.Context) *indexer {
 		store:           store,
 		currentVersion:  store.latest(),
 		commandQueue:    make(chan indexerCommand, 1),
-		slotIndexWriter: store.slotIndexManager.newWriter(10, 4),
+		slotIndexWriter: store.slotIndexManager.newWriter(14, 4),
 		blockWriter:     store.blockManager.newWriter(),
 	}
 	indexer.start()

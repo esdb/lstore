@@ -28,7 +28,9 @@ func Test_indexing_segment(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{}
-	reader.SearchForward(ctx, 0, store.IndexingStrategy.NewBlobValueFilter(0, "hello"), collector)
+	reader.SearchForward(ctx, &lstore.SearchRequest{
+		0, store.IndexingStrategy.NewBlobValueFilter(0, "hello"), collector,
+	})
 	should.Len(collector.Rows, 130)
 	should.Equal([]int64{2}, collector.Rows[0].IntValues)
 	should.Equal([]int64{4}, collector.Rows[1].IntValues)
@@ -57,7 +59,9 @@ func Test_reopen_indexing_segment(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{LimitSize: 2}
-	reader.SearchForward(ctx, 0, store.IndexingStrategy.NewBlobValueFilter(0, "hello"), collector)
+	reader.SearchForward(ctx, &lstore.SearchRequest{
+		0, store.IndexingStrategy.NewBlobValueFilter(0, "hello"), collector,
+	})
 	should.Equal([]int64{2}, collector.Rows[0].IntValues)
 	should.Equal([]int64{4}, collector.Rows[1].IntValues)
 }
@@ -87,7 +91,9 @@ func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{}
-	reader.SearchForward(ctx, 0, nil, collector)
+	reader.SearchForward(ctx, &lstore.SearchRequest{
+		0, nil, collector,
+	})
 	should.Equal(520, len(collector.Rows))
 	for _, row := range collector.Rows {
 		should.Equal(row.IntValues[0], int64(row.Offset))
@@ -116,8 +122,10 @@ func Test_index_block_compressed(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
 	collector := &lstore.RowsCollector{LimitSize: 2}
-	reader.SearchForward(ctx, 0, store.IndexingStrategy.NewBlobValueFilter(0, "hello"),
-		&assertSearchForward{collector, 0})
+	reader.SearchForward(ctx, &lstore.SearchRequest{
+		0, store.IndexingStrategy.NewBlobValueFilter(0, "hello"),
+		&assertSearchForward{collector, 0},
+	})
 	should.Equal([]int64{2}, collector.Rows[0].IntValues)
 	should.Equal([]int64{4}, collector.Rows[1].IntValues)
 }

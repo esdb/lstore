@@ -34,8 +34,8 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 	ctx := countlog.Ctx(ctxObj)
 	reader := &Reader{
 		store:         store,
-		slotIndexReader: store.slotIndexManager.newReader(10, 4),
-		blockReader: store.blockManager.newReader(10, 4),
+		slotIndexReader: store.slotIndexManager.newReader(14, 4),
+		blockReader: store.blockManager.newReader(14, 4),
 	}
 	reader.Refresh(ctx)
 	store.blockManager.lock(reader, reader.currentVersion.HeadOffset())

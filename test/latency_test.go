@@ -33,7 +33,9 @@ func Test_write_1_million(t *testing.T) {
 	reader, err := store.NewReader(ctx)
 	should.NoError(err)
 	collector := &lstore.RowsCollector{}
-	reader.SearchForward(ctx, 0, strategy.NewBlobValueFilter(0, target), collector)
+	reader.SearchForward(ctx, &lstore.SearchRequest{
+		0, strategy.NewBlobValueFilter(0, target), collector,
+	})
 	fmt.Println(collector.Rows)
 }
 
