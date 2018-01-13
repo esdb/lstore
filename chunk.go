@@ -36,6 +36,13 @@ func newChunk(strategy *IndexingStrategy, headOffset Offset) *chunk {
 	children := make([]*chunkChild, 64)
 	for i := 0; i < len(children); i++ {
 		child := &chunkChild{nil, make([]*Entry, 64), 0}
+		hashingStrategy := strategy.tinyHashingStrategy
+		pbfs := make([]pbloom.ParallelBloomFilter, strategy.bloomFilterIndexedColumnsCount())
+		for i := 0; i < len(pbfs); i++ {
+			pbfs[i] = hashingStrategy.New()
+		}
+		child.tailSlot = 0
+		child.pbfs = pbfs
 		children[i] = child
 	}
 	hashingStrategy := strategy.tinyHashingStrategy
@@ -48,51 +55,37 @@ func newChunk(strategy *IndexingStrategy, headOffset Offset) *chunk {
 		headOffset: headOffset,
 		tailOffset: headOffset,
 		children:   children,
-		chunkRoot:  chunkRoot{pbfs, 0, 0},
+		chunkRoot:  chunkRoot{pbfs, 0, 1},
 	}
 }
 
 func (chunk *chunk) add(entry *Entry) bool {
-	child := chunk.children[chunk.tailSlot]
+	chunkCurrentSlot := chunk.tailSlot - 1
+	child := chunk.children[chunkCurrentSlot]
+	countlog.Trace("event!chunk.add",
+		"chunkHeadOffset", chunk.headOffset,
+		"chunkTailOffset", chunk.tailOffset,
+		"chunkTailSlot", chunk.tailSlot,
+		"childTailSlot", child.tailSlot)
 	strategy := chunk.strategy
-	if child.tailSlot == 63 {
-		chunk.tailSlot += 1
-		if countlog.ShouldLog(countlog.LevelTrace) {
-			countlog.Trace("event!chunk.rotated child",
-				"chunkHeadOffset", chunk.headOffset,
-				"chunkTailOffset", chunk.tailOffset,
-				"chunkTailSlot", chunk.tailSlot)
-		}
-		child = chunk.children[chunk.tailSlot]
-	}
-	if child.pbfs == nil {
-		hashingStrategy := strategy.tinyHashingStrategy
-		pbfs := make([]pbloom.ParallelBloomFilter, strategy.bloomFilterIndexedColumnsCount())
-		for i := 0; i < len(pbfs); i++ {
-			pbfs[i] = hashingStrategy.New()
-		}
-		child.pbfs = pbfs
-	} else {
-		child.tailSlot++
-	}
 	for _, bfIndexedColumn := range strategy.bloomFilterIndexedBlobColumns {
 		indexedColumn := bfIndexedColumn.IndexedColumn()
 		sourceColumn := bfIndexedColumn.SourceColumn()
 		sourceValue := entry.BlobValues[sourceColumn]
 		asSlice := *(*[]byte)(unsafe.Pointer(&sourceValue))
 		bloom := strategy.tinyHashingStrategy.Hash(asSlice)
-		chunk.pbfs[indexedColumn].Put(biter.SetBits[chunk.tailSlot], bloom)
+		chunk.pbfs[indexedColumn].Put(biter.SetBits[chunkCurrentSlot], bloom)
 		child.pbfs[indexedColumn].Put(biter.SetBits[child.tailSlot], bloom)
 	}
 	child.children[child.tailSlot] = entry
 	chunk.tailOffset += 1
-	countlog.Trace("event!chunk.add",
-		"chunkHeadOffset", chunk.headOffset,
-		"chunkTailOffset", chunk.tailOffset,
-		"chunkTailSlot", chunk.tailSlot,
-		"childTailSlot", child.tailSlot)
-	if chunk.tailSlot == 63 && child.tailSlot == 63 {
-		return true
+	child.tailSlot += 1
+	if child.tailSlot == 64 {
+		chunk.tailSlot += 1
+		if chunk.tailSlot == 65 {
+			chunk.tailSlot = 64
+			return true
+		}
 	}
 	return false
 }

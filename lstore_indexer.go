@@ -204,6 +204,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	err = indexingSegment.addBlock(ctx, indexer.slotIndexWriter, indexer.blockWriter, blk)
 	ctx.TraceCall("callee!indexingSegment.addBlock", err,
 		"blockStartOffset", oldIndexingTailOffset,
+		"indexingSegmentTailOffset", indexingSegment.tailOffset,
 		"tailBlockSeq", indexingSegment.tailBlockSeq,
 		"tailSlotIndexSeq", indexingSegment.tailSlotIndexSeq)
 	if err != nil {

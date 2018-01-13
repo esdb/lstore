@@ -58,8 +58,20 @@ type assertSearchForward struct {
 
 func (cb *assertSearchForward) HandleRow(offset lstore.Offset, entry *lstore.Entry) error {
 	if offset < cb.lastOffset {
-		countlog.Fatal("event!not scan forward", "lastOffset", cb.lastOffset, "offset", offset)
-		return lstore.SearchAborted
+		panic("not forward")
+	}
+	cb.lastOffset = offset
+	return cb.cb.HandleRow(offset, entry)
+}
+
+type assertContinuous struct {
+	cb lstore.SearchCallback
+	lastOffset lstore.Offset
+}
+
+func (cb *assertContinuous) HandleRow(offset lstore.Offset, entry *lstore.Entry) error {
+	if offset > 0 && offset != cb.lastOffset + 1 {
+		panic("not continuous")
 	}
 	cb.lastOffset = offset
 	return cb.cb.HandleRow(offset, entry)

@@ -13,8 +13,12 @@ func Test_raw_chunk_with_1(t *testing.T) {
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newChunk(strategy, 0)
+	should.Equal(biter.Slot(1), index.tailSlot)
+	should.Equal(biter.Slot(0), index.children[0].tailSlot)
 	entry1 := blobEntry("hello")
 	index.add(entry1)
+	should.Equal(biter.Slot(1), index.tailSlot)
+	should.Equal(biter.Slot(1), index.children[0].tailSlot)
 	collector := &RowsCollector{}
 	index.searchForward(ctx, &SearchRequest{
 		0, dummyFilterInstance, collector,
@@ -28,9 +32,14 @@ func Test_raw_chunk_with_64(t *testing.T) {
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newChunk(strategy, 0)
+	should.Equal(biter.Slot(1), index.tailSlot)
+	should.Equal(biter.Slot(0), index.children[0].tailSlot)
 	for i := 0; i < 64; i++ {
 		index.add(blobEntry("hello"))
 	}
+	should.Equal(biter.Slot(2), index.tailSlot)
+	should.Equal(biter.Slot(64), index.children[0].tailSlot)
+	should.Equal(biter.Slot(0), index.children[1].tailSlot)
 	collector := &RowsCollector{}
 	index.searchForward(ctx, &SearchRequest{
 		0, dummyFilterInstance, collector,
@@ -44,9 +53,14 @@ func Test_raw_chunk_with_65(t *testing.T) {
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newChunk(strategy, 0)
+	should.Equal(biter.Slot(1), index.tailSlot)
+	should.Equal(biter.Slot(0), index.children[0].tailSlot)
 	for i := 0; i < 65; i++ {
 		index.add(blobEntry("hello"))
 	}
+	should.Equal(biter.Slot(2), index.tailSlot)
+	should.Equal(biter.Slot(64), index.children[0].tailSlot)
+	should.Equal(biter.Slot(1), index.children[1].tailSlot)
 	collector := &RowsCollector{}
 	index.searchForward(ctx, &SearchRequest{
 		0, dummyFilterInstance, collector,
@@ -60,10 +74,15 @@ func Test_raw_chunk_with_4096(t *testing.T) {
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newChunk(strategy, 0)
+	should.Equal(biter.Slot(1), index.tailSlot)
+	should.Equal(biter.Slot(0), index.children[0].tailSlot)
 	for i := 0; i < 4095; i++ {
 		should.False(index.add(blobEntry("hello")))
 	}
 	should.True(index.add(blobEntry("hello")))
+	should.Equal(biter.Slot(64), index.tailSlot)
+	should.Equal(biter.Slot(64), index.children[0].tailSlot)
+	should.Equal(biter.Slot(64), index.children[63].tailSlot)
 	collector := &RowsCollector{}
 	index.searchForward(ctx, &SearchRequest{
 		0, dummyFilterInstance, collector,
@@ -81,8 +100,6 @@ func Test_search_raw_chunk(t *testing.T) {
 		entry := blobEntry(Blob(fmt.Sprintf("hello%v", i)))
 		index.add(entry)
 	}
-	should.Equal(biter.Slot(63), index.tailSlot)
-	should.Equal(biter.Slot(63), index.children[63].tailSlot)
 	collector := &RowsCollector{}
 	index.searchForward(ctx, &SearchRequest{
 		0, strategy.NewBlobValueFilter(0, Blob("hello4003")), collector,

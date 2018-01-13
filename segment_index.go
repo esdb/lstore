@@ -44,7 +44,7 @@ func newIndexSegment(slotIndexWriter slotIndexWriter, prev *indexSegment) (*inde
 		}
 		if i > level0 {
 			slotIndex.children[0] = uint64(levels[i-1])
-			slotIndex.setTailSlot(0)
+			slotIndex.setTailSlot(1)
 		}
 	}
 	return &indexSegment{

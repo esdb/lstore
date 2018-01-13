@@ -6,40 +6,55 @@ import (
 	"github.com/esdb/pbloom"
 )
 
-func (segment *indexSegment) addBlock(ctx countlog.Context, slotIndexWriter slotIndexWriter, blockWriter blockWriter,
-	blk *block) error {
-	var err error
-	slots, err := segment.nextSlot(ctx, slotIndexWriter)
-	level0SlotMask := biter.SetBits[slots[level0]]
-	level1SlotMask := biter.SetBits[slots[level1]]
-	level2SlotMask := biter.SetBits[slots[level2]]
-	if err != nil {
-		return err
-	}
+func (segment *indexSegment) addBlock(ctx countlog.Context,
+	slotIndexWriter slotIndexWriter, blockWriter blockWriter, blk *block) error {
 	// hash will update block, so call it before write
 	blkHash := blk.Hash(slotIndexWriter.indexingStrategy())
 	var blockSeq blockSeq
+	var err error
 	blockSeq, segment.tailBlockSeq, err = blockWriter.writeBlock(segment.tailBlockSeq, blk)
 	ctx.TraceCall("callee!segment.writeBlock", err)
 	if err != nil {
 		return err
 	}
 	indices := make([]*slotIndex, levelsCount)
+	masks := make([]biter.Bits, levelsCount)
+	shouldMoveUp := true
 	for i := level0; i <= segment.topLevel; i++ {
-		indices[i], err = slotIndexWriter.mapWritableSlotIndex(segment.levels[i], i)
+		index, err := slotIndexWriter.mapWritableSlotIndex(segment.levels[i], i)
 		if err != nil {
 			return err
 		}
+		indices[i] = index
+		if i == level0 {
+			masks[i] = biter.SetBits[*index.tailSlot]
+		} else {
+			masks[i] = biter.SetBits[*index.tailSlot - 1]
+		}
+		if *index.tailSlot != 63 {
+			shouldMoveUp = false
+		}
 	}
-	level0SlotIndex := indices[0]
-	level1SlotIndex := indices[1]
-	level2SlotIndex := indices[2]
-	level0SlotIndex.children[slots[0]] = uint64(blockSeq)
-	level0SlotIndex.setTailSlot(slots[0])
+	if shouldMoveUp {
+		segment.topLevel += 1
+		var parent *slotIndex
+		segment.levels[segment.topLevel], segment.tailSlotIndexSeq, parent, err = slotIndexWriter.newSlotIndex(
+			segment.tailSlotIndexSeq, segment.topLevel)
+		parent.children[0] = uint64(segment.levels[segment.topLevel - 1])
+		parent.setTailSlot(1)
+		indices[segment.topLevel] = parent
+	}
+	level0Index := indices[0]
+	level1Index := indices[1]
+	level2Index := indices[2]
+	level0SlotMask := masks[0]
+	level1SlotMask := masks[1]
+	level2SlotMask := masks[2]
+	level0Index.children[*level0Index.tailSlot] = uint64(blockSeq)
 	for i, hashColumn := range blkHash {
-		pbf0 := level0SlotIndex.pbfs[i]
-		pbf1 := level1SlotIndex.pbfs[i]
-		pbf2 := level2SlotIndex.pbfs[i]
+		pbf0 := level0Index.pbfs[i]
+		pbf1 := level1Index.pbfs[i]
+		pbf2 := level2Index.pbfs[i]
 		for _, hashedElement := range hashColumn {
 			// level0, level1, level2 are computed from block hash
 			locations := pbloom.BatchPut(hashedElement,
@@ -48,7 +63,7 @@ func (segment *indexSegment) addBlock(ctx countlog.Context, slotIndexWriter slot
 			// from level3 to levelN, they are derived from level2
 			for j := level(3); j <= segment.topLevel; j++ {
 				parentPbf := indices[j].pbfs[i]
-				levelNMask := biter.SetBits[slots[j]]
+				levelNMask := masks[j]
 				parentPbf[locations[0]] |= levelNMask
 				parentPbf[locations[1]] |= levelNMask
 				parentPbf[locations[2]] |= levelNMask
@@ -57,130 +72,35 @@ func (segment *indexSegment) addBlock(ctx countlog.Context, slotIndexWriter slot
 		}
 	}
 	segment.tailOffset += Offset(blockLength)
-	return nil
+	return segment.nextSlot(ctx, slotIndexWriter, indices)
 }
 
-func (segment *indexSegment) nextSlot(ctx countlog.Context, slotIndexWriter slotIndexWriter) ([]biter.Slot, error) {
-	slots := make([]biter.Slot, 9)
-	cnt := int(segment.tailOffset-segment.headOffset) >> blockLengthInPowerOfTwo
-	level0Slot := biter.Slot(cnt % 64)
-	cnt = cnt >> 6
-	level1Slot := biter.Slot(cnt % 64)
-	cnt = cnt >> 6
-	level2Slot := biter.Slot(cnt % 64)
-	cnt = cnt >> 6
-	level3Slot := biter.Slot(cnt % 64)
-	cnt = cnt >> 6
-	level4Slot := biter.Slot(cnt % 64)
-	cnt = cnt >> 6
-	level5Slot := biter.Slot(cnt % 64)
-	cnt = cnt >> 6
-	level6Slot := biter.Slot(cnt % 64)
-	cnt = cnt >> 6
-	level7Slot := biter.Slot(cnt % 64)
-	cnt = cnt >> 6
-	level8Slot := biter.Slot(cnt % 64)
-	slots = []biter.Slot{level0Slot, level1Slot, level2Slot, level3Slot, level4Slot,
-		level5Slot, level6Slot, level7Slot, level8Slot}
-	if level0Slot != 0 || (segment.tailOffset-segment.headOffset) == 0 {
-		return slots, nil
-	}
-	if level1Slot != 0 {
-		if err := segment.rotate(slotIndexWriter, level0, level1Slot-1); err != nil {
-			return nil, err
-		}
-		return slots, nil
-	}
-	if err := segment.rotate(slotIndexWriter, level0, 63); err != nil {
-		return nil, err
-	}
-	if level2Slot != 0 {
-		if err := segment.rotate(slotIndexWriter, level1, level2Slot-1); err != nil {
-			return nil, err
-		}
-		return slots, nil
-	}
-	if err := segment.rotate(slotIndexWriter, level1, 63); err != nil {
-		return nil, err
-	}
-	if level3Slot != 0 {
-		if err := segment.rotate(slotIndexWriter, level2, level3Slot-1); err != nil {
-			return nil, err
-		}
-		return slots, nil
-	}
-	if err := segment.rotate(slotIndexWriter, level2, 63); err != nil {
-		return nil, err
-	}
-	if level4Slot != 0 {
-		if err := segment.rotate(slotIndexWriter, 3, level4Slot-1); err != nil {
-			return nil, err
-		}
-		return slots, nil
-	}
-	if err := segment.rotate(slotIndexWriter, 3, 63); err != nil {
-		return nil, err
-	}
-	if level5Slot != 0 {
-		if err := segment.rotate(slotIndexWriter, 4, level5Slot-1); err != nil {
-			return nil, err
-		}
-		return slots, nil
-	}
-	if err := segment.rotate(slotIndexWriter, 4, 63); err != nil {
-		return nil, err
-	}
-	if level6Slot != 0 {
-		if err := segment.rotate(slotIndexWriter, 5, level6Slot-1); err != nil {
-			return nil, err
-		}
-		return slots, nil
-	}
-	if err := segment.rotate(slotIndexWriter, 5, 63); err != nil {
-		return nil, err
-	}
-	if level7Slot != 0 {
-		if err := segment.rotate(slotIndexWriter, 6, level7Slot-1); err != nil {
-			return nil, err
-		}
-		return slots, nil
-	}
-	if err := segment.rotate(slotIndexWriter, 6, 63); err != nil {
-		return nil, err
-	}
-	if level8Slot != 0 {
-		if err := segment.rotate(slotIndexWriter, 7, level8Slot-1); err != nil {
-			return nil, err
-		}
-		return slots, nil
-	}
-	panic("bloom filter tree exceed capacity")
-}
-
-func (segment *indexSegment) rotate(slotIndexWriter slotIndexWriter, level level, slot biter.Slot) (err error) {
-	if level+1 > segment.topLevel {
-		segment.topLevel = level + 1
-		slotIndexSeq, nextSlotIndexSeq, slotIndex, err := slotIndexWriter.newSlotIndex(
-			segment.tailSlotIndexSeq, level)
-		if err != nil {
-			return err
-		}
-		segment.tailSlotIndexSeq = nextSlotIndexSeq
-		segment.levels[level+1] = slotIndexSeq
-		idx, err := slotIndexWriter.mapWritableSlotIndex(segment.levels[level], level)
-		if err != nil {
-			return err
-		}
-		slotIndex.updateSlot(biter.SetBits[0], idx)
-		slotIndex.setTailSlot(0)
-	}
-	idx, err := slotIndexWriter.mapWritableSlotIndex(segment.levels[level+1], level+1)
-	if err != nil {
+func (segment *indexSegment) nextSlot(ctx countlog.Context, slotIndexWriter slotIndexWriter, indices []*slotIndex) error {
+	level0index := indices[0]
+	newTailSlot := *level0index.tailSlot + 1
+	level0index.setTailSlot(newTailSlot)
+	if newTailSlot == 64 {
+		_, err := segment.rotate(slotIndexWriter, level0, indices)
 		return err
 	}
-	idx.children[slot] = uint64(segment.levels[level])
-	idx.setTailSlot(slot)
-	segment.levels[level], segment.tailSlotIndexSeq, _, err = slotIndexWriter.newSlotIndex(
-		segment.tailSlotIndexSeq, level)
 	return nil
+}
+
+func (segment *indexSegment) rotate(slotIndexWriter slotIndexWriter, level level, indices []*slotIndex) (slotIndex *slotIndex, err error) {
+	segment.levels[level], segment.tailSlotIndexSeq, slotIndex, err = slotIndexWriter.newSlotIndex(
+		segment.tailSlotIndexSeq, level)
+	parent := indices[level+1]
+	parentTailSlot := *parent.tailSlot
+	if parentTailSlot == 64 {
+		parent, err = segment.rotate(slotIndexWriter, level+1, indices)
+		if err != nil {
+			return nil, err
+		}
+		parent.setTailSlot(1)
+		parent.children[0] = uint64(segment.levels[level])
+	} else {
+		parent.setTailSlot(parentTailSlot + 1)
+		parent.children[parentTailSlot] = uint64(segment.levels[level])
+	}
+	return slotIndex, nil
 }

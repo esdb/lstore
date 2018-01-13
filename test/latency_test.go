@@ -8,6 +8,7 @@ import (
 	"github.com/rs/xid"
 	"fmt"
 	"context"
+	"math/rand"
 )
 
 func Test_write_1_million(t *testing.T) {
@@ -57,7 +58,7 @@ func Test_search(t *testing.T) {
 	should.NoError(err)
 	collector := &lstore.RowsCollector{}
 	reader.SearchForward(ctx, &lstore.SearchRequest{
-		0, nil, collector,
+		0, nil, &assertContinuous{cb: collector},
 	})
 	fmt.Println(len(collector.Rows))
 	fmt.Println(collector.Rows[899487].BlobValues[0])
@@ -79,12 +80,20 @@ func Benchmark_search(b *testing.B) {
 	if err != nil {
 		b.Error(err)
 	}
+	collector := &lstore.RowsCollector{}
+	reader.SearchForward(ctx, &lstore.SearchRequest{
+		0, nil, &assertContinuous{cb: collector},
+	})
+	fmt.Println(len(collector.Rows))
+	fmt.Println(collector.Rows[899487].BlobValues[0])
+	rows := collector.Rows
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		collector := &lstore.RowsCollector{LimitSize: 1}
+		target := rows[rand.Int31n(1000000)].BlobValues[0]
 		reader.SearchForward(ctx, &lstore.SearchRequest{
-			0, strategy.NewBlobValueFilter(0, "b9c3b60t8744tkh6gl6g"), collector,
+			0, strategy.NewBlobValueFilter(0, target), collector,
 		})
 	}
 }

@@ -47,8 +47,31 @@ func (writer *writer) load(ctx countlog.Context) error {
 	if err != nil {
 		return err
 	}
+	slotIndexReader := writer.store.slotIndexManager.newReader(14, 4)
+	defer slotIndexReader.Close()
+	version := writer.currentVersion
+	level0Index, err := slotIndexReader.readSlotIndex(version.indexingSegment.levels[0], 0)
+	if err != nil {
+		return err
+	}
+	level1Index, err := slotIndexReader.readSlotIndex(version.indexingSegment.levels[1], 1)
+	if err != nil {
+		return err
+	}
+	level2Index, err := slotIndexReader.readSlotIndex(version.indexingSegment.levels[2], 2)
+	if err != nil {
+		return err
+	}
 	ctx.Info("event!writer.loadInitialVersion",
-		"indexingTailOffset", writer.currentVersion.indexingSegment.tailOffset,
+		"indexedSegmentsCount", len(version.indexedSegments),
+		"indexingHeadOffset", version.indexingSegment.headOffset,
+		"indexingTailOffset", version.indexingSegment.tailOffset,
+		"indexingTopLevel", version.indexingSegment.topLevel,
+		"indexingLevel0TailSlot", *level0Index.tailSlot,
+		"indexingLevel1TailSlot", *level1Index.tailSlot,
+		"indexingLevel2TailSlot", *level2Index.tailSlot,
+		"chunksCount", len(version.chunks),
+		"firstChunkHeadOffset", version.chunks[0].headOffset,
 		"storeTailOffset", writer.store.tailOffset)
 	return nil
 }
@@ -321,10 +344,9 @@ func (writer *writer) movedBlockIntoIndex(
 		} else {
 			newVersion.chunks[0] = &firstRawChunk
 		}
-		headOffset := newVersion.chunks[0].headOffset + Offset(newVersion.chunks[0].headSlot<<6)
 		removedRawSegmentsCount := 0
 		for i, rawSegment := range writer.rawSegments {
-			if rawSegment.headOffset <= headOffset {
+			if rawSegment.headOffset <= indexingSegment.tailOffset {
 				removedRawSegmentsCount = i
 			} else {
 				break
@@ -340,8 +362,13 @@ func (writer *writer) movedBlockIntoIndex(
 		writer.updateCurrentVersion(newVersion)
 		resultChan <- nil
 		countlog.Debug("event!writer.movedBlockIntoIndex",
+			"firstRawChunk.headOffset", firstRawChunk.headOffset,
+			"firstRawChunk.headSlot", firstRawChunk.headSlot,
+			"chunksCount", len(newVersion.chunks),
+			"lastChunkTailOffset", newVersion.chunks[len(newVersion.chunks) - 1].tailOffset,
 			"indexingSegment.headOffset", indexingSegment.headOffset,
-				"removedRawSegmentsCount", removedRawSegmentsCount)
+			"indexingSegment.tailOffset", indexingSegment.tailOffset,
+			"removedRawSegmentsCount", removedRawSegmentsCount)
 		return
 	})
 	return <-resultChan

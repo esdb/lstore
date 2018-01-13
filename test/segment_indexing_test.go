@@ -100,6 +100,36 @@ func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 	}
 }
 
+func Test_indexing_segment_with_many_chunks_left(t *testing.T) {
+	should := require.New(t)
+	store := testStore(lstore.Config{
+		IndexingStrategy: lstore.NewIndexingStrategy(lstore.IndexingStrategyConfig{
+			BloomFilterIndexedBlobColumns: []int{0},
+		}),
+	})
+	defer store.Stop(ctx)
+	for i := 0; i < 4096 * 64; i++ {
+		blobValue := lstore.Blob(strconv.Itoa(i))
+		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		should.Nil(err)
+		should.Equal(lstore.Offset(i), offset)
+	}
+	for i := 0; i < 65; i++ {
+		should.Nil(store.UpdateIndex())
+	}
+	reader, err := store.NewReader(ctx)
+	should.Nil(err)
+	collector := &lstore.RowsCollector{}
+	reader.SearchForward(ctx, &lstore.SearchRequest{
+		0, nil, collector,
+	})
+	should.Equal(lstore.Offset(262143), collector.Rows[len(collector.Rows) - 1].Offset)
+	should.Equal(262144, len(collector.Rows))
+	for _, row := range collector.Rows {
+		should.Equal(row.IntValues[0], int64(row.Offset))
+	}
+}
+
 func Test_index_block_compressed(t *testing.T) {
 	should := require.New(t)
 	config := lstore.Config{
