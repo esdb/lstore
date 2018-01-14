@@ -13,7 +13,7 @@ type slotIndex struct {
 	tailSlot *biter.Slot
 }
 
-func newSlotIndex(indexingStrategy *IndexingStrategy, level level) *slotIndex {
+func newSlotIndex(indexingStrategy *indexingStrategy, level level) *slotIndex {
 	hashingStrategy := indexingStrategy.hashingStrategy(level)
 	pbfs := make([]pbloom.ParallelBloomFilter, indexingStrategy.bloomFilterIndexedColumnsCount())
 	for i := 0; i < len(pbfs); i++ {

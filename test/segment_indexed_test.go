@@ -11,7 +11,7 @@ import (
 
 func Test_indexed_segment(t *testing.T) {
 	should := require.New(t)
-	store := testStore(lstore.Config{})
+	store := testStore(&lstore.Config{})
 	defer store.Stop(ctx)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
@@ -19,8 +19,8 @@ func Test_indexed_segment(t *testing.T) {
 		should.Nil(err)
 		should.Equal(lstore.Offset(i), offset)
 	}
-	should.Nil(store.UpdateIndex())
-	should.Nil(store.RotateIndex())
+	should.Nil(store.UpdateIndex(ctx))
+	should.Nil(store.RotateIndex(ctx))
 
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
@@ -38,7 +38,7 @@ func Test_indexed_segment(t *testing.T) {
 		_, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 	}
-	should.Nil(store.UpdateIndex())
+	should.Nil(store.UpdateIndex(ctx))
 
 	hasNew := reader.Refresh(ctx)
 	should.True(hasNew)
@@ -54,15 +54,15 @@ func Test_indexed_segment(t *testing.T) {
 
 func Test_reopen_indexed_segments(t *testing.T) {
 	should := require.New(t)
-	store := testStore(lstore.Config{})
+	store := testStore(&lstore.Config{})
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 		should.Equal(lstore.Offset(i), offset)
 	}
-	should.Nil(store.UpdateIndex())
-	should.Nil(store.RotateIndex())
+	should.Nil(store.UpdateIndex(ctx))
+	should.Nil(store.RotateIndex(ctx))
 
 	store = reopenTestStore(store)
 	defer store.Stop(ctx)
@@ -83,7 +83,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 		_, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 	}
-	should.Nil(store.UpdateIndex())
+	should.Nil(store.UpdateIndex(ctx))
 
 	hasNew := reader.Refresh(ctx)
 	should.True(hasNew)
@@ -99,7 +99,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 
 func Test_remove_indexed_segment(t *testing.T) {
 	should := require.New(t)
-	config := lstore.Config{}
+	config := &lstore.Config{}
 	config.BlockFileSizeInPowerOfTwo = 14
 	store := testStore(config)
 	defer store.Stop(ctx)
@@ -109,10 +109,10 @@ func Test_remove_indexed_segment(t *testing.T) {
 			_, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
 			should.Nil(err)
 		}
-		should.Nil(store.UpdateIndex())
-		should.Nil(store.RotateIndex())
+		should.Nil(store.UpdateIndex(ctx))
+		should.Nil(store.RotateIndex(ctx))
 	}
-	should.Nil(store.Remove(1792))
+	should.Nil(store.Remove(ctx,1792))
 
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)

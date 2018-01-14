@@ -17,11 +17,10 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-func testStore(config lstore.Config) *lstore.Store {
-	store := &lstore.Store{Config: config}
-	store.Directory = "/tmp/store"
-	os.RemoveAll(store.Directory)
-	err := store.Start(context.Background())
+func testStore(cfg *lstore.Config) *lstore.Store {
+	cfg.Directory = "/tmp/store"
+	os.RemoveAll(cfg.Directory)
+	store, err := lstore.New(context.Background(), cfg)
 	if err != nil {
 		panic(err)
 	}
@@ -30,9 +29,8 @@ func testStore(config lstore.Config) *lstore.Store {
 
 func reopenTestStore(store *lstore.Store) *lstore.Store {
 	store.Stop(context.Background())
-	newStore := &lstore.Store{}
-	newStore.Config = store.Config
-	err := newStore.Start(context.Background())
+	cfg := store.Config()
+	newStore, err := lstore.New(context.Background(), &cfg)
 	if err != nil {
 		panic(err)
 	}
@@ -40,15 +38,15 @@ func reopenTestStore(store *lstore.Store) *lstore.Store {
 }
 
 func intEntry(values ...int64) *lstore.Entry {
-	return &lstore.Entry{EntryType: lstore.EntryTypeData, IntValues: values}
+	return &lstore.Entry{IntValues: values}
 }
 
 func blobEntry(values ...lstore.Blob) *lstore.Entry {
-	return &lstore.Entry{EntryType: lstore.EntryTypeData, BlobValues: values}
+	return &lstore.Entry{BlobValues: values}
 }
 
 func intBlobEntry(intValue int64, blobValue lstore.Blob) *lstore.Entry {
-	return &lstore.Entry{EntryType: lstore.EntryTypeData, IntValues: []int64{intValue}, BlobValues: []lstore.Blob{blobValue}}
+	return &lstore.Entry{IntValues: []int64{intValue}, BlobValues: []lstore.Blob{blobValue}}
 }
 
 type assertSearchForward struct {

@@ -15,7 +15,6 @@ type blobColumn []Blob
 type blobHashColumn []uint32
 
 var blockLength = 256
-var blockLengthInPowerOfTwo = uint8(8)
 
 type block struct {
 	startOffset Offset
@@ -57,7 +56,7 @@ func newBlock(startOffset Offset, rows []*Entry) *block {
 	}
 }
 
-func (blk *block) Hash(strategy *IndexingStrategy) blockHash {
+func (blk *block) Hash(strategy *indexingStrategy) blockHash {
 	blockHash := make(blockHash, strategy.bloomFilterIndexedColumnsCount())
 	for i := 0; i < len(blockHash); i++ {
 		blockHash[i] = make(hashColumn, blockLength)
@@ -121,7 +120,7 @@ func (blk *block) scanForward(ctx countlog.Context, req *SearchRequest) error {
 				blobValues[j] = blk.blobColumns[j][currentSlot]
 			}
 			err := req.Callback.HandleRow(blk.startOffset+Offset(currentSlot), &Entry{
-				EntryType: EntryTypeData, IntValues: intValues, BlobValues: blobValues})
+				IntValues: intValues, BlobValues: blobValues})
 			if err != nil {
 				return err
 			}

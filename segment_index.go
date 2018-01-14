@@ -9,6 +9,8 @@ import (
 	"os"
 )
 
+const firstBlockSeq = 1
+const firstSlotIndexSeq = 1
 const levelsCount = 9
 const level0 level = 0 // small
 const level1 level = 1 // medium
@@ -27,8 +29,8 @@ type indexSegment struct {
 
 func newIndexSegment(slotIndexWriter slotIndexWriter, prev *indexSegment) (*indexSegment, error) {
 	levels := make([]slotIndexSeq, levelsCount)
-	tailSlotIndexSeq := slotIndexSeq(1)
-	tailBlockSeq := blockSeq(1)
+	tailSlotIndexSeq := slotIndexSeq(firstSlotIndexSeq)
+	tailBlockSeq := blockSeq(firstBlockSeq)
 	headOffset := Offset(0)
 	if prev != nil {
 		tailSlotIndexSeq = prev.tailSlotIndexSeq

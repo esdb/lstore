@@ -25,14 +25,14 @@ type chunk struct {
 	headOffset Offset
 	tailOffset Offset
 	children   []*chunkChild
-	strategy   *IndexingStrategy
+	strategy   *indexingStrategy
 }
 
-func newChunks(strategy *IndexingStrategy, headOffset Offset) []*chunk {
+func newChunks(strategy *indexingStrategy, headOffset Offset) []*chunk {
 	return []*chunk{newChunk(strategy, headOffset)}
 }
 
-func newChunk(strategy *IndexingStrategy, headOffset Offset) *chunk {
+func newChunk(strategy *indexingStrategy, headOffset Offset) *chunk {
 	children := make([]*chunkChild, 64)
 	for i := 0; i < len(children); i++ {
 		child := &chunkChild{nil, make([]*Entry, 64), 0}

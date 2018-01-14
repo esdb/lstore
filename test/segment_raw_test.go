@@ -8,7 +8,9 @@ import (
 
 func Test_raw_segment(t *testing.T) {
 	should := require.New(t)
-	store := testStore(lstore.Config{TailSegmentMaxSize: 140})
+	cfg := &lstore.Config{}
+	cfg.RawSegmentMaxSizeInBytes = 140
+	store := testStore(cfg)
 	defer store.Stop(ctx)
 	seq, err := store.Write(ctx, intEntry(1))
 	should.Nil(err)
@@ -29,7 +31,9 @@ func Test_raw_segment(t *testing.T) {
 
 func Test_a_lot_raw_segment(t *testing.T) {
 	should := require.New(t)
-	store := testStore(lstore.Config{TailSegmentMaxSize: 140})
+	cfg := &lstore.Config{}
+	cfg.RawSegmentMaxSizeInBytes = 140
+	store := testStore(cfg)
 	defer store.Stop(ctx)
 	for i := 0; i < 256; i++ {
 		seq, err := store.Write(ctx, intEntry(int64(i)))
@@ -49,7 +53,9 @@ func Test_a_lot_raw_segment(t *testing.T) {
 
 func Test_reopen_raw_segment(t *testing.T) {
 	should := require.New(t)
-	store := testStore(lstore.Config{TailSegmentMaxSize: 140})
+	cfg := &lstore.Config{}
+	cfg.RawSegmentMaxSizeInBytes = 140
+	store := testStore(cfg)
 	seq, err := store.Write(ctx, intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(0), seq)

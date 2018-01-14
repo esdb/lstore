@@ -7,38 +7,47 @@ import (
 	"context"
 	"os"
 	"github.com/v2pro/plz"
+	"github.com/v2pro/plz/concurrent"
 )
 
 type indexerCommand func(ctx countlog.Context)
 
 type indexer struct {
-	store           *Store
+	cfg             *indexerConfig
+	state           *storeState
+	stateUpdater    storeStateUpdater
 	commandQueue    chan indexerCommand
-	currentVersion  *StoreVersion
+	currentVersion  *storeVersion
 	slotIndexWriter slotIndexWriter
 	blockWriter     blockWriter
 }
 
-func (store *Store) newIndexer(ctx countlog.Context) *indexer {
+func (store *Store) newIndexer(ctx countlog.Context) (*indexer, error) {
 	indexer := &indexer{
-		store:           store,
+		cfg:             &store.cfg.indexerConfig,
+		state:           &store.storeState,
+		stateUpdater:    store.writer,
 		currentVersion:  store.latest(),
-		commandQueue:    make(chan indexerCommand, 1),
+		commandQueue:    make(chan indexerCommand),
 		slotIndexWriter: store.slotIndexManager.newWriter(14, 4),
 		blockWriter:     store.blockManager.newWriter(),
 	}
-	indexer.start()
-	return indexer
+	err := indexer.load(ctx, store.slotIndexManager)
+	if err != nil {
+		return nil, err
+	}
+	indexer.start(store.executor)
+	return indexer, nil
 }
 
 func (indexer *indexer) Close() error {
 	return plz.Close(indexer.slotIndexWriter)
 }
 
-func (indexer *indexer) start() {
-	store := indexer.store
-	indexer.currentVersion = store.latest()
-	store.executor.Go(func(ctxObj context.Context) {
+func (indexer *indexer) start(executor *concurrent.UnboundedExecutor) {
+	state := indexer.state
+	indexer.currentVersion = state.latest()
+	executor.Go(func(ctxObj context.Context) {
 		ctx := countlog.Ctx(ctxObj)
 		defer func() {
 			countlog.Info("event!indexer.stop")
@@ -53,7 +62,6 @@ func (indexer *indexer) start() {
 			case <-timer.C:
 			case cmd = <-indexer.commandQueue:
 			}
-			indexer.currentVersion = store.latest()
 			if cmd == nil {
 				cmd = func(ctx countlog.Context) {
 					indexer.doUpdateIndex(ctx)
@@ -65,43 +73,43 @@ func (indexer *indexer) start() {
 }
 
 func (indexer *indexer) runCommand(ctx countlog.Context, cmd indexerCommand) {
-	slotIndexManager := indexer.store.slotIndexManager
-	slotIndexManager.lock(indexer, indexer.currentVersion.HeadOffset())
-	defer slotIndexManager.unlock(indexer)
-	blockManager := indexer.store.blockManager
-	blockManager.lock(indexer, indexer.currentVersion.HeadOffset())
-	defer blockManager.unlock(indexer)
+	indexer.currentVersion = indexer.state.latest()
+	indexer.state.lock(indexer, indexer.currentVersion.HeadOffset())
+	defer indexer.state.unlock(indexer)
 	cmd(ctx)
 }
 
-func (indexer *indexer) asyncExecute(cmd indexerCommand) error {
+func (indexer *indexer) asyncExecute(ctx countlog.Context, cmd indexerCommand) error {
 	select {
 	case indexer.commandQueue <- cmd:
 		return nil
-	default:
-		return errors.New("too many compaction request")
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
-func (indexer *indexer) UpdateIndex() error {
+func (indexer *indexer) UpdateIndex(ctxObj context.Context) error {
+	ctx := countlog.Ctx(ctxObj)
 	resultChan := make(chan error)
-	indexer.asyncExecute(func(ctx countlog.Context) {
+	indexer.asyncExecute(ctx, func(ctx countlog.Context) {
 		resultChan <- indexer.doUpdateIndex(ctx)
 	})
 	return <-resultChan
 }
 
-func (indexer *indexer) RotateIndex() error {
+func (indexer *indexer) RotateIndex(ctxObj context.Context) error {
+	ctx := countlog.Ctx(ctxObj)
 	resultChan := make(chan error)
-	indexer.asyncExecute(func(ctx countlog.Context) {
+	indexer.asyncExecute(ctx, func(ctx countlog.Context) {
 		resultChan <- indexer.doRotateIndex(ctx)
 	})
 	return <-resultChan
 }
 
-func (indexer *indexer) Remove(untilOffset Offset) error {
+func (indexer *indexer) Remove(ctxObj context.Context, untilOffset Offset) error {
+	ctx := countlog.Ctx(ctxObj)
 	resultChan := make(chan error)
-	indexer.asyncExecute(func(ctx countlog.Context) {
+	indexer.asyncExecute(ctx, func(ctx countlog.Context) {
 		resultChan <- indexer.doRemove(ctx, untilOffset)
 	})
 	return <-resultChan
@@ -117,7 +125,7 @@ func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err 
 		}
 		if indexedSegment.tailOffset <= untilOffset {
 			removedIndexedSegmentsCount = i + 1
-			err = os.Remove(indexer.store.IndexedSegmentPath(indexedSegment.tailOffset))
+			err = os.Remove(indexer.cfg.IndexedSegmentPath(indexedSegment.tailOffset))
 			ctx.TraceCall("callee!os.Remove", err)
 			if err != nil {
 				return err
@@ -129,7 +137,8 @@ func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err 
 	if removedIndexedSegmentsCount == 0 {
 		return nil
 	}
-	err = indexer.store.writer.removedIndex(ctx, removedIndexedSegmentsCount)
+	// TODO: calculate indexedSegments
+	err = indexer.stateUpdater.removedIndex(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -146,23 +155,23 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	err = createIndexSegment(ctx, indexer.store.IndexingSegmentTmpPath(), newIndexingSegment)
+	err = createIndexSegment(ctx, indexer.cfg.IndexingSegmentTmpPath(), newIndexingSegment)
 	if err != nil {
 		return err
 	}
-	err = os.Rename(indexer.store.IndexingSegmentPath(),
-		indexer.store.IndexedSegmentPath(newIndexingSegment.headOffset))
+	err = os.Rename(indexer.cfg.IndexingSegmentPath(),
+		indexer.cfg.IndexedSegmentPath(newIndexingSegment.headOffset))
 	ctx.TraceCall("callee!os.Rename", err)
 	if err != nil {
 		return err
 	}
-	err = os.Rename(indexer.store.IndexingSegmentTmpPath(),
-		indexer.store.IndexingSegmentPath())
+	err = os.Rename(indexer.cfg.IndexingSegmentTmpPath(),
+		indexer.cfg.IndexingSegmentPath())
 	ctx.TraceCall("callee!os.Rename", err)
 	if err != nil {
 		return err
 	}
-	indexer.store.writer.rotatedIndex(ctx, currentVersion.indexingSegment, newIndexingSegment)
+	indexer.stateUpdater.rotatedIndex(ctx, currentVersion.indexingSegment, newIndexingSegment)
 	ctx.Info("event!indexer.rotated index",
 		"indexedSegment.headOffset", oldIndexingSegment.headOffset,
 		"indexedSegment.tailOffset", oldIndexingSegment.tailOffset)
@@ -171,7 +180,7 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 
 func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	currentVersion := indexer.currentVersion
-	storeTailOffset := indexer.store.getTailOffset()
+	storeTailOffset := indexer.state.getTailOffset()
 	oldIndexingSegment := currentVersion.indexingSegment
 	oldIndexingTailOffset := oldIndexingSegment.tailOffset
 	countlog.Debug("event!indexer.doUpdateIndex",
@@ -216,7 +225,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	err = indexer.store.writer.movedBlockIntoIndex(ctx, indexingSegment)
+	err = indexer.stateUpdater.movedBlockIntoIndex(ctx, indexingSegment)
 	if err != nil {
 		return err
 	}
@@ -224,18 +233,18 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 }
 
 func (indexer *indexer) saveIndexingSegment(ctx countlog.Context, indexingSegment *indexSegment, shouldRotate bool) error {
-	err := createIndexSegment(ctx, indexer.store.IndexingSegmentTmpPath(), indexingSegment)
+	err := createIndexSegment(ctx, indexer.cfg.IndexingSegmentTmpPath(), indexingSegment)
 	if err != nil {
 		return err
 	}
 	if shouldRotate {
-		err = os.Rename(indexer.store.IndexingSegmentPath(), indexer.store.IndexedSegmentPath(indexingSegment.headOffset))
+		err = os.Rename(indexer.cfg.IndexingSegmentPath(), indexer.cfg.IndexedSegmentPath(indexingSegment.headOffset))
 		ctx.TraceCall("callee!os.Rename", err)
 		if err != nil {
 			return err
 		}
 	}
-	err = os.Rename(indexer.store.IndexingSegmentTmpPath(), indexer.store.IndexingSegmentPath())
+	err = os.Rename(indexer.cfg.IndexingSegmentTmpPath(), indexer.cfg.IndexingSegmentPath())
 	ctx.TraceCall("callee!os.Rename", err)
 	if err != nil {
 		return err

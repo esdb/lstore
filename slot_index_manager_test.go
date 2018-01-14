@@ -16,7 +16,7 @@ func testSlotIndexManager(blockFileSizeInPowerOfTwo uint8) *mmapSlotIndexManager
 	mgr := newSlotIndexManager(&slotIndexManagerConfig{
 		IndexDirectory:            "/tmp/index",
 		IndexFileSizeInPowerOfTwo: blockFileSizeInPowerOfTwo,
-	}, NewIndexingStrategy(IndexingStrategyConfig{
+	}, newIndexingStrategy(indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	}))
 	return mgr

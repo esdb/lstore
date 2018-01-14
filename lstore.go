@@ -1,111 +1,71 @@
 package lstore
 
 import (
-	"unsafe"
-	"sync/atomic"
 	"github.com/v2pro/plz/concurrent"
 	"path"
-	"fmt"
 	"context"
 	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/plz"
 	"io"
 )
 
-const IndexingSegmentFileName = "indexing.segment"
-const IndexingSegmentTmpFileName = "indexing.segment.tmp"
-const TailSegmentFileName = "tail.segment"
-const TailSegmentTmpFileName = "tail.segment.tmp"
-
 type Config struct {
+	writerConfig
+	indexerConfig
 	blockManagerConfig
 	slotIndexManagerConfig
-	Directory          string
-	CommandQueueSize   int
-	TailSegmentMaxSize int64
-	IndexingStrategy   *IndexingStrategy
-}
-
-func (conf *Config) IndexedSegmentPath(tailOffset Offset) string {
-	return path.Join(conf.Directory, fmt.Sprintf("indexed-%d.segment", tailOffset))
-}
-
-func (conf *Config) IndexingSegmentPath() string {
-	return path.Join(conf.Directory, IndexingSegmentFileName)
-}
-
-func (conf *Config) IndexingSegmentTmpPath() string {
-	return path.Join(conf.Directory, IndexingSegmentTmpFileName)
-}
-
-func (conf *Config) RawSegmentPath(tailOffset Offset) string {
-	return path.Join(conf.Directory, fmt.Sprintf("raw-%d.segment", tailOffset))
-}
-
-func (conf *Config) TailSegmentPath() string {
-	return path.Join(conf.Directory, TailSegmentFileName)
-}
-
-func (conf *Config) TailSegmentTmpPath() string {
-	return path.Join(conf.Directory, TailSegmentTmpFileName)
+	indexingStrategyConfig
+	Directory string
 }
 
 // Store is physically a directory, containing multiple files on disk
 // it represents the history by a log of entries
 type Store struct {
-	Config
-	writer           *writer
-	indexer          *indexer
-	blockManager     blockManager
-	slotIndexManager slotIndexManager
-	currentVersion   unsafe.Pointer                // pointer to StoreVersion, writer use atomic to notify readers
-	tailOffset       uint64                        // offset, writer use atomic to notify readers
-	executor         *concurrent.UnboundedExecutor // owns writer and indexer
+	storeState
+	cfg      *Config
+	writer   *writer
+	indexer  *indexer
+	strategy *indexingStrategy
+	executor *concurrent.UnboundedExecutor // owns writer and indexer, 2 goroutines
 }
 
-type StoreVersion struct {
-	indexedSegments []*indexSegment
-	indexingSegment *indexSegment
-	chunks          []*chunk
-}
-
-func (version *StoreVersion) HeadOffset() Offset {
-	if len(version.indexedSegments) != 0 {
-		return version.indexedSegments[0].headOffset
-	}
-	return version.indexingSegment.headOffset
-}
-
-func (store *Store) Start(ctxObj context.Context) error {
+func New(ctxObj context.Context, cfg *Config) (*Store, error) {
 	ctx := countlog.Ctx(ctxObj)
-	if store.CommandQueueSize == 0 {
-		store.CommandQueueSize = 1024
+	if cfg.Directory == "" {
+		cfg.Directory = "/tmp/store"
 	}
-	if store.Directory == "" {
-		store.Directory = "/tmp"
+	if cfg.RawSegmentDirectory == "" {
+		cfg.RawSegmentDirectory = cfg.Directory
 	}
-	if store.TailSegmentMaxSize == 0 {
-		store.TailSegmentMaxSize = 200 * 1024 * 1024
+	if cfg.IndexSegmentDirectory == "" {
+		cfg.IndexSegmentDirectory = cfg.Directory
 	}
-	if store.BlockDirectory == "" {
-		store.BlockDirectory = path.Join(store.Directory, "block")
+	if cfg.BlockDirectory == "" {
+		cfg.BlockDirectory = path.Join(cfg.Directory, "block")
 	}
-	if store.IndexDirectory == "" {
-		store.IndexDirectory = path.Join(store.Directory, "index")
+	if cfg.IndexDirectory == "" {
+		cfg.IndexDirectory = path.Join(cfg.Directory, "index")
 	}
-	if store.IndexingStrategy == nil {
-		store.IndexingStrategy = NewIndexingStrategy(IndexingStrategyConfig{})
+	strategy := newIndexingStrategy(&cfg.indexingStrategyConfig)
+	store := &Store{
+		cfg:      cfg,
+		strategy: strategy,
+		executor: concurrent.NewUnboundedExecutor(),
+		storeState: storeState{
+			blockManager:     newBlockManager(&cfg.blockManagerConfig),
+			slotIndexManager: newSlotIndexManager(&cfg.slotIndexManagerConfig, strategy),
+		},
 	}
-	store.blockManager = newBlockManager(&store.blockManagerConfig)
-	store.slotIndexManager = newSlotIndexManager(&store.slotIndexManagerConfig, store.IndexingStrategy)
-	store.executor = concurrent.NewUnboundedExecutor()
-	writer, err := store.newWriter(ctx)
+	var err error
+	store.writer, err = store.newWriter(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	store.writer = writer
-	store.indexer = store.newIndexer(ctx)
-	return nil
+	store.indexer, err = store.newIndexer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 
 func (store *Store) Stop(ctx context.Context) error {
@@ -118,36 +78,24 @@ func (store *Store) Stop(ctx context.Context) error {
 	})
 }
 
+func (store *Store) Config() Config {
+	return *store.cfg
+}
+
 func (store *Store) Write(ctxObj context.Context, entry *Entry) (Offset, error) {
 	return store.writer.Write(ctxObj, entry)
 }
 
-func (store *Store) UpdateIndex() error {
-	return store.indexer.UpdateIndex()
+func (store *Store) UpdateIndex(ctxObj context.Context) error {
+	return store.indexer.UpdateIndex(ctxObj)
 }
 
-func (store *Store) RotateIndex() error {
-	return store.indexer.RotateIndex()
+func (store *Store) RotateIndex(ctxObj context.Context) error {
+	return store.indexer.RotateIndex(ctxObj)
 }
 
 // Remove can only remove those rows in indexed segment
-// data still hanging in indexing/raw/tail segment can not be removed
-func (store *Store) Remove(untilOffset Offset) error {
-	return store.indexer.Remove(untilOffset)
-}
-
-func (store *Store) latest() *StoreVersion {
-	for {
-		version := (*StoreVersion)(atomic.LoadPointer(&store.currentVersion))
-		return version
-	}
-}
-
-func (store *Store) isLatest(version *StoreVersion) bool {
-	latestVersion := (*StoreVersion)(atomic.LoadPointer(&store.currentVersion))
-	return latestVersion == version
-}
-
-func (store *Store) getTailOffset() Offset {
-	return Offset(atomic.LoadUint64(&store.tailOffset))
+// data still hanging in raw segments can not be removed
+func (store *Store) Remove(ctxObj context.Context, untilOffset Offset) error {
+	return store.indexer.Remove(ctxObj, untilOffset)
 }

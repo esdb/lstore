@@ -33,7 +33,7 @@ type slotIndexWriter interface {
 	newSlotIndex(seq slotIndexSeq, level level) (slotIndexSeq, slotIndexSeq, *slotIndex, error)
 	mapWritableSlotIndex(seq slotIndexSeq, level level) (*slotIndex, error)
 	gc()
-	indexingStrategy() *IndexingStrategy
+	indexingStrategy() *indexingStrategy
 	remove(untilSeq slotIndexSeq)
 }
 
@@ -42,7 +42,7 @@ type slotIndexWriter interface {
 // compress/decompress index from the mmap
 // retain lru index cache
 type mmapSlotIndexManager struct {
-	strategy       *IndexingStrategy
+	strategy       *indexingStrategy
 	slotIndexSizes []uint32
 	diskManager    *dheap.DiskManager
 }
@@ -62,7 +62,7 @@ type mmapSlotIndexWriter struct {
 	iter          *gocodec.Iterator
 }
 
-func newSlotIndexManager(config *slotIndexManagerConfig, strategy *IndexingStrategy) *mmapSlotIndexManager {
+func newSlotIndexManager(config *slotIndexManagerConfig, strategy *indexingStrategy) *mmapSlotIndexManager {
 	if config.IndexFileSizeInPowerOfTwo == 0 {
 		config.IndexFileSizeInPowerOfTwo = 30
 	}
@@ -123,7 +123,7 @@ func (writer *mmapSlotIndexWriter) Close() error {
 	return plz.Close(writer.memoryManager)
 }
 
-func (writer *mmapSlotIndexWriter) indexingStrategy() *IndexingStrategy {
+func (writer *mmapSlotIndexWriter) indexingStrategy() *indexingStrategy {
 	return writer.strategy
 }
 

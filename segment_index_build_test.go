@@ -43,7 +43,7 @@ var ctx = countlog.Ctx(context.Background())
 
 type testIndexSegmentObjs struct {
 	*indexSegment
-	*IndexingStrategy
+	*indexingStrategy
 	slotIndexManager slotIndexManager
 	slotIndexWriter  slotIndexWriter
 	slotIndexReader  slotIndexReader
@@ -79,7 +79,7 @@ func (objs *testIndexSegmentObjs) indexAt(i level, slots ...biter.Slot) *slotInd
 }
 
 func testIndexSegment() testIndexSegmentObjs {
-	strategy := NewIndexingStrategy(IndexingStrategyConfig{
+	strategy := newIndexingStrategy(indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	os.RemoveAll("/tmp/store")
@@ -100,7 +100,7 @@ func testIndexSegment() testIndexSegmentObjs {
 	}
 	return testIndexSegmentObjs{
 		indexSegment:     indexSegment,
-		IndexingStrategy: slotIndexWriter.indexingStrategy(),
+		indexingStrategy: slotIndexWriter.indexingStrategy(),
 		slotIndexManager: slotIndexManager,
 		slotIndexReader:  slotIndexReader,
 		slotIndexWriter:  slotIndexWriter,
@@ -253,7 +253,6 @@ func Test_add_129_blocks(t *testing.T) {
 
 func Test_add_64x64_blocks(t *testing.T) {
 	blockLength = 2
-	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
 	segment := testIndexSegment()
 	for i := 0; i < 4096; i++ {
@@ -274,7 +273,6 @@ func Test_add_64x64_blocks(t *testing.T) {
 
 func Test_add_64x64_plus_1_blocks(t *testing.T) {
 	blockLength = 2
-	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
 	segment := testIndexSegment()
 	for i := 0; i < 4097; i++ {
@@ -302,7 +300,6 @@ func Test_add_64x64_plus_1_blocks(t *testing.T) {
 
 func Test_add_64x64x64_blocks(t *testing.T) {
 	blockLength = 2
-	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
 	segment := testIndexSegment()
 	for i := 0; i < 64*64*64; i++ {
@@ -325,7 +322,6 @@ func Test_add_64x64x64_blocks(t *testing.T) {
 
 func Test_add_64x64x64_plus_1_blocks(t *testing.T) {
 	blockLength = 2
-	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
 	segment := testIndexSegment()
 	for i := 0; i < 64*64*64+1; i++ {
@@ -354,7 +350,6 @@ func Test_add_64x64x64_plus_1_blocks(t *testing.T) {
 
 func Test_add_64x64x64x2_plus_1_blocks(t *testing.T) {
 	blockLength = 2
-	blockLengthInPowerOfTwo = 1
 	should := require.New(t)
 	segment := testIndexSegment()
 	for i := 0; i < 64*64*64*2+1; i++ {

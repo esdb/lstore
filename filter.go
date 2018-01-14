@@ -31,7 +31,7 @@ type blobValueFilter struct {
 	largeBloom    pbloom.BloomElement
 }
 
-func (strategy *IndexingStrategy) NewBlobValueFilter(
+func (strategy *indexingStrategy) NewBlobValueFilter(
 	column int, value Blob) Filter {
 	indexedColumn := strategy.lookupBlobColumn(column)
 	hashed := strategy.tinyHashingStrategy.HashStage1(*(*[]byte)((unsafe.Pointer)(&value)))
