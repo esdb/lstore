@@ -50,7 +50,7 @@ func Test_search(t *testing.T) {
 	should.NoError(err)
 	collector := &lstore.RowsCollector{}
 	reader.SearchForward(ctx, &lstore.SearchRequest{
-		0, nil, &assertContinuous{cb: collector},
+		Callback: collector,
 	})
 	fmt.Println(len(collector.Rows))
 	fmt.Println(collector.Rows[899487].BlobValues[0])

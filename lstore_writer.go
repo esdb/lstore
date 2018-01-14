@@ -90,39 +90,47 @@ func handleCommand(ctx countlog.Context, cmd writerCommand) {
 	cmd(ctx)
 }
 
-func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultChan chan<- WriteResult) {
+func (writer *writer) BatchWrite(ctxObj context.Context, resultChan chan<- WriteResult, entries []*Entry) {
 	ctx := countlog.Ctx(ctxObj)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
-		offset := Offset(writer.state.tailOffset)
-		err := writer.tryWrite(ctx, entry)
-		if err == nil {
-			resultChan <- WriteResult{offset, nil}
-			return
+		for _, entry := range entries {
+			writer.writeOne(ctx, resultChan, entry)
 		}
-		if err == SegmentOverflowError {
-			err := writer.rotateTail(ctx, writer.currentVersion)
-			ctx.TraceCall("callee!writer.rotate", err)
-			if err != nil {
-				resultChan <- WriteResult{0, err}
-				return
-			}
-			err = writer.tryWrite(ctx, entry)
-			if err != nil {
-				resultChan <- WriteResult{0, err}
-				return
-			}
-			resultChan <- WriteResult{offset, nil}
-			return
-		}
-		resultChan <- WriteResult{0, err}
-		return
 	})
+}
+
+func (writer *writer) writeOne(ctx countlog.Context, resultChan chan<- WriteResult, entry *Entry) {
+	offset := Offset(writer.state.tailOffset)
+	err := writer.tryWrite(ctx, entry)
+	if err == nil {
+		resultChan <- WriteResult{offset, nil}
+		return
+	}
+	if err == SegmentOverflowError {
+		err := writer.rotateTail(ctx, writer.currentVersion)
+		ctx.TraceCall("callee!writer.rotate", err)
+		if err != nil {
+			resultChan <- WriteResult{0, err}
+			return
+		}
+		err = writer.tryWrite(ctx, entry)
+		if err != nil {
+			resultChan <- WriteResult{0, err}
+			return
+		}
+		resultChan <- WriteResult{offset, nil}
+		return
+	}
+	resultChan <- WriteResult{0, err}
+	return
 }
 
 func (writer *writer) Write(ctxObj context.Context, entry *Entry) (Offset, error) {
 	ctx := countlog.Ctx(ctxObj)
 	resultChan := make(chan WriteResult)
-	writer.AsyncWrite(ctx, entry, resultChan)
+	writer.asyncExecute(ctx, func(ctx countlog.Context) {
+		writer.writeOne(ctx, resultChan, entry)
+	})
 	select {
 	case result := <-resultChan:
 		ctx.TraceCall("callee!writer.Write", result.Error, "offset", result.Offset)

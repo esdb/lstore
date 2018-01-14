@@ -82,6 +82,10 @@ func (store *Store) Config() Config {
 	return *store.cfg
 }
 
+func (store *Store) BatchWrite(ctxObj context.Context, resultChan chan<- WriteResult, entries []*Entry) {
+	store.writer.BatchWrite(ctxObj, resultChan, entries)
+}
+
 func (store *Store) Write(ctxObj context.Context, entry *Entry) (Offset, error) {
 	return store.writer.Write(ctxObj, entry)
 }
