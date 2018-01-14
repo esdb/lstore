@@ -31,7 +31,7 @@ func newIndexSegment(slotIndexWriter slotIndexWriter, prev *indexSegment) (*inde
 	levels := make([]slotIndexSeq, levelsCount)
 	tailSlotIndexSeq := slotIndexSeq(firstSlotIndexSeq)
 	tailBlockSeq := blockSeq(firstBlockSeq)
-	headOffset := Offset(0)
+	headOffset := Offset(firstOffset)
 	if prev != nil {
 		tailSlotIndexSeq = prev.tailSlotIndexSeq
 		tailBlockSeq = prev.tailBlockSeq

@@ -93,14 +93,6 @@ func handleCommand(ctx countlog.Context, cmd writerCommand) {
 func (writer *writer) AsyncWrite(ctxObj context.Context, entry *Entry, resultChan chan<- WriteResult) {
 	ctx := countlog.Ctx(ctxObj)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
-		if writer.tailEntriesCount >= blockLength {
-			err := writer.rotateTail(ctx, writer.currentVersion)
-			ctx.TraceCall("callee!writer.rotateTail", err)
-			if err != nil {
-				resultChan <- WriteResult{0, err}
-				return
-			}
-		}
 		offset := Offset(writer.state.tailOffset)
 		err := writer.tryWrite(ctx, entry)
 		if err == nil {

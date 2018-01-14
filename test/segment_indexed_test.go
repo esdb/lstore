@@ -17,7 +17,7 @@ func Test_indexed_segment(t *testing.T) {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
-		should.Equal(lstore.Offset(i), offset)
+		should.Equal(lstore.Offset(i + 1), offset)
 	}
 	should.Nil(store.UpdateIndex(ctx))
 	should.Nil(store.RotateIndex(ctx))
@@ -30,7 +30,7 @@ func Test_indexed_segment(t *testing.T) {
 	})
 	should.Equal(260, len(collector.Rows))
 	for _, row := range collector.Rows {
-		should.Equal(row.IntValues[0], int64(row.Offset))
+		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
 	}
 
 	for i := 260; i < 520; i++ {
@@ -48,7 +48,7 @@ func Test_indexed_segment(t *testing.T) {
 	})
 	should.Equal(520, len(collector.Rows))
 	for _, row := range collector.Rows {
-		should.Equal(row.IntValues[0], int64(row.Offset))
+		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
 	}
 }
 
@@ -59,7 +59,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
-		should.Equal(lstore.Offset(i), offset)
+		should.Equal(lstore.Offset(i + 1), offset)
 	}
 	should.Nil(store.UpdateIndex(ctx))
 	should.Nil(store.RotateIndex(ctx))
@@ -75,7 +75,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	}))
 	should.Equal(260, len(collector.Rows))
 	for _, row := range collector.Rows {
-		should.Equal(row.IntValues[0], int64(row.Offset))
+		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
 	}
 
 	for i := 260; i < 520; i++ {
@@ -93,7 +93,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	})
 	should.Equal(520, len(collector.Rows))
 	for _, row := range collector.Rows {
-		should.Equal(row.IntValues[0], int64(row.Offset))
+		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
 	}
 }
 

@@ -72,7 +72,7 @@ func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
-		should.Equal(lstore.Offset(i), offset)
+		should.Equal(lstore.Offset(i + 1), offset)
 	}
 	should.Nil(store.UpdateIndex(ctx))
 	for i := 260; i < 520; i++ {
@@ -90,7 +90,7 @@ func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 	})
 	should.Equal(520, len(collector.Rows))
 	for _, row := range collector.Rows {
-		should.Equal(row.IntValues[0], int64(row.Offset))
+		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
 	}
 }
 
@@ -104,7 +104,7 @@ func Test_update_index_multiple_times(t *testing.T) {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
-		should.Equal(lstore.Offset(i), offset)
+		should.Equal(lstore.Offset(i + 1), offset)
 	}
 	for i := 0; i < 65; i++ {
 		should.Nil(store.UpdateIndex(ctx))
@@ -115,10 +115,10 @@ func Test_update_index_multiple_times(t *testing.T) {
 	reader.SearchForward(ctx, &lstore.SearchRequest{
 		0, nil, collector,
 	})
-	should.Equal(lstore.Offset(262143), collector.Rows[len(collector.Rows) - 1].Offset)
+	should.Equal(lstore.Offset(262144), collector.Rows[len(collector.Rows) - 1].Offset)
 	should.Equal(262144, len(collector.Rows))
 	for _, row := range collector.Rows {
-		should.Equal(row.IntValues[0], int64(row.Offset))
+		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
 	}
 }
 

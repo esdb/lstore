@@ -190,19 +190,22 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		countlog.Debug("event!indexer.doUpdateIndex do not find enough raw entries")
 		return nil
 	}
-	firstRawChunk := currentVersion.chunks[0]
-	if firstRawChunk.headOffset+Offset(firstRawChunk.headSlot<<6) != oldIndexingTailOffset {
-		countlog.Fatal("event!indexer.doUpdateIndex find offset inconsistent")
+	firstChunk := currentVersion.chunks[0]
+	if firstChunk.headOffset+Offset(firstChunk.headSlot<<6) != oldIndexingTailOffset {
+		countlog.Fatal("event!indexer.doUpdateIndex find offset inconsistent",
+			"firstChunkHeadOffset", firstChunk.headOffset,
+			"firstChunkHeadSlot", firstChunk.headSlot,
+			"oldIndexingTailOffset", oldIndexingTailOffset)
 		return errors.New("inconsistent tail offset")
 	}
-	if firstRawChunk.tailSlot < firstRawChunk.headSlot+3 {
-		countlog.Fatal("event!indexer.doUpdateIndex find firstRawChunk not fully filled",
-			"tailSlot", firstRawChunk.tailSlot,
-			"headSlot", firstRawChunk.headSlot)
-		return errors.New("firstRawChunk not fully filled")
+	if firstChunk.tailSlot < firstChunk.headSlot+3 {
+		countlog.Fatal("event!indexer.doUpdateIndex find firstChunk not fully filled",
+			"tailSlot", firstChunk.tailSlot,
+			"headSlot", firstChunk.headSlot)
+		return errors.New("firstChunk not fully filled")
 	}
 	var blockRows []*Entry
-	for _, rawChunkChild := range firstRawChunk.children[firstRawChunk.headSlot:firstRawChunk.headSlot+4] {
+	for _, rawChunkChild := range firstChunk.children[firstChunk.headSlot:firstChunk.headSlot+4] {
 		blockRows = append(blockRows, rawChunkChild.children...)
 	}
 	blk := newBlock(oldIndexingTailOffset, blockRows[:blockLength])
