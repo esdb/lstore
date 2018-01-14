@@ -4,11 +4,12 @@ import (
 	"unsafe"
 	"sync/atomic"
 	"github.com/v2pro/plz/countlog"
+	"github.com/esdb/biter"
 )
 
 type storeStateUpdater interface {
 	loadedIndex(ctx countlog.Context, indexedSegments []*indexSegment, indexingSegment *indexSegment) error
-	movedBlockIntoIndex(ctx countlog.Context, indexingSegment *indexSegment) error
+	movedBlockIntoIndex(ctx countlog.Context, indexingSegment *indexSegment, firstChunkHeadSlot biter.Slot) error
 	rotatedIndex(ctx countlog.Context, indexedSegment *indexSegment, indexingSegment *indexSegment) error
 	removedIndex(ctx countlog.Context, indexedSegments []*indexSegment) error
 }

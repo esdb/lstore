@@ -5,6 +5,7 @@ import (
 	"os"
 	"unsafe"
 	"sync/atomic"
+	"github.com/esdb/biter"
 )
 
 func (writer *writer) updateCurrentVersion(newVersion *storeVersion) {
@@ -39,9 +40,8 @@ func (writer *writer) loadedIndex(
 	return nil
 }
 
-// movedBlockIntoIndex should only be used by indexer
 func (writer *writer) movedBlockIntoIndex(
-	ctx countlog.Context, indexingSegment *indexSegment) error {
+	ctx countlog.Context, indexingSegment *indexSegment, firstChunkHeadSlot biter.Slot) error {
 	resultChan := make(chan error)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		oldVersion := writer.currentVersion
@@ -51,7 +51,7 @@ func (writer *writer) movedBlockIntoIndex(
 			chunks:          append([]*chunk(nil), oldVersion.chunks...),
 		}
 		firstRawChunk := *newVersion.chunks[0] // copy the first raw chunk
-		firstRawChunk.headSlot += 4
+		firstRawChunk.headSlot = firstChunkHeadSlot
 		if firstRawChunk.headSlot == 64 {
 			newVersion.chunks = newVersion.chunks[1:]
 		} else {
@@ -75,8 +75,8 @@ func (writer *writer) movedBlockIntoIndex(
 		writer.updateCurrentVersion(newVersion)
 		resultChan <- nil
 		countlog.Debug("event!writer.movedBlockIntoIndex",
-			"firstRawChunk.headOffset", firstRawChunk.headOffset,
-			"firstRawChunk.headSlot", firstRawChunk.headSlot,
+			"firstChunk.headOffset", newVersion.chunks[0].headOffset,
+			"firstChunk.headSlot", newVersion.chunks[0].headSlot,
 			"chunksCount", len(newVersion.chunks),
 			"lastChunkTailOffset", newVersion.chunks[len(newVersion.chunks)-1].tailOffset,
 			"indexingSegment.headOffset", indexingSegment.headOffset,
@@ -87,7 +87,6 @@ func (writer *writer) movedBlockIntoIndex(
 	return <-resultChan
 }
 
-// rotatedIndex should only be used by indexer
 func (writer *writer) rotatedIndex(
 	ctx countlog.Context, indexedSegment *indexSegment, indexingSegment *indexSegment) error {
 	resultChan := make(chan error)
@@ -107,7 +106,6 @@ func (writer *writer) rotatedIndex(
 	return <-resultChan
 }
 
-// removedIndex should only be used by indexer
 func (writer *writer) removedIndex(
 	ctx countlog.Context, indexedSegments []*indexSegment) error {
 	resultChan := make(chan error)

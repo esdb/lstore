@@ -26,7 +26,7 @@ func Test_write_1_million(t *testing.T) {
 			}
 			store.Write(ctx, blobEntry(value))
 		}
-		store.UpdateIndex(ctx)
+		go store.UpdateIndex(ctx)
 	}
 	reader, err := store.NewReader(ctx)
 	should.NoError(err)

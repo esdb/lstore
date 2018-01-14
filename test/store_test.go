@@ -18,7 +18,7 @@ func TestMain(m *testing.M) {
 }
 
 func testStore(cfg *lstore.Config) *lstore.Store {
-	cfg.Directory = "/tmp/store"
+	cfg.Directory = "/run/store"
 	os.RemoveAll(cfg.Directory)
 	store, err := lstore.New(context.Background(), cfg)
 	if err != nil {

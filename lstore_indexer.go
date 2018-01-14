@@ -191,6 +191,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		return nil
 	}
 	firstChunk := currentVersion.chunks[0]
+	// << 6 is multiple by 64
 	if firstChunk.headOffset+Offset(firstChunk.headSlot<<6) != oldIndexingTailOffset {
 		countlog.Fatal("event!indexer.doUpdateIndex find offset inconsistent",
 			"firstChunkHeadOffset", firstChunk.headOffset,
@@ -204,23 +205,30 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 			"headSlot", firstChunk.headSlot)
 		return errors.New("firstChunk not fully filled")
 	}
-	var blockRows []*Entry
-	for _, rawChunkChild := range firstChunk.children[firstChunk.headSlot:firstChunk.headSlot+4] {
-		blockRows = append(blockRows, rawChunkChild.children...)
-	}
-	blk := newBlock(oldIndexingTailOffset, blockRows[:blockLength])
 	indexingSegment := oldIndexingSegment.copy()
 	if err != nil {
 		return err
 	}
-	err = indexingSegment.addBlock(ctx, indexer.slotIndexWriter, indexer.blockWriter, blk)
-	ctx.TraceCall("callee!indexingSegment.addBlock", err,
-		"blockStartOffset", oldIndexingTailOffset,
-		"indexingSegmentTailOffset", indexingSegment.tailOffset,
-		"tailBlockSeq", indexingSegment.tailBlockSeq,
-		"tailSlotIndexSeq", indexingSegment.tailSlotIndexSeq)
-	if err != nil {
-		return err
+	blocksCount := int(firstChunk.tailSlot - firstChunk.headSlot) >> 2 // divide by 4
+	startSlot := firstChunk.headSlot
+	blockHeadOffset := oldIndexingTailOffset
+	for i := 0; i < blocksCount; i++ {
+		var blockRows []*Entry
+		for _, rawChunkChild := range firstChunk.children[startSlot:startSlot+4] {
+			blockRows = append(blockRows, rawChunkChild.children...)
+		}
+		blk := newBlock(blockHeadOffset, blockRows)
+		err = indexingSegment.addBlock(ctx, indexer.slotIndexWriter, indexer.blockWriter, blk)
+		ctx.TraceCall("callee!indexingSegment.addBlock", err,
+			"blockHeadOffset", blockHeadOffset,
+			"indexingSegmentTailOffset", indexingSegment.tailOffset,
+			"tailBlockSeq", indexingSegment.tailBlockSeq,
+			"tailSlotIndexSeq", indexingSegment.tailSlotIndexSeq)
+		if err != nil {
+			return err
+		}
+		startSlot += 4
+		blockHeadOffset += Offset(blockLength)
 	}
 	// TODO: rotate
 	err = indexer.saveIndexingSegment(ctx, indexingSegment, false)
@@ -228,7 +236,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	err = indexer.stateUpdater.movedBlockIntoIndex(ctx, indexingSegment)
+	err = indexer.stateUpdater.movedBlockIntoIndex(ctx, indexingSegment, startSlot)
 	if err != nil {
 		return err
 	}
