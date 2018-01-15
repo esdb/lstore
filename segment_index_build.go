@@ -29,7 +29,7 @@ func (segment *indexSegment) addBlock(ctx countlog.Context,
 		if i == level0 {
 			masks[i] = biter.SetBits[*index.tailSlot]
 		} else {
-			masks[i] = biter.SetBits[*index.tailSlot - 1]
+			masks[i] = biter.SetBits[*index.tailSlot-1]
 		}
 		if *index.tailSlot != 63 {
 			shouldMoveUp = false
@@ -40,7 +40,7 @@ func (segment *indexSegment) addBlock(ctx countlog.Context,
 		var parent *slotIndex
 		segment.levels[segment.topLevel], segment.tailSlotIndexSeq, parent, err = slotIndexWriter.newSlotIndex(
 			segment.tailSlotIndexSeq, segment.topLevel)
-		parent.children[0] = uint64(segment.levels[segment.topLevel - 1])
+		parent.children[0] = uint64(segment.levels[segment.topLevel-1])
 		parent.setTailSlot(1)
 		indices[segment.topLevel] = parent
 	}

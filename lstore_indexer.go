@@ -54,7 +54,7 @@ func (indexer *indexer) start(executor *concurrent.UnboundedExecutor) {
 		}()
 		countlog.Info("event!indexer.start")
 		for {
-			timer := time.NewTimer(time.Second * 10)
+			timer := time.NewTimer(indexer.cfg.UpdateIndexInterval)
 			var cmd indexerCommand
 			select {
 			case <-ctx.Done():
@@ -179,6 +179,26 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 }
 
 func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
+	updated := true
+	for updated {
+		updated, err = indexer.updateOnce(ctx)
+		if err != nil {
+			return err
+		}
+		indexer.currentVersion = indexer.state.latest()
+		indexingSegment := indexer.currentVersion.indexingSegment
+		if int(indexingSegment.tailOffset-indexingSegment.headOffset) > indexer.cfg.IndexSegmentMaxEntriesCount {
+			err = indexer.doRotateIndex(ctx)
+			if err != nil {
+				return err
+			}
+			indexer.currentVersion = indexer.state.latest()
+		}
+	}
+	return nil
+}
+
+func (indexer *indexer) updateOnce(ctx countlog.Context) (updated bool, err error) {
 	currentVersion := indexer.currentVersion
 	storeTailOffset := indexer.state.getTailOffset()
 	oldIndexingSegment := currentVersion.indexingSegment
@@ -188,7 +208,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		"oldIndexingTailOffset", oldIndexingTailOffset)
 	if int(storeTailOffset-oldIndexingTailOffset) < blockLength {
 		countlog.Debug("event!indexer.doUpdateIndex do not find enough raw entries")
-		return nil
+		return false, nil
 	}
 	firstChunk := currentVersion.chunks[0]
 	// << 6 is multiple by 64
@@ -197,19 +217,19 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 			"firstChunkHeadOffset", firstChunk.headOffset,
 			"firstChunkHeadSlot", firstChunk.headSlot,
 			"oldIndexingTailOffset", oldIndexingTailOffset)
-		return errors.New("inconsistent tail offset")
+		return false, errors.New("inconsistent tail offset")
 	}
 	if firstChunk.tailSlot < firstChunk.headSlot+3 {
 		countlog.Fatal("event!indexer.doUpdateIndex find firstChunk not fully filled",
 			"tailSlot", firstChunk.tailSlot,
 			"headSlot", firstChunk.headSlot)
-		return errors.New("firstChunk not fully filled")
+		return false, errors.New("firstChunk not fully filled")
 	}
 	indexingSegment := oldIndexingSegment.copy()
 	if err != nil {
-		return err
+		return false, err
 	}
-	blocksCount := int(firstChunk.tailSlot - firstChunk.headSlot) >> 2 // divide by 4
+	blocksCount := int(firstChunk.tailSlot-firstChunk.headSlot) >> 2 // divide by 4
 	startSlot := firstChunk.headSlot
 	blockHeadOffset := oldIndexingTailOffset
 	for i := 0; i < blocksCount; i++ {
@@ -225,35 +245,27 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 			"tailBlockSeq", indexingSegment.tailBlockSeq,
 			"tailSlotIndexSeq", indexingSegment.tailSlotIndexSeq)
 		if err != nil {
-			return err
+			return false, err
 		}
 		startSlot += 4
 		blockHeadOffset += Offset(blockLength)
 	}
-	// TODO: rotate
-	err = indexer.saveIndexingSegment(ctx, indexingSegment, false)
+	err = indexer.saveIndexingSegment(ctx, indexingSegment)
 	ctx.TraceCall("callee!indexingSegment.save", err)
 	if err != nil {
-		return err
+		return false, err
 	}
 	err = indexer.stateUpdater.movedBlockIntoIndex(ctx, indexingSegment, startSlot)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
-func (indexer *indexer) saveIndexingSegment(ctx countlog.Context, indexingSegment *indexSegment, shouldRotate bool) error {
+func (indexer *indexer) saveIndexingSegment(ctx countlog.Context, indexingSegment *indexSegment) error {
 	err := createIndexSegment(ctx, indexer.cfg.IndexingSegmentTmpPath(), indexingSegment)
 	if err != nil {
 		return err
-	}
-	if shouldRotate {
-		err = os.Rename(indexer.cfg.IndexingSegmentPath(), indexer.cfg.IndexedSegmentPath(indexingSegment.headOffset))
-		ctx.TraceCall("callee!os.Rename", err)
-		if err != nil {
-			return err
-		}
 	}
 	err = os.Rename(indexer.cfg.IndexingSegmentTmpPath(), indexer.cfg.IndexingSegmentPath())
 	ctx.TraceCall("callee!os.Rename", err)

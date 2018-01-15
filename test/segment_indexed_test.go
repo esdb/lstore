@@ -97,6 +97,23 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	}
 }
 
+func Test_auto_rotate_index(t *testing.T) {
+	should := require.New(t)
+	cfg := &lstore.Config{}
+	cfg.UpdateIndexInterval = time.Millisecond * 100
+	cfg.IndexSegmentMaxEntriesCount = 256 * 64
+	store := testStore(cfg)
+	for i := 0; i < 256 * 64 * 4; i++ {
+		blobValue := lstore.Blob(strconv.Itoa(i))
+		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		should.Nil(err)
+		should.Equal(lstore.Offset(i + 1), offset)
+	}
+	time.Sleep(time.Millisecond * 200)
+	_, err := os.Stat("/run/store/indexed-20481.segment")
+	should.NoError(err)
+}
+
 func Test_remove_indexed_segment(t *testing.T) {
 	should := require.New(t)
 	config := &lstore.Config{}
