@@ -78,6 +78,8 @@ func (reader *Reader) Close() error {
 func (reader *Reader) SearchForward(ctxObj context.Context, req *SearchRequest) error {
 	ctx := countlog.Ctx(ctxObj)
 	store := reader.currentVersion
+	reader.slotIndexReader.gc()
+	reader.blockReader.gc()
 	if req.Filter == nil {
 		req.Filter = dummyFilterInstance
 	}

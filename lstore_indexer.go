@@ -23,8 +23,12 @@ type indexer struct {
 }
 
 func (store *Store) newIndexer(ctx countlog.Context) (*indexer, error) {
+	cfg := store.cfg
+	if cfg.UpdateIndexInterval == 0 {
+		cfg.UpdateIndexInterval = time.Millisecond * 100
+	}
 	indexer := &indexer{
-		cfg:             &store.cfg.indexerConfig,
+		cfg:             &cfg.indexerConfig,
 		state:           &store.storeState,
 		stateUpdater:    store.writer,
 		currentVersion:  store.latest(),
@@ -76,6 +80,7 @@ func (indexer *indexer) runCommand(ctx countlog.Context, cmd indexerCommand) {
 	indexer.currentVersion = indexer.state.latest()
 	indexer.state.lock(indexer, indexer.currentVersion.HeadOffset())
 	defer indexer.state.unlock(indexer)
+	indexer.slotIndexWriter.gc()
 	cmd(ctx)
 }
 
@@ -185,6 +190,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 		if err != nil {
 			return err
 		}
+		return nil
 		indexer.currentVersion = indexer.state.latest()
 		if indexer.cfg.IndexSegmentMaxEntriesCount == 0 {
 			continue
@@ -206,9 +212,11 @@ func (indexer *indexer) updateOnce(ctx countlog.Context) (updated bool, err erro
 	storeTailOffset := indexer.state.getTailOffset()
 	oldIndexingSegment := currentVersion.indexingSegment
 	oldIndexingTailOffset := oldIndexingSegment.tailOffset
+	blocksCount := int(storeTailOffset-oldIndexingTailOffset) >> 8 // divide by 256
 	countlog.Debug("event!indexer.doUpdateIndex",
 		"storeTailOffset", storeTailOffset,
-		"oldIndexingTailOffset", oldIndexingTailOffset)
+		"oldIndexingTailOffset", oldIndexingTailOffset,
+		"blocksCount", blocksCount)
 	if int(storeTailOffset-oldIndexingTailOffset) < blockLength {
 		countlog.Debug("event!indexer.doUpdateIndex do not find enough raw entries")
 		return false, nil
@@ -232,11 +240,11 @@ func (indexer *indexer) updateOnce(ctx countlog.Context) (updated bool, err erro
 	if err != nil {
 		return false, err
 	}
-	blocksCount := int(firstChunk.tailSlot-firstChunk.headSlot) >> 2 // divide by 4
 	startSlot := firstChunk.headSlot
 	blockHeadOffset := oldIndexingTailOffset
-	for i := 0; i < blocksCount; i++ {
-		var blockRows []*Entry
+	blockRows := make([]*Entry, 0, blockLength)
+	for i := 0; i < blocksCount && startSlot != 64; i++ {
+		blockRows = blockRows[:0]
 		for _, rawChunkChild := range firstChunk.children[startSlot:startSlot+4] {
 			blockRows = append(blockRows, rawChunkChild.children...)
 		}

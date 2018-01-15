@@ -41,7 +41,7 @@ func Test_search(t *testing.T) {
 	should := require.New(t)
 	cfg := &lstore.Config{}
 	cfg.BloomFilterIndexedBlobColumns = []int{0}
-	cfg.Directory = "/tmp/store"
+	cfg.Directory = "/run/store"
 	store, err := lstore.New(ctx, cfg)
 	if err != nil {
 		panic(err)
@@ -50,7 +50,7 @@ func Test_search(t *testing.T) {
 	should.NoError(err)
 	collector := &lstore.RowsCollector{}
 	reader.SearchForward(ctx, &lstore.SearchRequest{
-		Callback: collector,
+		Callback: &assertContinuous{cb: collector},
 	})
 	fmt.Println(len(collector.Rows))
 	fmt.Println(collector.Rows[899487].BlobValues[0])
@@ -59,7 +59,7 @@ func Test_search(t *testing.T) {
 func Benchmark_search(b *testing.B) {
 	cfg := &lstore.Config{}
 	cfg.BloomFilterIndexedBlobColumns = []int{0}
-	cfg.Directory = "/tmp/store"
+	cfg.Directory = "/run/store"
 	store, err := lstore.New(ctx, cfg)
 	if err != nil {
 		panic(err)
