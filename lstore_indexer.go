@@ -186,6 +186,9 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 			return err
 		}
 		indexer.currentVersion = indexer.state.latest()
+		if indexer.cfg.IndexSegmentMaxEntriesCount == 0 {
+			continue
+		}
 		indexingSegment := indexer.currentVersion.indexingSegment
 		if int(indexingSegment.tailOffset-indexingSegment.headOffset) > indexer.cfg.IndexSegmentMaxEntriesCount {
 			err = indexer.doRotateIndex(ctx)
