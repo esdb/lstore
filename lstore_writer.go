@@ -12,13 +12,13 @@ type writerCommand func(ctx countlog.Context)
 
 type writer struct {
 	*tailSegment
-	cfg            *writerConfig
-	strategy       *indexingStrategy
-	state          *storeState
-	commandQueue   chan writerCommand
-	currentVersion *storeVersion
-	rawSegments    []*rawSegment
-	stream         *gocodec.Stream
+	cfg          *writerConfig
+	strategy     *indexingStrategy
+	state        *storeState
+	commandQueue chan writerCommand
+	tailChunk    *chunk
+	rawSegments  []*rawSegment
+	stream       *gocodec.Stream
 }
 
 type WriteResult struct {
@@ -41,7 +41,6 @@ func (store *Store) newWriter(ctx countlog.Context) (*writer, error) {
 		cfg:          &cfg.writerConfig,
 		commandQueue: make(chan writerCommand, cfg.WriterCommandQueueLength),
 	}
-	writer.updateCurrentVersion(&storeVersion{chunks: newChunks(store.strategy, 0)})
 	writer.start(store.executor)
 	return writer, nil
 }
@@ -90,111 +89,23 @@ func handleCommand(ctx countlog.Context, cmd writerCommand) {
 	cmd(ctx)
 }
 
-func (writer *writer) BatchWrite(ctxObj context.Context, resultChan chan<- WriteResult, entries []*Entry) {
-	ctx := countlog.Ctx(ctxObj)
+func (writer *writer) movedBlockIntoIndex(
+	ctx countlog.Context, indexingSegment *indexSegment) {
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
-		for _, entry := range entries {
-			writer.writeOne(ctx, resultChan, entry)
+		removedRawSegmentsCount := 0
+		for i, rawSegment := range writer.rawSegments {
+			if rawSegment.headOffset <= indexingSegment.tailOffset {
+				removedRawSegmentsCount = i
+			} else {
+				break
+			}
+		}
+		removedRawSegments := writer.rawSegments[:removedRawSegmentsCount]
+		writer.rawSegments = writer.rawSegments[removedRawSegmentsCount:]
+		for _, removedRawSegment := range removedRawSegments {
+			err := os.Remove(removedRawSegment.path)
+			ctx.TraceCall("callee!os.Remove", err,
+				"path", removedRawSegment.path)
 		}
 	})
-}
-
-func (writer *writer) writeOne(ctx countlog.Context, resultChan chan<- WriteResult, entry *Entry) {
-	offset := Offset(writer.state.tailOffset)
-	err := writer.tryWrite(ctx, entry)
-	if err == nil {
-		resultChan <- WriteResult{offset, nil}
-		return
-	}
-	if err == SegmentOverflowError {
-		err := writer.rotateTail(ctx, writer.currentVersion)
-		ctx.TraceCall("callee!writer.rotate", err)
-		if err != nil {
-			resultChan <- WriteResult{0, err}
-			return
-		}
-		err = writer.tryWrite(ctx, entry)
-		if err != nil {
-			resultChan <- WriteResult{0, err}
-			return
-		}
-		resultChan <- WriteResult{offset, nil}
-		return
-	}
-	resultChan <- WriteResult{0, err}
-	return
-}
-
-func (writer *writer) Write(ctxObj context.Context, entry *Entry) (Offset, error) {
-	ctx := countlog.Ctx(ctxObj)
-	resultChan := make(chan WriteResult)
-	writer.asyncExecute(ctx, func(ctx countlog.Context) {
-		writer.writeOne(ctx, resultChan, entry)
-	})
-	select {
-	case result := <-resultChan:
-		ctx.TraceCall("callee!writer.Write", result.Error, "offset", result.Offset)
-		return result.Offset, result.Error
-	case <-ctx.Done():
-		ctx.TraceCall("callee!writer.Write", ctx.Err())
-		return 0, ctx.Err()
-	}
-}
-
-func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
-	stream := writer.stream
-	stream.Reset(writer.writeBuf[:0])
-	size := stream.Marshal(*entry)
-	if stream.Error != nil {
-		return stream.Error
-	}
-	if size >= uint32(len(writer.writeBuf)) {
-		return SegmentOverflowError
-	}
-	writer.writeBuf = writer.writeBuf[size:]
-	rawChunks := writer.currentVersion.chunks
-	tailRawChunk := rawChunks[len(rawChunks)-1]
-	if tailRawChunk.add(entry) {
-		rawChunks = append(rawChunks, newChunk(writer.strategy, tailRawChunk.tailOffset))
-		newVersion := &storeVersion{
-			indexedSegments: append([]*indexSegment(nil), writer.currentVersion.indexedSegments...),
-			indexingSegment: writer.currentVersion.indexingSegment,
-			chunks:          rawChunks,
-		}
-		countlog.Debug("event!writer.rotated raw chunk",
-			"tailOffset", tailRawChunk.tailOffset)
-		writer.updateCurrentVersion(newVersion)
-	}
-	// reader will know if read the tail using atomic
-	writer.incrementTailOffset()
-	return nil
-}
-
-func (writer *writer) rotateTail(ctx countlog.Context, oldVersion *storeVersion) error {
-	oldTailSegmentHeadOffset := writer.tailSegment.headOffset
-	err := writer.tailSegment.Close()
-	ctx.TraceCall("callee!tailSegment.Close", err)
-	if err != nil {
-		return err
-	}
-	newTailSegment, _, err := openTailSegment(ctx, writer.cfg.TailSegmentTmpPath(), writer.cfg.RawSegmentMaxSizeInBytes,
-		Offset(writer.state.tailOffset))
-	if err != nil {
-		return err
-	}
-	writer.tailSegment = newTailSegment
-	rotatedTo := writer.cfg.RawSegmentPath(Offset(writer.state.tailOffset))
-	if err = os.Rename(writer.cfg.TailSegmentPath(), rotatedTo); err != nil {
-		return err
-	}
-	if err = os.Rename(writer.cfg.TailSegmentTmpPath(), writer.cfg.TailSegmentPath()); err != nil {
-		return err
-	}
-	writer.rawSegments = append(writer.rawSegments, &rawSegment{
-		segmentHeader: segmentHeader{segmentTypeRaw, oldTailSegmentHeadOffset},
-		path:          rotatedTo,
-	})
-	countlog.Debug("event!writer.rotated tail",
-		"rotatedTo", rotatedTo)
-	return nil
 }

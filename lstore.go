@@ -52,8 +52,8 @@ func New(ctxObj context.Context, cfg *Config) (*Store, error) {
 		strategy: strategy,
 		executor: concurrent.NewUnboundedExecutor(),
 		storeState: storeState{
-			blockManager:     newBlockManager(&cfg.blockManagerConfig),
-			slotIndexManager: newSlotIndexManager(&cfg.slotIndexManagerConfig, strategy),
+			blockManager:      newBlockManager(&cfg.blockManagerConfig),
+			slotIndexManager:  newSlotIndexManager(&cfg.slotIndexManagerConfig, strategy),
 		},
 	}
 	var err error

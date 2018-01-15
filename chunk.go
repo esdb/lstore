@@ -68,6 +68,7 @@ func (chunk *chunk) add(entry *Entry) bool {
 		"chunkTailSlot", chunk.tailSlot,
 		"childTailSlot", child.tailSlot)
 	strategy := chunk.strategy
+	child.children[child.tailSlot] = entry
 	for _, bfIndexedColumn := range strategy.bloomFilterIndexedBlobColumns {
 		indexedColumn := bfIndexedColumn.IndexedColumn()
 		sourceColumn := bfIndexedColumn.SourceColumn()
@@ -77,7 +78,6 @@ func (chunk *chunk) add(entry *Entry) bool {
 		chunk.pbfs[indexedColumn].Put(biter.SetBits[chunkCurrentSlot], bloom)
 		child.pbfs[indexedColumn].Put(biter.SetBits[child.tailSlot], bloom)
 	}
-	child.children[child.tailSlot] = entry
 	chunk.tailOffset += 1
 	child.tailSlot += 1
 	if child.tailSlot == 64 {

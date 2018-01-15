@@ -8,6 +8,7 @@ import (
 	"os"
 	"github.com/v2pro/plz"
 	"github.com/v2pro/plz/concurrent"
+	"fmt"
 )
 
 type indexerCommand func(ctx countlog.Context)
@@ -15,7 +16,7 @@ type indexerCommand func(ctx countlog.Context)
 type indexer struct {
 	cfg             *indexerConfig
 	state           *storeState
-	stateUpdater    storeStateUpdater
+	writer          *writer
 	commandQueue    chan indexerCommand
 	currentVersion  *storeVersion
 	slotIndexWriter slotIndexWriter
@@ -30,7 +31,7 @@ func (store *Store) newIndexer(ctx countlog.Context) (*indexer, error) {
 	indexer := &indexer{
 		cfg:             &cfg.indexerConfig,
 		state:           &store.storeState,
-		stateUpdater:    store.writer,
+		writer:          store.writer,
 		currentVersion:  store.latest(),
 		commandQueue:    make(chan indexerCommand),
 		slotIndexWriter: store.slotIndexManager.newWriter(14, 4),
@@ -78,8 +79,6 @@ func (indexer *indexer) start(executor *concurrent.UnboundedExecutor) {
 
 func (indexer *indexer) runCommand(ctx countlog.Context, cmd indexerCommand) {
 	indexer.currentVersion = indexer.state.latest()
-	indexer.state.lock(indexer, indexer.currentVersion.HeadOffset())
-	defer indexer.state.unlock(indexer)
 	indexer.slotIndexWriter.gc()
 	cmd(ctx)
 }
@@ -121,34 +120,10 @@ func (indexer *indexer) Remove(ctxObj context.Context, untilOffset Offset) error
 }
 
 func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err error) {
-	var removedIndexedSegmentsCount int
-	var tailBlockSeq blockSeq
-	var tailSlotIndexSeq slotIndexSeq
-	for i, indexedSegment := range indexer.currentVersion.indexedSegments {
-		if indexedSegment.headOffset >= untilOffset {
-			break
-		}
-		if indexedSegment.tailOffset <= untilOffset {
-			removedIndexedSegmentsCount = i + 1
-			err = os.Remove(indexer.cfg.IndexedSegmentPath(indexedSegment.tailOffset))
-			ctx.TraceCall("callee!os.Remove", err)
-			if err != nil {
-				return err
-			}
-			tailBlockSeq = indexedSegment.tailBlockSeq
-			tailSlotIndexSeq = indexedSegment.tailSlotIndexSeq
-		}
-	}
-	if removedIndexedSegmentsCount == 0 {
-		return nil
-	}
-	// TODO: calculate indexedSegments
-	err = indexer.stateUpdater.removedIndex(ctx, nil)
-	if err != nil {
-		return err
-	}
-	indexer.slotIndexWriter.remove(tailSlotIndexSeq)
-	indexer.blockWriter.remove(tailBlockSeq)
+	removedSegments := indexer.state.removeHead(untilOffset)
+	fmt.Println(removedSegments)
+	//indexer.slotIndexWriter.remove(tailSlotIndexSeq)
+	//indexer.blockWriter.remove(tailBlockSeq)
 	return nil
 }
 
@@ -176,7 +151,7 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	indexer.stateUpdater.rotatedIndex(ctx, currentVersion.indexingSegment, newIndexingSegment)
+	indexer.state.rotatedIndex(currentVersion.indexingSegment, newIndexingSegment)
 	ctx.Info("event!indexer.rotated index",
 		"indexedSegment.headOffset", oldIndexingSegment.headOffset,
 		"indexedSegment.tailOffset", oldIndexingSegment.tailOffset)
@@ -209,6 +184,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 
 func (indexer *indexer) updateOnce(ctx countlog.Context) (updated bool, err error) {
 	currentVersion := indexer.currentVersion
+	// TODO: tail offset should be read before latest()
 	storeTailOffset := indexer.state.getTailOffset()
 	oldIndexingSegment := currentVersion.indexingSegment
 	oldIndexingTailOffset := oldIndexingSegment.tailOffset
@@ -266,10 +242,8 @@ func (indexer *indexer) updateOnce(ctx countlog.Context) (updated bool, err erro
 	if err != nil {
 		return false, err
 	}
-	err = indexer.stateUpdater.movedBlockIntoIndex(ctx, indexingSegment, startSlot)
-	if err != nil {
-		return false, err
-	}
+	indexer.state.movedBlockIntoIndex(indexingSegment, startSlot)
+	indexer.writer.movedBlockIntoIndex(ctx, indexingSegment)
 	return true, nil
 }
 

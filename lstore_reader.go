@@ -42,8 +42,7 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 		blockReader:     store.blockManager.newReader(14, 4),
 	}
 	reader.Refresh(ctx)
-	// TODO: fix the race condition between index delete and reader lock
-	store.lock(reader, reader.currentVersion.HeadOffset())
+	store.lockHead(reader)
 	return reader, nil
 }
 
@@ -68,7 +67,7 @@ func (reader *Reader) Refresh(ctx context.Context) bool {
 }
 
 func (reader *Reader) Close() error {
-	reader.state.unlock(reader)
+	reader.state.unlockHead(reader)
 	return plz.CloseAll([]io.Closer{
 		reader.slotIndexReader,
 		reader.blockReader,
