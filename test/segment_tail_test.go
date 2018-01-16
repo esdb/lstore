@@ -13,7 +13,7 @@ func Test_write_read_one_entry(t *testing.T) {
 	should := require.New(t)
 	store := testStore(&lstore.Config{})
 	defer store.Stop(ctx)
-	seq, err := store.Write(ctx, intBlobEntry(1, ""))
+	seq, err := store.Append(ctx, intBlobEntry(1, ""))
 	should.Nil(err)
 	should.Equal(lstore.Offset(1), seq)
 	reader, err := store.NewReader(ctx)
@@ -31,10 +31,10 @@ func Test_write_two_entries(t *testing.T) {
 	should := require.New(t)
 	store := testStore(&lstore.Config{})
 	defer store.Stop(ctx)
-	offset, err := store.Write(ctx, intBlobEntry(1, ""))
+	offset, err := store.Append(ctx, intBlobEntry(1, ""))
 	should.Nil(err)
 	should.Equal(lstore.Offset(1), offset)
-	offset, err = store.Write(ctx, intBlobEntry(2, ""))
+	offset, err = store.Append(ctx, intBlobEntry(2, ""))
 	should.Nil(err)
 	should.Equal(lstore.Offset(2), offset)
 	reader, err := store.NewReader(ctx)
@@ -51,7 +51,7 @@ func Test_write_two_entries(t *testing.T) {
 func Test_reopen_tail_segment(t *testing.T) {
 	should := require.New(t)
 	store := testStore(&lstore.Config{})
-	seq, err := store.Write(ctx, intEntry(1))
+	seq, err := store.Append(ctx, intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(1), seq)
 
@@ -70,7 +70,7 @@ func Test_reopen_tail_segment(t *testing.T) {
 	should.Equal(1, len(collector.Rows))
 	should.Equal([]int64{1}, collector.Rows[0].IntValues)
 
-	seq, err = store.Write(ctx, intEntry(2))
+	seq, err = store.Append(ctx, intEntry(2))
 	should.Nil(err)
 	should.Equal(lstore.Offset(2), seq)
 
@@ -107,13 +107,13 @@ func Test_rotate_raw_segment_file(t *testing.T) {
 		0, nil, collector,
 	})
 	should.Len(collector.Offsets, 0)
-	seq, err := store.Write(ctx, intEntry(1))
+	seq, err := store.Append(ctx, intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(1), seq)
-	seq, err = store.Write(ctx, intEntry(2))
+	seq, err = store.Append(ctx, intEntry(2))
 	should.Nil(err)
 	should.Equal(lstore.Offset(2), seq)
-	seq, err = store.Write(ctx, intEntry(3))
+	seq, err = store.Append(ctx, intEntry(3))
 	should.Nil(err)
 	should.Equal(lstore.Offset(3), seq)
 	should.True(reader.Refresh(ctx))
@@ -135,7 +135,7 @@ func Test_rotate_raw_chunk_child(t *testing.T) {
 		0, nil, collector,
 	})
 	for i := 0; i < 65; i++ {
-		seq, err := store.Write(ctx, intEntry(1))
+		seq, err := store.Append(ctx, intEntry(1))
 		should.Nil(err)
 		should.Equal(lstore.Offset(i + 1), seq)
 	}
@@ -158,7 +158,7 @@ func Test_rotate_raw_chunk(t *testing.T) {
 		0, nil, collector,
 	})
 	for i := 0; i < 4097; i++ {
-		seq, err := store.Write(ctx, intEntry(1))
+		seq, err := store.Append(ctx, intEntry(1))
 		should.Nil(err)
 		should.Equal(lstore.Offset(i + 1), seq)
 	}

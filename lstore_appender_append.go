@@ -7,7 +7,7 @@ import (
 	"context"
 )
 
-func (writer *writer) BatchWrite(ctxObj context.Context, resultChan chan<- WriteResult, entries []*Entry) {
+func (writer *appender) BatchAppend(ctxObj context.Context, resultChan chan<- AppendResult, entries []*Entry) {
 	ctx := countlog.Ctx(ctxObj)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		for _, entry := range entries {
@@ -16,49 +16,49 @@ func (writer *writer) BatchWrite(ctxObj context.Context, resultChan chan<- Write
 	})
 }
 
-func (writer *writer) writeOne(ctx countlog.Context, resultChan chan<- WriteResult, entry *Entry) {
+func (writer *appender) writeOne(ctx countlog.Context, resultChan chan<- AppendResult, entry *Entry) {
 	offset := Offset(writer.state.tailOffset)
-	err := writer.tryWrite(ctx, entry)
+	err := writer.tryAppend(ctx, entry)
 	if err == nil {
-		resultChan <- WriteResult{offset, nil}
+		resultChan <- AppendResult{offset, nil}
 		return
 	}
 	if err == SegmentOverflowError {
 		err := writer.rotateTail(ctx)
-		ctx.TraceCall("callee!writer.rotate", err)
+		ctx.TraceCall("callee!appender.rotate", err)
 		if err != nil {
-			resultChan <- WriteResult{0, err}
+			resultChan <- AppendResult{0, err}
 			return
 		}
-		err = writer.tryWrite(ctx, entry)
+		err = writer.tryAppend(ctx, entry)
 		if err != nil {
-			resultChan <- WriteResult{0, err}
+			resultChan <- AppendResult{0, err}
 			return
 		}
-		resultChan <- WriteResult{offset, nil}
+		resultChan <- AppendResult{offset, nil}
 		return
 	}
-	resultChan <- WriteResult{0, err}
+	resultChan <- AppendResult{0, err}
 	return
 }
 
-func (writer *writer) Write(ctxObj context.Context, entry *Entry) (Offset, error) {
+func (writer *appender) Append(ctxObj context.Context, entry *Entry) (Offset, error) {
 	ctx := countlog.Ctx(ctxObj)
-	resultChan := make(chan WriteResult)
+	resultChan := make(chan AppendResult)
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		writer.writeOne(ctx, resultChan, entry)
 	})
 	select {
 	case result := <-resultChan:
-		ctx.TraceCall("callee!writer.Write", result.Error, "offset", result.Offset)
+		ctx.TraceCall("callee!appender.Write", result.Error, "offset", result.Offset)
 		return result.Offset, result.Error
 	case <-ctx.Done():
-		ctx.TraceCall("callee!writer.Write", ctx.Err())
+		ctx.TraceCall("callee!appender.Write", ctx.Err())
 		return 0, ctx.Err()
 	}
 }
 
-func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
+func (writer *appender) tryAppend(ctx countlog.Context, entry *Entry) error {
 	stream := writer.stream
 	stream.Reset(writer.writeBuf[:0])
 	size := stream.Marshal(*entry)
@@ -78,7 +78,7 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
 	return nil
 }
 
-func (writer *writer) rotateTail(ctx countlog.Context) error {
+func (writer *appender) rotateTail(ctx countlog.Context) error {
 	oldTailSegmentHeadOffset := writer.tailSegment.headOffset
 	err := writer.tailSegment.Close()
 	ctx.TraceCall("callee!tailSegment.Close", err)
@@ -102,16 +102,16 @@ func (writer *writer) rotateTail(ctx countlog.Context) error {
 		segmentHeader: segmentHeader{segmentTypeRaw, oldTailSegmentHeadOffset},
 		path:          rotatedTo,
 	})
-	countlog.Debug("event!writer.rotated raw segment",
+	countlog.Debug("event!appender.rotated raw segment",
 		"rotatedTo", rotatedTo)
 	return nil
 }
 
-func (writer *writer) incrementTailOffset() {
+func (writer *appender) incrementTailOffset() {
 	writer.tailEntriesCount += 1
 	atomic.StoreUint64(&writer.state.tailOffset, writer.state.tailOffset+1)
 }
 
-func (writer *writer) setTailOffset(tailOffset Offset) {
+func (writer *appender) setTailOffset(tailOffset Offset) {
 	atomic.StoreUint64(&writer.state.tailOffset, uint64(tailOffset))
 }

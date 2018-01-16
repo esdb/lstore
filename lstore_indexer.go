@@ -16,7 +16,7 @@ type indexerCommand func(ctx countlog.Context)
 type indexer struct {
 	cfg             *indexerConfig
 	state           *storeState
-	writer          *writer
+	appender        *appender
 	commandQueue    chan indexerCommand
 	slotIndexWriter slotIndexWriter
 	blockWriter     blockWriter
@@ -31,7 +31,7 @@ func (store *Store) newIndexer(ctx countlog.Context) (*indexer, error) {
 	indexer := &indexer{
 		cfg:             &cfg.indexerConfig,
 		state:           &store.storeState,
-		writer:          store.writer,
+		appender:        store.appender,
 		commandQueue:    make(chan indexerCommand),
 		slotIndexWriter: store.slotIndexManager.newWriter(14, 4),
 		blockWriter:     store.blockManager.newWriter(),
@@ -221,7 +221,7 @@ func (indexer *indexer) updateOnce(ctx countlog.Context) (updated bool, err erro
 	}
 	indexer.indexingSegment = indexingSegment
 	indexer.state.movedChunksIntoIndex(indexingSegment, len(chunks))
-	indexer.writer.removeRawSegments(ctx, indexingSegment.tailOffset)
+	indexer.appender.removeRawSegments(ctx, indexingSegment.tailOffset)
 	return true, nil
 }
 

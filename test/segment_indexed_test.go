@@ -19,7 +19,7 @@ func Test_indexed_segment(t *testing.T) {
 	defer store.Stop(ctx)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
-		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		offset, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 		should.Equal(lstore.Offset(i + 1), offset)
 	}
@@ -39,7 +39,7 @@ func Test_indexed_segment(t *testing.T) {
 
 	for i := 260; i < 520; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
-		_, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		_, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 	}
 	should.Nil(store.UpdateIndex(ctx))
@@ -63,7 +63,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	store := testStore(cfg)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
-		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		offset, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 		should.Equal(lstore.Offset(i + 1), offset)
 	}
@@ -87,7 +87,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 
 	for i := 260; i < 520; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
-		_, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		_, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 	}
 	should.Nil(store.UpdateIndex(ctx))
@@ -113,7 +113,7 @@ func Test_auto_rotate_index(t *testing.T) {
 	store := testStore(cfg)
 	for i := 0; i < 256 * 64 * 4; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
-		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		offset, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 		should.Equal(lstore.Offset(i + 1), offset)
 	}
@@ -138,7 +138,7 @@ func Test_remove_indexed_segment(t *testing.T) {
 	for j := 0; j < 4; j++ {
 		for i := 0; i < 1024; i++ {
 			blobValue := lstore.Blob(strconv.Itoa(i))
-			_, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+			_, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 			should.Nil(err)
 		}
 		should.Nil(store.UpdateIndex(ctx))

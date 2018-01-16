@@ -7,8 +7,8 @@ import (
 )
 
 type storeState struct {
-	currentVersion   unsafe.Pointer // pointer to storeVersion, writer use atomic to notify readers
-	tailOffset       uint64         // offset, writer use atomic to notify readers
+	currentVersion   unsafe.Pointer // pointer to storeVersion, appender use atomic to notify readers
+	tailOffset       uint64         // offset, appender use atomic to notify readers
 	blockManager     blockManager
 	slotIndexManager slotIndexManager
 }

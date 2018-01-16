@@ -56,7 +56,7 @@ func (indexer *indexer) load(ctx countlog.Context, slotIndexManager slotIndexMan
 	if err != nil {
 		return err
 	}
-	err = indexer.writer.loadedIndex(ctx, indexedSegments, indexingSegment)
+	err = indexer.appender.loadedIndex(ctx, indexedSegments, indexingSegment)
 	if err != nil {
 		return err
 	}

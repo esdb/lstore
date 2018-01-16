@@ -10,26 +10,26 @@ import (
 	"github.com/esdb/biter"
 )
 
-type writerCommand func(ctx countlog.Context)
+type appenderCommand func(ctx countlog.Context)
 
-type writer struct {
+type appender struct {
 	*tailSegment
 	cfg            *writerConfig
 	strategy       *indexingStrategy
 	state          *storeState
-	commandQueue   chan writerCommand
+	commandQueue   chan appenderCommand
 	appendingChunk *chunk
 	rawSegments    []*rawSegment
 	stream         *gocodec.Stream
 	chunkMaxSlot   biter.Slot
 }
 
-type WriteResult struct {
+type AppendResult struct {
 	Offset Offset
 	Error  error
 }
 
-func (store *Store) newWriter(ctx countlog.Context) (*writer, error) {
+func (store *Store) newAppender(ctx countlog.Context) (*appender, error) {
 	cfg := store.cfg
 	if cfg.WriterCommandQueueLength == 0 {
 		cfg.WriterCommandQueueLength = 1024
@@ -44,33 +44,33 @@ func (store *Store) newWriter(ctx countlog.Context) (*writer, error) {
 		}
 		chunkMaxSlot = biter.Slot(cfg.ChunkMaxEntriesCount / 64 + 1)
 	}
-	writer := &writer{
+	writer := &appender{
 		state:        &store.storeState,
 		stream:       gocodec.NewStream(nil),
 		strategy:     store.strategy,
 		cfg:          &cfg.writerConfig,
 		chunkMaxSlot: chunkMaxSlot,
-		commandQueue: make(chan writerCommand, cfg.WriterCommandQueueLength),
+		commandQueue: make(chan appenderCommand, cfg.WriterCommandQueueLength),
 	}
 	writer.start(store.executor)
 	return writer, nil
 }
 
-func (writer *writer) Close() error {
+func (writer *appender) Close() error {
 	return writer.tailSegment.Close()
 }
 
-func (writer *writer) start(executor *concurrent.UnboundedExecutor) {
+func (writer *appender) start(executor *concurrent.UnboundedExecutor) {
 	executor.Go(func(ctxObj context.Context) {
 		ctx := countlog.Ctx(ctxObj)
 		defer func() {
-			countlog.Info("event!writer.stop")
+			countlog.Info("event!appender.stop")
 		}()
-		countlog.Info("event!writer.start")
+		countlog.Info("event!appender.start")
 		stream := gocodec.NewStream(nil)
 		ctx = countlog.Ctx(context.WithValue(ctx, "stream", stream))
 		for {
-			var cmd writerCommand
+			var cmd appenderCommand
 			select {
 			case <-ctx.Done():
 				return
@@ -81,14 +81,14 @@ func (writer *writer) start(executor *concurrent.UnboundedExecutor) {
 	})
 }
 
-func (writer *writer) asyncExecute(ctx countlog.Context, cmd writerCommand) {
+func (writer *appender) asyncExecute(ctx countlog.Context, cmd appenderCommand) {
 	select {
 	case writer.commandQueue <- cmd:
 	case <-ctx.Done():
 	}
 }
 
-func handleCommand(ctx countlog.Context, cmd writerCommand) {
+func handleCommand(ctx countlog.Context, cmd appenderCommand) {
 	defer func() {
 		recovered := recover()
 		if recovered != nil && recovered != concurrent.StopSignal {
@@ -100,7 +100,7 @@ func handleCommand(ctx countlog.Context, cmd writerCommand) {
 	cmd(ctx)
 }
 
-func (writer *writer) removeRawSegments(
+func (writer *appender) removeRawSegments(
 	ctx countlog.Context, untilOffset Offset) {
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		removedRawSegmentsCount := 0

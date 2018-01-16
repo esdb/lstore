@@ -12,10 +12,10 @@ func Test_raw_segment(t *testing.T) {
 	cfg.RawSegmentMaxSizeInBytes = 140
 	store := testStore(cfg)
 	defer store.Stop(ctx)
-	seq, err := store.Write(ctx, intEntry(1))
+	seq, err := store.Append(ctx, intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(1), seq)
-	seq, err = store.Write(ctx, intEntry(2))
+	seq, err = store.Append(ctx, intEntry(2))
 	should.Nil(err)
 	should.Equal(lstore.Offset(2), seq)
 	reader, err := store.NewReader(ctx)
@@ -36,7 +36,7 @@ func Test_a_lot_raw_segment(t *testing.T) {
 	store := testStore(cfg)
 	defer store.Stop(ctx)
 	for i := 0; i < 256; i++ {
-		seq, err := store.Write(ctx, intEntry(int64(i)))
+		seq, err := store.Append(ctx, intEntry(int64(i)))
 		should.Nil(err)
 		should.Equal(lstore.Offset(i+1), seq)
 	}
@@ -56,10 +56,10 @@ func Test_reopen_raw_segment(t *testing.T) {
 	cfg := &lstore.Config{}
 	cfg.RawSegmentMaxSizeInBytes = 140
 	store := testStore(cfg)
-	seq, err := store.Write(ctx, intEntry(1))
+	seq, err := store.Append(ctx, intEntry(1))
 	should.Nil(err)
 	should.Equal(lstore.Offset(1), seq)
-	seq, err = store.Write(ctx, intEntry(2))
+	seq, err = store.Append(ctx, intEntry(2))
 	should.Nil(err)
 	should.Equal(lstore.Offset(2), seq)
 

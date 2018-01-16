@@ -23,10 +23,10 @@ type Config struct {
 type Store struct {
 	storeState
 	cfg      *Config
-	writer   *writer
+	appender *appender
 	indexer  *indexer
 	strategy *indexingStrategy
-	executor *concurrent.UnboundedExecutor // owns writer and indexer, 2 goroutines
+	executor *concurrent.UnboundedExecutor // owns appender and indexer, 2 goroutines
 }
 
 func New(ctxObj context.Context, cfg *Config) (*Store, error) {
@@ -57,7 +57,7 @@ func New(ctxObj context.Context, cfg *Config) (*Store, error) {
 		},
 	}
 	var err error
-	store.writer, err = store.newWriter(ctx)
+	store.appender, err = store.newAppender(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func New(ctxObj context.Context, cfg *Config) (*Store, error) {
 func (store *Store) Stop(ctx context.Context) error {
 	store.executor.StopAndWait(ctx)
 	return plz.CloseAll([]io.Closer{
-		store.writer,
+		store.appender,
 		store.indexer,
 		store.slotIndexManager,
 		store.blockManager,
@@ -82,12 +82,12 @@ func (store *Store) Config() Config {
 	return *store.cfg
 }
 
-func (store *Store) BatchWrite(ctxObj context.Context, resultChan chan<- WriteResult, entries []*Entry) {
-	store.writer.BatchWrite(ctxObj, resultChan, entries)
+func (store *Store) BatchAppend(ctxObj context.Context, resultChan chan<- AppendResult, entries []*Entry) {
+	store.appender.BatchAppend(ctxObj, resultChan, entries)
 }
 
-func (store *Store) Write(ctxObj context.Context, entry *Entry) (Offset, error) {
-	return store.writer.Write(ctxObj, entry)
+func (store *Store) Append(ctxObj context.Context, entry *Entry) (Offset, error) {
+	return store.appender.Append(ctxObj, entry)
 }
 
 func (store *Store) UpdateIndex(ctxObj context.Context) error {

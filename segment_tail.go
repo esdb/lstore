@@ -13,7 +13,7 @@ import (
 
 var SegmentOverflowError = errors.New("please rotate to new chunk")
 
-// tailSegment is owned by writer
+// tailSegment is owned by appender
 type tailSegment struct {
 	*segmentHeader
 	tailEntriesCount int

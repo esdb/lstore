@@ -68,7 +68,7 @@ type mmapBlockReader struct {
 
 type mmapBlockWriter struct {
 	mmapBlockManager
-	// tmp assume there is single writer
+	// tmp assume there is single appender
 	blockCompressTmp []byte
 	stream           *gocodec.Stream
 }

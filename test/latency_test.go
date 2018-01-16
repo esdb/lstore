@@ -24,7 +24,7 @@ func Test_write_1_million(t *testing.T) {
 				fmt.Println(value)
 				target = value
 			}
-			store.Write(ctx, blobEntry(value))
+			store.Append(ctx, blobEntry(value))
 		}
 		go store.UpdateIndex(ctx)
 	}

@@ -7,7 +7,7 @@ import (
 
 const firstOffset = 1
 
-func (writer *writer) loadedIndex(
+func (writer *appender) loadedIndex(
 	ctx countlog.Context, indexedSegments []*indexSegment, indexingSegment *indexSegment) error {
 	chunks, err := writer.loadChunks(ctx, indexingSegment.tailOffset)
 	if err != nil {
@@ -17,7 +17,7 @@ func (writer *writer) loadedIndex(
 	return nil
 }
 
-func (writer *writer) loadChunks(ctx countlog.Context, indexingSegmentTailOffset Offset) ([]*chunk, error) {
+func (writer *appender) loadChunks(ctx countlog.Context, indexingSegmentTailOffset Offset) ([]*chunk, error) {
 	tailSegment, entries, err := openTailSegment(
 		ctx, writer.cfg.TailSegmentPath(), writer.cfg.RawSegmentMaxSizeInBytes, firstOffset)
 	if err != nil {
@@ -61,7 +61,7 @@ func (writer *writer) loadChunks(ctx countlog.Context, indexingSegmentTailOffset
 	writer.appendingChunk = chunks[len(chunks) - 1]
 	writer.tailSegment = tailSegment
 	writer.rawSegments = rawSegments
-	ctx.Info("event!writer.load",
+	ctx.Info("event!appender.load",
 		"firstChunkHeadOffset", chunks[0].headOffset,
 		"rawSegmentsCount", len(rawSegments),
 		"storeTailOffset", storeTailOffset)

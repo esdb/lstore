@@ -20,7 +20,7 @@ func Test_indexing_segment(t *testing.T) {
 		if i%2 == 0 {
 			blobValue = lstore.Blob("world")
 		}
-		_, err := store.Write(ctx, intBlobEntry(int64(i)+1, blobValue))
+		_, err := store.Append(ctx, intBlobEntry(int64(i)+1, blobValue))
 		should.Nil(err)
 	}
 	should.Nil(store.UpdateIndex(ctx))
@@ -46,7 +46,7 @@ func Test_reopen_indexing_segment(t *testing.T) {
 		if i%2 == 0 {
 			blobValue = lstore.Blob("world")
 		}
-		_, err := store.Write(ctx, intBlobEntry(int64(i)+1, blobValue))
+		_, err := store.Append(ctx, intBlobEntry(int64(i)+1, blobValue))
 		should.Nil(err)
 	}
 	should.Nil(store.UpdateIndex(ctx))
@@ -73,14 +73,14 @@ func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 	defer store.Stop(ctx)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
-		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		offset, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 		should.Equal(lstore.Offset(i + 1), offset)
 	}
 	should.Nil(store.UpdateIndex(ctx))
 	for i := 260; i < 520; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
-		_, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		_, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 	}
 	should.Nil(store.UpdateIndex(ctx))
@@ -106,7 +106,7 @@ func Test_update_index_multiple_times(t *testing.T) {
 	defer store.Stop(ctx)
 	for i := 0; i < 4096 * 64; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
-		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
+		offset, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
 		should.Equal(lstore.Offset(i + 1), offset)
 	}
@@ -139,7 +139,7 @@ func Test_index_block_compressed(t *testing.T) {
 		if i%2 == 0 {
 			blobValue = lstore.Blob("world")
 		}
-		_, err := store.Write(ctx, intBlobEntry(int64(i)+1, blobValue))
+		_, err := store.Append(ctx, intBlobEntry(int64(i)+1, blobValue))
 		should.Nil(err)
 	}
 	should.Nil(store.UpdateIndex(ctx))
