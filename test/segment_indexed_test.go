@@ -131,9 +131,10 @@ func Test_auto_rotate_index(t *testing.T) {
 
 func Test_remove_indexed_segment(t *testing.T) {
 	should := require.New(t)
-	config := &lstore.Config{}
-	config.BlockFileSizeInPowerOfTwo = 14
-	store := testStore(config)
+	cfg := &lstore.Config{}
+	cfg.BlockFileSizeInPowerOfTwo = 14
+	cfg.ChunkMaxEntriesCount = 256
+	store := testStore(cfg)
 	defer store.Stop(ctx)
 	for j := 0; j < 4; j++ {
 		for i := 0; i < 1024; i++ {
@@ -152,11 +153,11 @@ func Test_remove_indexed_segment(t *testing.T) {
 	reader.SearchForward(ctx, &lstore.SearchRequest{
 		0, nil, &assertSearchForward{collector, 0},
 	})
-	should.Equal(2304, len(collector.Rows))
+	should.Equal(2048, len(collector.Rows))
 	should.NoError(reader.Close())
 	time.Sleep(time.Second)
-	_, err = os.Stat("/tmp/store/block/2")
+	_, err = os.Stat("/run/store/block/2")
 	should.Error(err)
-	_, err = os.Stat("/tmp/store/block/3")
+	_, err = os.Stat("/run/store/block/3")
 	should.NoError(err)
 }

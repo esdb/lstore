@@ -35,7 +35,7 @@ func (store *Store) newIndexer(ctx countlog.Context) (*indexer, error) {
 		slotIndexWriter: store.slotIndexManager.newWriter(14, 4),
 		blockWriter:     store.blockManager.newWriter(),
 	}
-	err := indexer.load(ctx, store.slotIndexManager)
+	err := indexer.loadIndex(ctx, store.slotIndexManager)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +182,7 @@ func (indexer *indexer) updateOnce(ctx countlog.Context) (updated bool, err erro
 	blockHeadOffset := oldIndexingTailOffset
 	blockEntries := make([]*Entry, 0, blockLength)
 	for _, chunk := range chunks {
-		for _, chunkChild := range chunk.children[:chunk.tailSlot-1] {
+		for _, chunkChild := range chunk.children[:chunk.tailSlot] {
 			blockEntries = append(blockEntries, chunkChild.children...)
 			if len(blockEntries) == blockLength {
 				blk := newBlock(blockHeadOffset, blockEntries)
@@ -201,6 +201,8 @@ func (indexer *indexer) updateOnce(ctx countlog.Context) (updated bool, err erro
 		}
 	}
 	if len(blockEntries) != 0 {
+		countlog.Fatal("event!indexer.appended chunks must have entries count multiplier of 256",
+			"chunksCount", len(chunks))
 		return false, errors.New("appended chunks must have entries count multiplier of 256")
 	}
 	err = indexer.saveIndexingSegment(ctx, indexingSegment)

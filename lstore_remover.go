@@ -44,7 +44,7 @@ func (remover *remover) start(executor *concurrent.UnboundedExecutor) {
 		}()
 		countlog.Info("event!indexer.start")
 		for {
-			var cmd indexerCommand
+			var cmd removerCommand
 			select {
 			case <-ctx.Done():
 				return
@@ -55,7 +55,7 @@ func (remover *remover) start(executor *concurrent.UnboundedExecutor) {
 	})
 }
 
-func (remover *remover) runCommand(ctx countlog.Context, cmd indexerCommand) {
+func (remover *remover) runCommand(ctx countlog.Context, cmd removerCommand) {
 	defer func() {
 		recovered := recover()
 		if recovered == concurrent.StopSignal {

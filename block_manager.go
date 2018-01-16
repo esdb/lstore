@@ -33,8 +33,6 @@ type blockManager interface {
 	io.Closer
 	newReader(pageSizeInPowerOfTwo uint8, maxPagesCount int) blockReader
 	newWriter() blockWriter
-	lock(reader interface{}, lockedFrom Offset)
-	unlock(reader interface{})
 }
 
 type blockReader interface {
@@ -104,14 +102,6 @@ func (mgr *mmapBlockManager) newWriter() blockWriter {
 		mmapBlockManager: *mgr,
 		stream:           gocodec.NewStream(nil),
 	}
-}
-
-func (mgr *mmapBlockManager) lock(reader interface{}, lockedFrom Offset) {
-	mgr.diskManager.Lock(reader)
-}
-
-func (mgr *mmapBlockManager) unlock(reader interface{}) {
-	mgr.diskManager.Unlock(reader)
 }
 
 func (writer *mmapBlockWriter) Close() error {

@@ -48,9 +48,13 @@ func (store *storeState) lockHead(reader interface{}) *storeVersion {
 		for k, v := range newVersion.activeReaders {
 			newActiveReaders[k] = v
 		}
-		newActiveReaders[reader] = newVersion.HeadOffset()
+		lockedOffset := newVersion.HeadOffset()
+		newActiveReaders[reader] = lockedOffset
 		newVersion.activeReaders = newActiveReaders
 		if atomic.CompareAndSwapPointer(&store.currentVersion, unsafe.Pointer(oldVersion), unsafe.Pointer(&newVersion)) {
+			countlog.Debug("event!state.lock head",
+				"reader", reader,
+				"lockedOffset", lockedOffset)
 			return &newVersion
 		}
 	}
@@ -64,9 +68,13 @@ func (store *storeState) unlockHead(reader interface{}) {
 		for k, v := range newVersion.activeReaders {
 			newActiveReaders[k] = v
 		}
+		lockedOffset := newActiveReaders[reader]
 		delete(newActiveReaders, reader)
 		newVersion.activeReaders = newActiveReaders
 		if atomic.CompareAndSwapPointer(&store.currentVersion, unsafe.Pointer(oldVersion), unsafe.Pointer(&newVersion)) {
+			countlog.Debug("event!state.unlock head",
+				"reader", reader,
+				"lockedOffset", lockedOffset)
 			return
 		}
 	}
@@ -104,6 +112,12 @@ func (store *storeState) removeHead(removingFrom Offset) ([]*indexSegment, Offse
 		newVersion.indexedSegments = remainingSegments
 		newVersion.removingSegments = removingSegments
 		if atomic.CompareAndSwapPointer(&store.currentVersion, unsafe.Pointer(oldVersion), unsafe.Pointer(&newVersion)) {
+			countlog.Debug("event!state.remove head",
+				"removedFrom", removedFrom,
+				"removingFrom", removingFrom,
+				"removedSegmentsCount", len(removedSegments),
+				"removingSegmentsCount", len(removingSegments),
+				"remainingSegmentsCount", len(remainingSegments))
 			return removedSegments, removedFrom
 		}
 	}

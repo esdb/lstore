@@ -18,8 +18,6 @@ type slotIndexManager interface {
 	io.Closer
 	newReader(pageSizeInPowerOfTwo uint8, maxPagesCount int) slotIndexReader
 	newWriter(pageSizeInPowerOfTwo uint8, maxPagesCount int) slotIndexWriter
-	lock(reader interface{}, lockedFrom Offset)
-	unlock(reader interface{})
 }
 
 type slotIndexReader interface {
@@ -109,14 +107,6 @@ func (mgr *mmapSlotIndexManager) newWriter(pageSizeInPowerOfTwo uint8, maxPagesC
 		iter:                 iter,
 		cache:                map[slotIndexSeq]*slotIndex{},
 	}
-}
-
-func (mgr *mmapSlotIndexManager) lock(reader interface{}, lockedFrom Offset) {
-	mgr.diskManager.Lock(reader)
-}
-
-func (mgr *mmapSlotIndexManager) unlock(reader interface{}) {
-	mgr.diskManager.Unlock(reader)
 }
 
 func (writer *mmapSlotIndexWriter) Close() error {

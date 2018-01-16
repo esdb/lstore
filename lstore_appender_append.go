@@ -69,7 +69,12 @@ func (appender *appender) tryAppend(ctx countlog.Context, entry *Entry) error {
 		return SegmentOverflowError
 	}
 	appender.writeBuf = appender.writeBuf[size:]
-	if appender.appendingChunk.add(entry) || appender.appendingChunk.tailSlot == appender.chunkMaxSlot {
+	if appender.appendingChunk.add(entry) {
+		appender.appendingChunk = newChunk(appender.strategy, appender.appendingChunk.tailOffset)
+		appender.state.rotatedChunk(appender.appendingChunk)
+	}
+	if appender.appendingChunk.tailSlot == appender.chunkMaxSlot {
+		appender.appendingChunk.tailSlot -= 1
 		appender.appendingChunk = newChunk(appender.strategy, appender.appendingChunk.tailOffset)
 		appender.state.rotatedChunk(appender.appendingChunk)
 	}

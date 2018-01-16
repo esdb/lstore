@@ -106,6 +106,6 @@ func (store *Store) RotateIndex(ctxObj context.Context) error {
 
 // Remove can only remove those rows in indexed segment
 // data still hanging in raw segments can not be removed
-func (store *Store) Remove(ctxObj context.Context, untilOffset Offset) error {
-	return store.remover.Remove(ctxObj, untilOffset)
+func (store *Store) Remove(ctxObj context.Context, removingFrom Offset) error {
+	return store.remover.Remove(ctxObj, removingFrom)
 }
