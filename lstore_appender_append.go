@@ -7,30 +7,30 @@ import (
 	"context"
 )
 
-func (writer *appender) BatchAppend(ctxObj context.Context, resultChan chan<- AppendResult, entries []*Entry) {
+func (appender *appender) BatchAppend(ctxObj context.Context, resultChan chan<- AppendResult, entries []*Entry) {
 	ctx := countlog.Ctx(ctxObj)
-	writer.asyncExecute(ctx, func(ctx countlog.Context) {
+	appender.asyncExecute(ctx, func(ctx countlog.Context) {
 		for _, entry := range entries {
-			writer.writeOne(ctx, resultChan, entry)
+			appender.writeOne(ctx, resultChan, entry)
 		}
 	})
 }
 
-func (writer *appender) writeOne(ctx countlog.Context, resultChan chan<- AppendResult, entry *Entry) {
-	offset := Offset(writer.state.tailOffset)
-	err := writer.tryAppend(ctx, entry)
+func (appender *appender) writeOne(ctx countlog.Context, resultChan chan<- AppendResult, entry *Entry) {
+	offset := Offset(appender.state.tailOffset)
+	err := appender.tryAppend(ctx, entry)
 	if err == nil {
 		resultChan <- AppendResult{offset, nil}
 		return
 	}
 	if err == SegmentOverflowError {
-		err := writer.rotateTail(ctx)
+		err := appender.rotateTail(ctx)
 		ctx.TraceCall("callee!appender.rotate", err)
 		if err != nil {
 			resultChan <- AppendResult{0, err}
 			return
 		}
-		err = writer.tryAppend(ctx, entry)
+		err = appender.tryAppend(ctx, entry)
 		if err != nil {
 			resultChan <- AppendResult{0, err}
 			return
@@ -42,11 +42,11 @@ func (writer *appender) writeOne(ctx countlog.Context, resultChan chan<- AppendR
 	return
 }
 
-func (writer *appender) Append(ctxObj context.Context, entry *Entry) (Offset, error) {
+func (appender *appender) Append(ctxObj context.Context, entry *Entry) (Offset, error) {
 	ctx := countlog.Ctx(ctxObj)
 	resultChan := make(chan AppendResult)
-	writer.asyncExecute(ctx, func(ctx countlog.Context) {
-		writer.writeOne(ctx, resultChan, entry)
+	appender.asyncExecute(ctx, func(ctx countlog.Context) {
+		appender.writeOne(ctx, resultChan, entry)
 	})
 	select {
 	case result := <-resultChan:
@@ -58,47 +58,47 @@ func (writer *appender) Append(ctxObj context.Context, entry *Entry) (Offset, er
 	}
 }
 
-func (writer *appender) tryAppend(ctx countlog.Context, entry *Entry) error {
-	stream := writer.stream
-	stream.Reset(writer.writeBuf[:0])
+func (appender *appender) tryAppend(ctx countlog.Context, entry *Entry) error {
+	stream := appender.stream
+	stream.Reset(appender.writeBuf[:0])
 	size := stream.Marshal(*entry)
 	if stream.Error != nil {
 		return stream.Error
 	}
-	if size >= uint32(len(writer.writeBuf)) {
+	if size >= uint32(len(appender.writeBuf)) {
 		return SegmentOverflowError
 	}
-	writer.writeBuf = writer.writeBuf[size:]
-	if writer.appendingChunk.add(entry) || writer.appendingChunk.tailSlot == writer.chunkMaxSlot {
-		writer.appendingChunk = newChunk(writer.strategy, writer.appendingChunk.tailOffset)
-		writer.state.rotatedChunk(writer.appendingChunk)
+	appender.writeBuf = appender.writeBuf[size:]
+	if appender.appendingChunk.add(entry) || appender.appendingChunk.tailSlot == appender.chunkMaxSlot {
+		appender.appendingChunk = newChunk(appender.strategy, appender.appendingChunk.tailOffset)
+		appender.state.rotatedChunk(appender.appendingChunk)
 	}
 	// reader will know if read the tail using atomic
-	writer.incrementTailOffset()
+	appender.incrementTailOffset()
 	return nil
 }
 
-func (writer *appender) rotateTail(ctx countlog.Context) error {
-	oldTailSegmentHeadOffset := writer.tailSegment.headOffset
-	err := writer.tailSegment.Close()
+func (appender *appender) rotateTail(ctx countlog.Context) error {
+	oldTailSegmentHeadOffset := appender.tailSegment.headOffset
+	err := appender.tailSegment.Close()
 	ctx.TraceCall("callee!tailSegment.Close", err)
 	if err != nil {
 		return err
 	}
-	newTailSegment, _, err := openTailSegment(ctx, writer.cfg.TailSegmentTmpPath(), writer.cfg.RawSegmentMaxSizeInBytes,
-		Offset(writer.state.tailOffset))
+	newTailSegment, _, err := openTailSegment(ctx, appender.cfg.TailSegmentTmpPath(), appender.cfg.RawSegmentMaxSizeInBytes,
+		Offset(appender.state.tailOffset))
 	if err != nil {
 		return err
 	}
-	writer.tailSegment = newTailSegment
-	rotatedTo := writer.cfg.RawSegmentPath(Offset(writer.state.tailOffset))
-	if err = os.Rename(writer.cfg.TailSegmentPath(), rotatedTo); err != nil {
+	appender.tailSegment = newTailSegment
+	rotatedTo := appender.cfg.RawSegmentPath(Offset(appender.state.tailOffset))
+	if err = os.Rename(appender.cfg.TailSegmentPath(), rotatedTo); err != nil {
 		return err
 	}
-	if err = os.Rename(writer.cfg.TailSegmentTmpPath(), writer.cfg.TailSegmentPath()); err != nil {
+	if err = os.Rename(appender.cfg.TailSegmentTmpPath(), appender.cfg.TailSegmentPath()); err != nil {
 		return err
 	}
-	writer.rawSegments = append(writer.rawSegments, &rawSegment{
+	appender.rawSegments = append(appender.rawSegments, &rawSegment{
 		segmentHeader: segmentHeader{segmentTypeRaw, oldTailSegmentHeadOffset},
 		path:          rotatedTo,
 	})
@@ -107,11 +107,11 @@ func (writer *appender) rotateTail(ctx countlog.Context) error {
 	return nil
 }
 
-func (writer *appender) incrementTailOffset() {
-	writer.tailEntriesCount += 1
-	atomic.StoreUint64(&writer.state.tailOffset, writer.state.tailOffset+1)
+func (appender *appender) incrementTailOffset() {
+	appender.tailEntriesCount += 1
+	atomic.StoreUint64(&appender.state.tailOffset, appender.state.tailOffset+1)
 }
 
-func (writer *appender) setTailOffset(tailOffset Offset) {
-	atomic.StoreUint64(&writer.state.tailOffset, uint64(tailOffset))
+func (appender *appender) setTailOffset(tailOffset Offset) {
+	atomic.StoreUint64(&appender.state.tailOffset, uint64(tailOffset))
 }

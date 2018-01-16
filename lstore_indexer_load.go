@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-func (indexer *indexer) load(ctx countlog.Context, slotIndexManager slotIndexManager) error {
+func (indexer *indexer) loadIndex(ctx countlog.Context, slotIndexManager slotIndexManager) error {
 	indexingSegment, err := openIndexSegment(
 		ctx, indexer.cfg.IndexingSegmentPath())
 	if os.IsNotExist(err) {

@@ -72,7 +72,7 @@ func (store *storeState) unlockHead(reader interface{}) {
 	}
 }
 
-func (store *storeState) removeHead(removingFrom Offset) []*indexSegment {
+func (store *storeState) removeHead(removingFrom Offset) ([]*indexSegment, Offset) {
 	for {
 		oldVersion := store.latest()
 		newVersion := *oldVersion
@@ -104,7 +104,7 @@ func (store *storeState) removeHead(removingFrom Offset) []*indexSegment {
 		newVersion.indexedSegments = remainingSegments
 		newVersion.removingSegments = removingSegments
 		if atomic.CompareAndSwapPointer(&store.currentVersion, unsafe.Pointer(oldVersion), unsafe.Pointer(&newVersion)) {
-			return removedSegments
+			return removedSegments, removedFrom
 		}
 	}
 }

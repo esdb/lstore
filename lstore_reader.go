@@ -41,7 +41,7 @@ func (store *Store) NewReader(ctxObj context.Context) (*Reader, error) {
 		slotIndexReader: store.slotIndexManager.newReader(14, 4),
 		blockReader:     store.blockManager.newReader(14, 4),
 	}
-	reader.Refresh(ctx)
+	reader.RefreshTail(ctx)
 	store.lockHead(reader)
 	return reader, nil
 }
@@ -50,20 +50,29 @@ func (reader *Reader) TailOffset() Offset {
 	return reader.tailOffset
 }
 
-// Refresh has minimum cost of two cas read, one for store.latestVersion, one for tailSegment.tail
-func (reader *Reader) Refresh(ctx context.Context) bool {
-	hasNew := false
+func (reader *Reader) Refresh() (headMoved bool, tailMoved bool) {
 	newTailOffset := reader.state.getTailOffset()
 	if newTailOffset != reader.tailOffset {
 		reader.tailOffset = newTailOffset
-		hasNew = true
+		tailMoved = true
 	}
-	latestVersion := reader.state.latest()
-	if reader.currentVersion != latestVersion {
-		reader.currentVersion = latestVersion
-		hasNew = true
+	oldHeadOffset := reader.currentVersion.HeadOffset()
+	reader.currentVersion = reader.state.lockHead(reader)
+	if reader.currentVersion.HeadOffset() != oldHeadOffset {
+		headMoved = true
 	}
-	return hasNew
+	return headMoved, tailMoved
+}
+
+// RefreshTail has minimum cost of two cas read, one for store.latestVersion, one for tailSegment.tail
+func (reader *Reader) RefreshTail(ctx context.Context) (tailMoved bool) {
+	newTailOffset := reader.state.getTailOffset()
+	if newTailOffset != reader.tailOffset {
+		reader.tailOffset = newTailOffset
+		tailMoved = true
+	}
+	reader.currentVersion = reader.state.latest()
+	return tailMoved
 }
 
 func (reader *Reader) Close() error {

@@ -83,7 +83,7 @@ func Test_reopen_tail_segment(t *testing.T) {
 	should.Equal([]int64{1}, collector.Rows[0].IntValues)
 
 	// refresh, should read new rows now
-	hasNew := reader.Refresh(ctx)
+	hasNew := reader.RefreshTail(ctx)
 	should.True(hasNew)
 	collector = &lstore.RowsCollector{LimitSize: 2}
 	reader.SearchForward(ctx, &lstore.SearchRequest{
@@ -116,7 +116,7 @@ func Test_rotate_raw_segment_file(t *testing.T) {
 	seq, err = store.Append(ctx, intEntry(3))
 	should.Nil(err)
 	should.Equal(lstore.Offset(3), seq)
-	should.True(reader.Refresh(ctx))
+	should.True(reader.RefreshTail(ctx))
 	collector = &lstore.OffsetsCollector{}
 	reader.SearchForward(ctx, &lstore.SearchRequest{
 		0, nil, collector,
@@ -139,7 +139,7 @@ func Test_rotate_raw_chunk_child(t *testing.T) {
 		should.Nil(err)
 		should.Equal(lstore.Offset(i + 1), seq)
 	}
-	should.True(reader.Refresh(ctx))
+	should.True(reader.RefreshTail(ctx))
 	collector = &lstore.OffsetsCollector{}
 	reader.SearchForward(ctx, &lstore.SearchRequest{
 		0, nil, collector,
@@ -162,7 +162,7 @@ func Test_rotate_raw_chunk(t *testing.T) {
 		should.Nil(err)
 		should.Equal(lstore.Offset(i + 1), seq)
 	}
-	should.True(reader.Refresh(ctx))
+	should.True(reader.RefreshTail(ctx))
 	collector = &lstore.OffsetsCollector{}
 	reader.SearchForward(ctx, &lstore.SearchRequest{
 		0, nil, collector,

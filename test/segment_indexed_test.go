@@ -44,7 +44,7 @@ func Test_indexed_segment(t *testing.T) {
 	}
 	should.Nil(store.UpdateIndex(ctx))
 
-	hasNew := reader.Refresh(ctx)
+	hasNew := reader.RefreshTail(ctx)
 	should.True(hasNew)
 	collector = &lstore.RowsCollector{}
 	reader.SearchForward(ctx, &lstore.SearchRequest{
@@ -92,7 +92,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	}
 	should.Nil(store.UpdateIndex(ctx))
 
-	hasNew := reader.Refresh(ctx)
+	hasNew := reader.RefreshTail(ctx)
 	should.True(hasNew)
 	collector = &lstore.RowsCollector{}
 	reader.SearchForward(ctx, &lstore.SearchRequest{

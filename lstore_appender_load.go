@@ -7,29 +7,29 @@ import (
 
 const firstOffset = 1
 
-func (writer *appender) loadedIndex(
+func (appender *appender) loadedIndex(
 	ctx countlog.Context, indexedSegments []*indexSegment, indexingSegment *indexSegment) error {
-	chunks, err := writer.loadChunks(ctx, indexingSegment.tailOffset)
+	chunks, err := appender.loadChunks(ctx, indexingSegment.tailOffset)
 	if err != nil {
 		return err
 	}
-	writer.state.loaded(indexedSegments, indexingSegment, chunks)
+	appender.state.loaded(indexedSegments, indexingSegment, chunks)
 	return nil
 }
 
-func (writer *appender) loadChunks(ctx countlog.Context, indexingSegmentTailOffset Offset) ([]*chunk, error) {
+func (appender *appender) loadChunks(ctx countlog.Context, indexingSegmentTailOffset Offset) ([]*chunk, error) {
 	tailSegment, entries, err := openTailSegment(
-		ctx, writer.cfg.TailSegmentPath(), writer.cfg.RawSegmentMaxSizeInBytes, firstOffset)
+		ctx, appender.cfg.TailSegmentPath(), appender.cfg.RawSegmentMaxSizeInBytes, firstOffset)
 	if err != nil {
 		return nil, err
 	}
 	storeTailOffset := tailSegment.headOffset + Offset(tailSegment.tailEntriesCount)
-	writer.setTailOffset(storeTailOffset)
+	appender.setTailOffset(storeTailOffset)
 	headOffset := tailSegment.headOffset
 	var reversedRawSegments []*rawSegment
 	offset := tailSegment.headOffset
 	for offset > firstOffset && offset > indexingSegmentTailOffset {
-		rawSegmentPath := writer.cfg.RawSegmentPath(offset)
+		rawSegmentPath := appender.cfg.RawSegmentPath(offset)
 		rawSegment, segmentEntries, err := openRawSegment(ctx, rawSegmentPath)
 		if err != nil {
 			countlog.Error("event!lstore.failed to open raw segment",
@@ -50,17 +50,17 @@ func (writer *appender) loadChunks(ctx countlog.Context, indexingSegmentTailOffs
 		return nil, errors.New("found gap between indexing segment tail and raw segment head")
 	}
 	entries = entries[indexingSegmentTailOffset - headOffset:]
-	chunks := newChunks(writer.strategy, indexingSegmentTailOffset)
+	chunks := newChunks(appender.strategy, indexingSegmentTailOffset)
 	chunk := chunks[0]
 	for _, entry := range entries {
 		if chunk.add(entry) {
-			chunk = newChunk(writer.strategy, chunk.tailOffset)
+			chunk = newChunk(appender.strategy, chunk.tailOffset)
 			chunks = append(chunks, chunk)
 		}
 	}
-	writer.appendingChunk = chunks[len(chunks) - 1]
-	writer.tailSegment = tailSegment
-	writer.rawSegments = rawSegments
+	appender.appendingChunk = chunks[len(chunks) - 1]
+	appender.tailSegment = tailSegment
+	appender.rawSegments = rawSegments
 	ctx.Info("event!appender.load",
 		"firstChunkHeadOffset", chunks[0].headOffset,
 		"rawSegmentsCount", len(rawSegments),

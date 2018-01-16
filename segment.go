@@ -9,3 +9,4 @@ type segmentHeader struct {
 
 const segmentTypeRaw segmentType = 1
 const segmentTypeIndex segmentType = 2
+const segmentTypeTombstone segmentType = 3

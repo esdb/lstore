@@ -8,7 +8,6 @@ import (
 	"os"
 	"github.com/v2pro/plz"
 	"github.com/v2pro/plz/concurrent"
-	"fmt"
 )
 
 type indexerCommand func(ctx countlog.Context)
@@ -75,6 +74,13 @@ func (indexer *indexer) start(executor *concurrent.UnboundedExecutor) {
 }
 
 func (indexer *indexer) runCommand(ctx countlog.Context, cmd indexerCommand) {
+	defer func() {
+		recovered := recover()
+		if recovered == concurrent.StopSignal {
+			panic(concurrent.StopSignal)
+		}
+		countlog.LogPanic(recovered)
+	}()
 	indexer.slotIndexWriter.gc()
 	cmd(ctx)
 }
@@ -104,23 +110,6 @@ func (indexer *indexer) RotateIndex(ctxObj context.Context) error {
 		resultChan <- indexer.doRotateIndex(ctx)
 	})
 	return <-resultChan
-}
-
-func (indexer *indexer) Remove(ctxObj context.Context, untilOffset Offset) error {
-	ctx := countlog.Ctx(ctxObj)
-	resultChan := make(chan error)
-	indexer.asyncExecute(ctx, func(ctx countlog.Context) {
-		resultChan <- indexer.doRemove(ctx, untilOffset)
-	})
-	return <-resultChan
-}
-
-func (indexer *indexer) doRemove(ctx countlog.Context, untilOffset Offset) (err error) {
-	removedSegments := indexer.state.removeHead(untilOffset)
-	fmt.Println(removedSegments)
-	//indexer.slotIndexWriter.remove(tailSlotIndexSeq)
-	//indexer.blockWriter.remove(tailBlockSeq)
-	return nil
 }
 
 func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
@@ -236,4 +225,15 @@ func (indexer *indexer) saveIndexingSegment(ctx countlog.Context, indexingSegmen
 		return err
 	}
 	return nil
+}
+
+func (indexer *indexer) removeIndexedSegments(ctx countlog.Context, removedSegments []*indexSegment) {
+	for _, removedSegment := range removedSegments {
+		segmentPath := indexer.cfg.IndexedSegmentPath(removedSegment.headOffset)
+		err := os.Remove(segmentPath)
+		ctx.TraceCall("callee!os.Remove", err)
+	}
+	lastRemovedSegment := removedSegments[len(removedSegments) - 1]
+	indexer.slotIndexWriter.remove(lastRemovedSegment.tailSlotIndexSeq)
+	indexer.blockWriter.remove(lastRemovedSegment.tailBlockSeq)
 }

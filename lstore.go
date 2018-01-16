@@ -12,6 +12,7 @@ import (
 type Config struct {
 	writerConfig
 	indexerConfig
+	removerConfig
 	blockManagerConfig
 	slotIndexManagerConfig
 	indexingStrategyConfig
@@ -25,6 +26,7 @@ type Store struct {
 	cfg      *Config
 	appender *appender
 	indexer  *indexer
+	remover  *remover
 	strategy *indexingStrategy
 	executor *concurrent.UnboundedExecutor // owns appender and indexer, 2 goroutines
 }
@@ -52,8 +54,8 @@ func New(ctxObj context.Context, cfg *Config) (*Store, error) {
 		strategy: strategy,
 		executor: concurrent.NewUnboundedExecutor(),
 		storeState: storeState{
-			blockManager:      newBlockManager(&cfg.blockManagerConfig),
-			slotIndexManager:  newSlotIndexManager(&cfg.slotIndexManagerConfig, strategy),
+			blockManager:     newBlockManager(&cfg.blockManagerConfig),
+			slotIndexManager: newSlotIndexManager(&cfg.slotIndexManagerConfig, strategy),
 		},
 	}
 	var err error
@@ -63,6 +65,10 @@ func New(ctxObj context.Context, cfg *Config) (*Store, error) {
 	}
 	store.indexer, err = store.newIndexer(ctx)
 	if err != nil {
+		return nil, err
+	}
+	store.remover, err = store.newRemover(ctx)
+	if err !=nil {
 		return nil, err
 	}
 	return store, nil
@@ -101,5 +107,5 @@ func (store *Store) RotateIndex(ctxObj context.Context) error {
 // Remove can only remove those rows in indexed segment
 // data still hanging in raw segments can not be removed
 func (store *Store) Remove(ctxObj context.Context, untilOffset Offset) error {
-	return store.indexer.Remove(ctxObj, untilOffset)
+	return store.remover.Remove(ctxObj, untilOffset)
 }

@@ -56,11 +56,11 @@ func (store *Store) newAppender(ctx countlog.Context) (*appender, error) {
 	return writer, nil
 }
 
-func (writer *appender) Close() error {
-	return writer.tailSegment.Close()
+func (appender *appender) Close() error {
+	return appender.tailSegment.Close()
 }
 
-func (writer *appender) start(executor *concurrent.UnboundedExecutor) {
+func (appender *appender) start(executor *concurrent.UnboundedExecutor) {
 	executor.Go(func(ctxObj context.Context) {
 		ctx := countlog.Ctx(ctxObj)
 		defer func() {
@@ -74,45 +74,44 @@ func (writer *appender) start(executor *concurrent.UnboundedExecutor) {
 			select {
 			case <-ctx.Done():
 				return
-			case cmd = <-writer.commandQueue:
+			case cmd = <-appender.commandQueue:
 			}
-			handleCommand(ctx, cmd)
+			appender.runCommand(ctx, cmd)
 		}
 	})
 }
 
-func (writer *appender) asyncExecute(ctx countlog.Context, cmd appenderCommand) {
+func (appender *appender) asyncExecute(ctx countlog.Context, cmd appenderCommand) {
 	select {
-	case writer.commandQueue <- cmd:
+	case appender.commandQueue <- cmd:
 	case <-ctx.Done():
 	}
 }
 
-func handleCommand(ctx countlog.Context, cmd appenderCommand) {
+func (appender *appender) runCommand(ctx countlog.Context, cmd appenderCommand) {
 	defer func() {
 		recovered := recover()
-		if recovered != nil && recovered != concurrent.StopSignal {
-			countlog.Fatal("event!store.panic",
-				"err", recovered,
-				"stacktrace", countlog.ProvideStacktrace)
+		if recovered == concurrent.StopSignal {
+			panic(concurrent.StopSignal)
 		}
+		countlog.LogPanic(recovered)
 	}()
 	cmd(ctx)
 }
 
-func (writer *appender) removeRawSegments(
+func (appender *appender) removeRawSegments(
 	ctx countlog.Context, untilOffset Offset) {
-	writer.asyncExecute(ctx, func(ctx countlog.Context) {
+	appender.asyncExecute(ctx, func(ctx countlog.Context) {
 		removedRawSegmentsCount := 0
-		for i, rawSegment := range writer.rawSegments {
+		for i, rawSegment := range appender.rawSegments {
 			if rawSegment.headOffset <= untilOffset {
 				removedRawSegmentsCount = i
 			} else {
 				break
 			}
 		}
-		removedRawSegments := writer.rawSegments[:removedRawSegmentsCount]
-		writer.rawSegments = writer.rawSegments[removedRawSegmentsCount:]
+		removedRawSegments := appender.rawSegments[:removedRawSegmentsCount]
+		appender.rawSegments = appender.rawSegments[removedRawSegmentsCount:]
 		for _, removedRawSegment := range removedRawSegments {
 			err := os.Remove(removedRawSegment.path)
 			ctx.TraceCall("callee!os.Remove", err,

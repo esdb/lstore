@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-const TailSegmentFileName = "tail.segment"
-const TailSegmentTmpFileName = "tail.segment.tmp"
+const tailSegmentFileName = "tail.segment"
+const tailSegmentTmpFileName = "tail.segment.tmp"
 
 type writerConfig struct {
 	RawSegmentDirectory      string
@@ -20,9 +20,9 @@ func (conf *writerConfig) RawSegmentPath(tailOffset Offset) string {
 }
 
 func (conf *writerConfig) TailSegmentPath() string {
-	return path.Join(conf.RawSegmentDirectory, TailSegmentFileName)
+	return path.Join(conf.RawSegmentDirectory, tailSegmentFileName)
 }
 
 func (conf *writerConfig) TailSegmentTmpPath() string {
-	return path.Join(conf.RawSegmentDirectory, TailSegmentTmpFileName)
+	return path.Join(conf.RawSegmentDirectory, tailSegmentTmpFileName)
 }

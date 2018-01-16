@@ -15,8 +15,6 @@ import (
 	"strconv"
 )
 
-type pageSeq uint64
-
 // DiskManager is thread safe
 type DiskManager struct {
 	// only lock the modification of following maps
@@ -25,8 +23,6 @@ type DiskManager struct {
 	files                map[uint64]*os.File
 	writeMMaps           map[uint64]mmap.MMap
 	readMMaps            map[uint64]mmap.MMap
-	activeReaders        map[interface{}]struct{}
-	delayedRemoval       uint64
 	directory            string
 	fileSizeInPowerOfTwo uint8 // 2 ^ x
 	fileSize             uint64
@@ -38,7 +34,6 @@ func New(directory string, fileSizeInPowerOfTwo uint8) *DiskManager {
 		fileSizeInPowerOfTwo: fileSizeInPowerOfTwo,
 		fileSize:             1 << fileSizeInPowerOfTwo,
 		mapMutex:             &sync.Mutex{},
-		activeReaders:        map[interface{}]struct{}{},
 		files:                map[uint64]*os.File{},
 		readMMaps:            map[uint64]mmap.MMap{},
 		writeMMaps:           map[uint64]mmap.MMap{},
@@ -238,38 +233,9 @@ func (mgr *DiskManager) openFile(pageSeq uint64) (*os.File, error) {
 	return file, nil
 }
 
-// TODO: lock should specify startSeq, not lock everything
-func (mgr *DiskManager) Lock(reader interface{}) {
-	mgr.mapMutex.Lock()
-	defer mgr.mapMutex.Unlock()
-	mgr.activeReaders[reader] = struct{}{}
-}
-
-func (mgr *DiskManager) Unlock(reader interface{}) {
-	mgr.mapMutex.Lock()
-	defer mgr.mapMutex.Unlock()
-	delete(mgr.activeReaders, reader)
-	if mgr.delayedRemoval > 0 && len(mgr.activeReaders) == 0 {
-		countlog.Debug("event!dheap.trigger delayed removal", "delayedRemoval", mgr.delayedRemoval)
-		mgr.removeFiles(mgr.delayedRemoval)
-		mgr.delayedRemoval = 0
-	}
-}
-
 func (mgr *DiskManager) Remove(untilSeq uint64) {
 	mgr.mapMutex.Lock()
 	defer mgr.mapMutex.Unlock()
-	if len(mgr.activeReaders) > 0 {
-		if untilSeq > mgr.delayedRemoval {
-			mgr.delayedRemoval = untilSeq
-		}
-		countlog.Debug("event!dheap.can not remove files now", "delayedRemoval", mgr.delayedRemoval)
-		return
-	}
-	mgr.removeFiles(untilSeq)
-}
-
-func (mgr *DiskManager) removeFiles(untilSeq uint64) {
 	minFileName, err := getMinFileName(mgr.directory)
 	countlog.TraceCall("callee!getMinFileName", err)
 	if err != nil {
