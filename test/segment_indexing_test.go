@@ -11,6 +11,7 @@ func Test_indexing_segment(t *testing.T) {
 	should := require.New(t)
 	cfg := &lstore.Config{}
 	cfg.RawSegmentMaxSizeInBytes = 280
+	cfg.ChunkMaxEntriesCount = 256
 	cfg.BloomFilterIndexedBlobColumns = []int{0}
 	store := testStore(cfg)
 	defer store.Stop(ctx)
@@ -29,7 +30,7 @@ func Test_indexing_segment(t *testing.T) {
 	reader.SearchForward(ctx, &lstore.SearchRequest{
 		0, store.NewBlobValueFilter(0, "hello"), collector,
 	})
-	should.Len(collector.Rows, 130)
+	should.Equal(130, len(collector.Rows))
 	should.Equal([]int64{2}, collector.Rows[0].IntValues)
 	should.Equal([]int64{4}, collector.Rows[1].IntValues)
 }
@@ -37,6 +38,7 @@ func Test_indexing_segment(t *testing.T) {
 func Test_reopen_indexing_segment(t *testing.T) {
 	should := require.New(t)
 	cfg := &lstore.Config{}
+	cfg.ChunkMaxEntriesCount = 256
 	cfg.BloomFilterIndexedBlobColumns = []int{0}
 	store := testStore(cfg)
 	for i := 0; i < 260; i++ {
@@ -65,6 +67,7 @@ func Test_reopen_indexing_segment(t *testing.T) {
 func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 	should := require.New(t)
 	cfg := &lstore.Config{}
+	cfg.ChunkMaxEntriesCount = 256
 	cfg.BloomFilterIndexedBlobColumns = []int{0}
 	store := testStore(cfg)
 	defer store.Stop(ctx)
@@ -97,6 +100,7 @@ func Test_index_twice_should_not_repeat_rows(t *testing.T) {
 func Test_update_index_multiple_times(t *testing.T) {
 	should := require.New(t)
 	cfg := &lstore.Config{}
+	cfg.ChunkMaxEntriesCount = 256
 	cfg.BloomFilterIndexedBlobColumns = []int{0}
 	store := testStore(cfg)
 	defer store.Stop(ctx)
@@ -125,6 +129,7 @@ func Test_update_index_multiple_times(t *testing.T) {
 func Test_index_block_compressed(t *testing.T) {
 	should := require.New(t)
 	cfg := &lstore.Config{}
+	cfg.ChunkMaxEntriesCount = 256
 	cfg.BloomFilterIndexedBlobColumns = []int{0}
 	cfg.BlockCompressed = true
 	store := testStore(cfg)

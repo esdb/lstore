@@ -9,7 +9,6 @@ import (
 
 type chunkRoot struct {
 	pbfs     []pbloom.ParallelBloomFilter // 64 slots
-	headSlot biter.Slot                   // some slots will be deleted, after entries moved into index segment
 	tailSlot biter.Slot
 }
 
@@ -55,7 +54,7 @@ func newChunk(strategy *indexingStrategy, headOffset Offset) *chunk {
 		headOffset: headOffset,
 		tailOffset: headOffset,
 		children:   children,
-		chunkRoot:  chunkRoot{pbfs, 0, 1},
+		chunkRoot:  chunkRoot{pbfs, 1},
 	}
 }
 

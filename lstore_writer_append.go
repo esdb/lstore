@@ -69,11 +69,9 @@ func (writer *writer) tryWrite(ctx countlog.Context, entry *Entry) error {
 		return SegmentOverflowError
 	}
 	writer.writeBuf = writer.writeBuf[size:]
-	if writer.tailChunk.add(entry) {
-		writer.tailChunk = newChunk(writer.strategy, writer.tailChunk.tailOffset)
-		writer.state.rotatedChunk(writer.tailChunk)
-		countlog.Debug("event!writer.rotated raw chunk",
-			"tailOffset", writer.tailChunk.tailOffset)
+	if writer.appendingChunk.add(entry) || writer.appendingChunk.tailSlot == writer.chunkMaxSlot {
+		writer.appendingChunk = newChunk(writer.strategy, writer.appendingChunk.tailOffset)
+		writer.state.rotatedChunk(writer.appendingChunk)
 	}
 	// reader will know if read the tail using atomic
 	writer.incrementTailOffset()
@@ -104,7 +102,7 @@ func (writer *writer) rotateTail(ctx countlog.Context) error {
 		segmentHeader: segmentHeader{segmentTypeRaw, oldTailSegmentHeadOffset},
 		path:          rotatedTo,
 	})
-	countlog.Debug("event!writer.rotated tail",
+	countlog.Debug("event!writer.rotated raw segment",
 		"rotatedTo", rotatedTo)
 	return nil
 }

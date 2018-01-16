@@ -7,11 +7,15 @@ import (
 	"strconv"
 	"github.com/minio/minio/pkg/x/os"
 	"time"
+	"io/ioutil"
+	"strings"
 )
 
 func Test_indexed_segment(t *testing.T) {
 	should := require.New(t)
-	store := testStore(&lstore.Config{})
+	cfg := &lstore.Config{}
+	cfg.ChunkMaxEntriesCount = 256
+	store := testStore(cfg)
 	defer store.Stop(ctx)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
@@ -54,7 +58,9 @@ func Test_indexed_segment(t *testing.T) {
 
 func Test_reopen_indexed_segments(t *testing.T) {
 	should := require.New(t)
-	store := testStore(&lstore.Config{})
+	cfg := &lstore.Config{}
+	cfg.ChunkMaxEntriesCount = 256
+	store := testStore(cfg)
 	for i := 0; i < 260; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		offset, err := store.Write(ctx, intBlobEntry(int64(i), blobValue))
@@ -69,10 +75,11 @@ func Test_reopen_indexed_segments(t *testing.T) {
 
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)
+	should.Equal(lstore.Offset(261), reader.TailOffset())
 	collector := &lstore.RowsCollector{}
-	should.NoError(reader.SearchForward(ctx, &lstore.SearchRequest{
+	reader.SearchForward(ctx, &lstore.SearchRequest{
 		0, nil, collector,
-	}))
+	})
 	should.Equal(260, len(collector.Rows))
 	for _, row := range collector.Rows {
 		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
@@ -100,6 +107,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 func Test_auto_rotate_index(t *testing.T) {
 	should := require.New(t)
 	cfg := &lstore.Config{}
+	cfg.ChunkMaxEntriesCount = 256
 	cfg.UpdateIndexInterval = time.Millisecond * 100
 	cfg.IndexSegmentMaxEntriesCount = 256 * 64
 	store := testStore(cfg)
@@ -110,8 +118,15 @@ func Test_auto_rotate_index(t *testing.T) {
 		should.Equal(lstore.Offset(i + 1), offset)
 	}
 	time.Sleep(time.Millisecond * 200)
-	_, err := os.Stat("/run/store/indexed-20481.segment")
+	infos, err := ioutil.ReadDir("/run/store")
 	should.NoError(err)
+	found := false
+	for _, info := range infos {
+		if strings.HasPrefix(info.Name(), "indexed-") {
+			found = true
+		}
+	}
+	should.True(found)
 }
 
 func Test_remove_indexed_segment(t *testing.T) {

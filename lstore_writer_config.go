@@ -12,6 +12,7 @@ type writerConfig struct {
 	RawSegmentDirectory      string
 	WriterCommandQueueLength int
 	RawSegmentMaxSizeInBytes int64
+	ChunkMaxEntriesCount     int
 }
 
 func (conf *writerConfig) RawSegmentPath(tailOffset Offset) string {

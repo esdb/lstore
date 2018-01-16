@@ -60,6 +60,7 @@ func (indexer *indexer) load(ctx countlog.Context, slotIndexManager slotIndexMan
 	if err != nil {
 		return err
 	}
+	indexer.indexingSegment = indexingSegment
 	ctx.Info("event!indexer.load",
 		"indexedSegmentsCount", len(indexedSegments),
 		"indexingHeadOffset", indexingSegment.headOffset,

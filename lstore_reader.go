@@ -93,14 +93,13 @@ func (reader *Reader) SearchForward(ctxObj context.Context, req *SearchRequest) 
 		}
 		req.StartOffset = store.indexingSegment.tailOffset
 	}
-	lastChunk := len(store.chunks) - 1
-	for _, chunk := range store.chunks[:lastChunk] {
+	for _, chunk := range store.appendedChunks {
 		if err := chunk.searchForward(ctx, req); err != nil {
 			return err
 		}
 	}
 	req.Callback = &StopAt{reader.tailOffset, req.Callback}
-	if err := store.chunks[lastChunk].searchForward(ctx, req); err != nil {
+	if err := store.appendingChunk.searchForward(ctx, req); err != nil {
 		return err
 	}
 	return nil

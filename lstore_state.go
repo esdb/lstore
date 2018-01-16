@@ -3,7 +3,7 @@ package lstore
 import (
 	"unsafe"
 	"sync/atomic"
-	"github.com/esdb/biter"
+	"github.com/v2pro/plz/countlog"
 )
 
 type storeState struct {
@@ -18,7 +18,8 @@ type storeVersion struct {
 	removingSegments []*indexSegment
 	indexedSegments  []*indexSegment
 	indexingSegment  *indexSegment
-	chunks           []*chunk
+	appendedChunks   []*chunk
+	appendingChunk   *chunk
 }
 
 func (version *storeVersion) HeadOffset() Offset {
@@ -108,20 +109,17 @@ func (store *storeState) removeHead(removingFrom Offset) []*indexSegment {
 	}
 }
 
-func (store *storeState) movedBlockIntoIndex(indexingSegment *indexSegment, firstChunkHeadSlot biter.Slot) {
+func (store *storeState) movedChunksIntoIndex(indexingSegment *indexSegment, movedChunksCount int) {
 	for {
 		oldVersion := store.latest()
 		newVersion := *oldVersion
-		newVersion.indexedSegments = append([]*indexSegment(nil), oldVersion.indexedSegments...)
-		newVersion.chunks = append([]*chunk(nil), oldVersion.chunks...)
-		firstChunk := *newVersion.chunks[0] // copy the first raw chunk
-		firstChunk.headSlot = firstChunkHeadSlot
-		if firstChunk.headSlot == 64 {
-			newVersion.chunks = newVersion.chunks[1:]
-		} else {
-			newVersion.chunks[0] = &firstChunk
-		}
+		newVersion.indexingSegment = indexingSegment
+		newVersion.appendedChunks = oldVersion.appendedChunks[movedChunksCount:]
 		if atomic.CompareAndSwapPointer(&store.currentVersion, unsafe.Pointer(oldVersion), unsafe.Pointer(&newVersion)) {
+			countlog.Debug("event!state.moved chunks into index",
+				"indexingTailOffset", indexingSegment.tailOffset,
+				"appendedChunksCount", len(newVersion.appendedChunks),
+				"appendingHeadOffset", newVersion.appendingChunk.headOffset)
 			return
 		}
 	}
@@ -134,6 +132,9 @@ func (store *storeState) rotatedIndex(indexedSegment *indexSegment, indexingSegm
 		newVersion.indexedSegments = append(oldVersion.indexedSegments, indexedSegment)
 		newVersion.indexingSegment = indexingSegment
 		if atomic.CompareAndSwapPointer(&store.currentVersion, unsafe.Pointer(oldVersion), unsafe.Pointer(&newVersion)) {
+			countlog.Debug("event!state.rotated index",
+				"indexedSegmentHeadOffset", indexedSegment.headOffset,
+				"indexingSegmentTailOffset", indexedSegment.tailOffset)
 			return
 		}
 	}
@@ -143,17 +144,27 @@ func (store *storeState) rotatedChunk(chunk *chunk) {
 	for {
 		oldVersion := store.latest()
 		newVersion := *oldVersion
-		newVersion.chunks = append(newVersion.chunks, chunk)
+		newVersion.appendedChunks = append(newVersion.appendedChunks, oldVersion.appendingChunk)
+		newVersion.appendingChunk = chunk
 		if atomic.CompareAndSwapPointer(&store.currentVersion, unsafe.Pointer(oldVersion), unsafe.Pointer(&newVersion)) {
+			countlog.Debug("event!state.rotated chunk",
+				"appendingHeadOffset", chunk.headOffset)
 			return
 		}
 	}
 }
 
 func (store *storeState) loaded(indexedSegments []*indexSegment, indexingSegment *indexSegment, chunks []*chunk) {
-	atomic.StorePointer(&store.currentVersion, unsafe.Pointer(&storeVersion{
+	version := &storeVersion{
 		indexedSegments: indexedSegments,
 		indexingSegment: indexingSegment,
-		chunks:          chunks,
-	}))
+		appendedChunks:  chunks[:len(chunks)-1],
+		appendingChunk:  chunks[len(chunks)-1],
+	}
+	atomic.StorePointer(&store.currentVersion, unsafe.Pointer(version))
+	countlog.Debug("event!state.loaded",
+		"headOffset", version.HeadOffset(),
+		"tailOffset", store.tailOffset,
+		"indexingHeadOffset", indexingSegment.headOffset,
+		"indexingTailOffset", indexingSegment.tailOffset)
 }

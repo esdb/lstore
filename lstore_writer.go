@@ -6,19 +6,22 @@ import (
 	"os"
 	"github.com/v2pro/plz/concurrent"
 	"github.com/esdb/gocodec"
+	"errors"
+	"github.com/esdb/biter"
 )
 
 type writerCommand func(ctx countlog.Context)
 
 type writer struct {
 	*tailSegment
-	cfg          *writerConfig
-	strategy     *indexingStrategy
-	state        *storeState
-	commandQueue chan writerCommand
-	tailChunk    *chunk
-	rawSegments  []*rawSegment
-	stream       *gocodec.Stream
+	cfg            *writerConfig
+	strategy       *indexingStrategy
+	state          *storeState
+	commandQueue   chan writerCommand
+	appendingChunk *chunk
+	rawSegments    []*rawSegment
+	stream         *gocodec.Stream
+	chunkMaxSlot   biter.Slot
 }
 
 type WriteResult struct {
@@ -34,11 +37,19 @@ func (store *Store) newWriter(ctx countlog.Context) (*writer, error) {
 	if cfg.RawSegmentMaxSizeInBytes == 0 {
 		cfg.RawSegmentMaxSizeInBytes = 200 * 1024 * 1024
 	}
+	chunkMaxSlot := biter.Slot(0)
+	if cfg.ChunkMaxEntriesCount > 0 {
+		if cfg.ChunkMaxEntriesCount % blockLength != 0 {
+			return nil, errors.New("ChunkMaxEntriesCount must be multiplier of 256")
+		}
+		chunkMaxSlot = biter.Slot(cfg.ChunkMaxEntriesCount / 64 + 1)
+	}
 	writer := &writer{
 		state:        &store.storeState,
 		stream:       gocodec.NewStream(nil),
 		strategy:     store.strategy,
 		cfg:          &cfg.writerConfig,
+		chunkMaxSlot: chunkMaxSlot,
 		commandQueue: make(chan writerCommand, cfg.WriterCommandQueueLength),
 	}
 	writer.start(store.executor)
@@ -89,12 +100,12 @@ func handleCommand(ctx countlog.Context, cmd writerCommand) {
 	cmd(ctx)
 }
 
-func (writer *writer) movedBlockIntoIndex(
-	ctx countlog.Context, indexingSegment *indexSegment) {
+func (writer *writer) removeRawSegments(
+	ctx countlog.Context, untilOffset Offset) {
 	writer.asyncExecute(ctx, func(ctx countlog.Context) {
 		removedRawSegmentsCount := 0
 		for i, rawSegment := range writer.rawSegments {
-			if rawSegment.headOffset <= indexingSegment.tailOffset {
+			if rawSegment.headOffset <= untilOffset {
 				removedRawSegmentsCount = i
 			} else {
 				break

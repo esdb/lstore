@@ -58,12 +58,11 @@ func (writer *writer) loadChunks(ctx countlog.Context, indexingSegmentTailOffset
 			chunks = append(chunks, chunk)
 		}
 	}
-	writer.tailChunk = chunks[len(chunks) - 1]
+	writer.appendingChunk = chunks[len(chunks) - 1]
 	writer.tailSegment = tailSegment
 	writer.rawSegments = rawSegments
 	ctx.Info("event!writer.load",
 		"firstChunkHeadOffset", chunks[0].headOffset,
-		"firstChunkHeadSlot", chunks[0].headSlot,
 		"rawSegmentsCount", len(rawSegments),
 		"storeTailOffset", storeTailOffset)
 	return chunks, nil
