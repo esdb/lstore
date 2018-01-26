@@ -9,7 +9,7 @@ import (
 
 func Test_raw_chunk_with_1(t *testing.T) {
 	should := require.New(t)
-	strategy := newIndexingStrategy(indexingStrategyConfig{
+	strategy := newIndexingStrategy(&indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newChunk(strategy, 0)
@@ -28,7 +28,7 @@ func Test_raw_chunk_with_1(t *testing.T) {
 
 func Test_raw_chunk_with_64(t *testing.T) {
 	should := require.New(t)
-	strategy := newIndexingStrategy(indexingStrategyConfig{
+	strategy := newIndexingStrategy(&indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newChunk(strategy, 0)
@@ -49,7 +49,7 @@ func Test_raw_chunk_with_64(t *testing.T) {
 
 func Test_raw_chunk_with_65(t *testing.T) {
 	should := require.New(t)
-	strategy := newIndexingStrategy(indexingStrategyConfig{
+	strategy := newIndexingStrategy(&indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newChunk(strategy, 0)
@@ -70,7 +70,7 @@ func Test_raw_chunk_with_65(t *testing.T) {
 
 func Test_raw_chunk_with_4096(t *testing.T) {
 	should := require.New(t)
-	strategy := newIndexingStrategy(indexingStrategyConfig{
+	strategy := newIndexingStrategy(&indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newChunk(strategy, 0)
@@ -92,7 +92,7 @@ func Test_raw_chunk_with_4096(t *testing.T) {
 
 func Test_search_raw_chunk(t *testing.T) {
 	should := require.New(t)
-	strategy := newIndexingStrategy(indexingStrategyConfig{
+	strategy := newIndexingStrategy(&indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newChunk(strategy, 0)
@@ -113,7 +113,7 @@ func Test_search_raw_chunk(t *testing.T) {
 }
 
 func Benchmark_raw_chunk(b *testing.B) {
-	strategy := newIndexingStrategy(indexingStrategyConfig{
+	strategy := newIndexingStrategy(&indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	index := newChunk(strategy, 0)

@@ -20,11 +20,11 @@ func TestMain(m *testing.M) {
 }
 
 func intEntry(values ...int64) *Entry {
-	return &Entry{EntryType: EntryTypeData, IntValues: values}
+	return &Entry{IntValues: values}
 }
 
 func blobEntry(values ...Blob) *Entry {
-	return &Entry{EntryType: EntryTypeData, BlobValues: values}
+	return &Entry{BlobValues: values}
 }
 
 func blobEntries(values ...Blob) []*Entry {
@@ -36,7 +36,7 @@ func blobEntries(values ...Blob) []*Entry {
 }
 
 func intBlobEntry(intValue int64, blobValue Blob) *Entry {
-	return &Entry{EntryType: EntryTypeData, IntValues: []int64{intValue}, BlobValues: []Blob{blobValue}}
+	return &Entry{IntValues: []int64{intValue}, BlobValues: []Blob{blobValue}}
 }
 
 var ctx = countlog.Ctx(context.Background())
@@ -79,7 +79,7 @@ func (objs *testIndexSegmentObjs) indexAt(i level, slots ...biter.Slot) *slotInd
 }
 
 func testIndexSegment() testIndexSegmentObjs {
-	strategy := newIndexingStrategy(indexingStrategyConfig{
+	strategy := newIndexingStrategy(&indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	os.RemoveAll("/tmp/store")

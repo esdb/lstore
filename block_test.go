@@ -7,7 +7,7 @@ import (
 
 func Test_create_block(t *testing.T) {
 	should := require.New(t)
-	strategy := newIndexingStrategy(indexingStrategyConfig{
+	strategy := newIndexingStrategy(&indexingStrategyConfig{
 		BloomFilterIndexedBlobColumns: []int{0},
 	})
 	blk := newBlock(0, []*Entry{{
@@ -70,7 +70,7 @@ func Test_block_search(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		blk := newBlock(0, testCase.input)
-		strategy := newIndexingStrategy(indexingStrategyConfig{
+		strategy := newIndexingStrategy(&indexingStrategyConfig{
 			BloomFilterIndexedBlobColumns: []int{0},
 		})
 		blk.Hash(strategy)
