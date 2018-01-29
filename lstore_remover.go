@@ -1,10 +1,10 @@
 package lstore
 
 import (
-	"github.com/v2pro/plz/countlog"
 	"context"
-	"github.com/v2pro/plz/concurrent"
 	"github.com/esdb/gocodec"
+	"github.com/v2pro/plz/concurrent"
+	"github.com/v2pro/plz/countlog"
 	"io/ioutil"
 	"os"
 )

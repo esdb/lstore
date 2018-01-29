@@ -1,9 +1,9 @@
 package lstore
 
 import (
-	"time"
-	"path"
 	"fmt"
+	"path"
+	"time"
 )
 
 const indexingSegmentFileName = "indexing.segment"

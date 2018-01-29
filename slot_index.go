@@ -1,8 +1,8 @@
 package lstore
 
 import (
-	"github.com/esdb/pbloom"
 	"github.com/esdb/biter"
+	"github.com/esdb/pbloom"
 )
 
 type slotIndexSeq uint64

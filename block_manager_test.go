@@ -1,9 +1,9 @@
 package lstore
 
 import (
+	"github.com/stretchr/testify/require"
 	"os"
 	"testing"
-	"github.com/stretchr/testify/require"
 )
 
 func testBlockManager(blockFileSizeInPowerOfTwo uint8) *mmapBlockManager {
@@ -13,7 +13,7 @@ func testBlockManager(blockFileSizeInPowerOfTwo uint8) *mmapBlockManager {
 		panic(err)
 	}
 	mgr := newBlockManager(&blockManagerConfig{
-		BlockDirectory: "/tmp/block",
+		BlockDirectory:            "/tmp/block",
 		BlockFileSizeInPowerOfTwo: blockFileSizeInPowerOfTwo,
 	})
 	return mgr
@@ -64,11 +64,11 @@ func Test_write_block_to_file_body(t *testing.T) {
 	defer writer.Close()
 	reader := mgr.newReader(10, 4)
 	defer reader.Close()
-	start, size, err := writer.writeBlock(2 << 14 + 777, &block{startOffset: 1})
-	should.Equal(blockSeq(2 << 14 + 777), start)
+	start, size, err := writer.writeBlock(2<<14+777, &block{startOffset: 1})
+	should.Equal(blockSeq(2<<14+777), start)
 	should.Nil(err)
 	should.True(size > 0)
-	blk, err := reader.readBlock(2 << 14 + 777)
+	blk, err := reader.readBlock(2<<14 + 777)
 	should.Nil(err)
 	should.Equal(Offset(1), blk.startOffset)
 }

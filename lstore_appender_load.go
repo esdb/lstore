@@ -1,8 +1,8 @@
 package lstore
 
 import (
-	"github.com/v2pro/plz/countlog"
 	"errors"
+	"github.com/v2pro/plz/countlog"
 )
 
 const firstOffset = 1
@@ -49,7 +49,7 @@ func (appender *appender) loadChunks(ctx *countlog.Context, indexingSegmentTailO
 	if indexingSegmentTailOffset < headOffset {
 		return nil, errors.New("found gap between indexing segment tail and raw segment head")
 	}
-	entries = entries[indexingSegmentTailOffset - headOffset:]
+	entries = entries[indexingSegmentTailOffset-headOffset:]
 	chunks := newChunks(appender.strategy, indexingSegmentTailOffset)
 	chunk := chunks[0]
 	for _, entry := range entries {
@@ -58,7 +58,7 @@ func (appender *appender) loadChunks(ctx *countlog.Context, indexingSegmentTailO
 			chunks = append(chunks, chunk)
 		}
 	}
-	appender.appendingChunk = chunks[len(chunks) - 1]
+	appender.appendingChunk = chunks[len(chunks)-1]
 	appender.tailSegment = tailSegment
 	appender.rawSegments = rawSegments
 	ctx.Info("event!appender.load",

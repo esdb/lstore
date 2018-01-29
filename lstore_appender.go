@@ -1,13 +1,13 @@
 package lstore
 
 import (
-	"github.com/v2pro/plz/countlog"
 	"context"
-	"os"
-	"github.com/v2pro/plz/concurrent"
-	"github.com/esdb/gocodec"
 	"errors"
 	"github.com/esdb/biter"
+	"github.com/esdb/gocodec"
+	"github.com/v2pro/plz/concurrent"
+	"github.com/v2pro/plz/countlog"
+	"os"
 )
 
 type appenderCommand func(ctx *countlog.Context)
@@ -39,10 +39,10 @@ func (store *Store) newAppender(ctx *countlog.Context) (*appender, error) {
 	}
 	chunkMaxSlot := biter.Slot(0)
 	if cfg.ChunkMaxEntriesCount > 0 {
-		if cfg.ChunkMaxEntriesCount % blockLength != 0 {
+		if cfg.ChunkMaxEntriesCount%blockLength != 0 {
 			return nil, errors.New("ChunkMaxEntriesCount must be multiplier of 256")
 		}
-		chunkMaxSlot = biter.Slot(cfg.ChunkMaxEntriesCount / 64 + 1)
+		chunkMaxSlot = biter.Slot(cfg.ChunkMaxEntriesCount/64 + 1)
 	}
 	writer := &appender{
 		state:        &store.storeState,

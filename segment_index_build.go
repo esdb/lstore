@@ -1,9 +1,9 @@
 package lstore
 
 import (
-	"github.com/v2pro/plz/countlog"
 	"github.com/esdb/biter"
 	"github.com/esdb/pbloom"
+	"github.com/v2pro/plz/countlog"
 )
 
 func (segment *indexSegment) addBlock(ctx *countlog.Context,

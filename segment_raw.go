@@ -1,13 +1,13 @@
 package lstore
 
 import (
-	"github.com/edsrzf/mmap-go"
-	"github.com/v2pro/plz/countlog"
-	"github.com/esdb/gocodec"
-	"os"
-	"io"
 	"fmt"
+	"github.com/edsrzf/mmap-go"
+	"github.com/esdb/gocodec"
 	"github.com/v2pro/plz"
+	"github.com/v2pro/plz/countlog"
+	"io"
+	"os"
 	"path"
 )
 

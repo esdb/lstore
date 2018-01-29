@@ -1,12 +1,12 @@
 package lstore
 
 import (
-	"github.com/esdb/gocodec"
 	"fmt"
+	"github.com/esdb/gocodec"
 	"github.com/esdb/lstore/dheap"
 	"github.com/esdb/lstore/mheap"
-	"io"
 	"github.com/v2pro/plz"
+	"io"
 )
 
 type slotIndexManagerConfig struct {

@@ -1,12 +1,12 @@
 package lstore
 
 import (
-	"github.com/v2pro/plz/concurrent"
-	"path"
 	"context"
-	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/plz"
+	"github.com/v2pro/plz/concurrent"
+	"github.com/v2pro/plz/countlog"
 	"io"
+	"path"
 )
 
 type Config struct {
@@ -68,7 +68,7 @@ func New(ctxObj context.Context, cfg *Config) (*Store, error) {
 		return nil, err
 	}
 	store.remover, err = store.newRemover(ctx)
-	if err !=nil {
+	if err != nil {
 		return nil, err
 	}
 	return store, nil

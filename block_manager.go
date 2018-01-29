@@ -1,14 +1,14 @@
 package lstore
 
 import (
-	"github.com/esdb/gocodec"
-	"github.com/esdb/lstore/lz4"
 	"fmt"
-	"unsafe"
+	"github.com/esdb/gocodec"
 	"github.com/esdb/lstore/dheap"
+	"github.com/esdb/lstore/lz4"
 	"github.com/esdb/lstore/mheap"
-	"io"
 	"github.com/v2pro/plz"
+	"io"
+	"unsafe"
 )
 
 type compressedBlockHeader struct {

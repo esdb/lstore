@@ -1,9 +1,9 @@
 package lstore
 
 import (
-	"unsafe"
-	"sync/atomic"
 	"github.com/v2pro/plz/countlog"
+	"sync/atomic"
+	"unsafe"
 )
 
 type storeState struct {

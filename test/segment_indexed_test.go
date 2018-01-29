@@ -1,14 +1,14 @@
 package test
 
 import (
-	"testing"
-	"github.com/stretchr/testify/require"
 	"github.com/esdb/lstore"
-	"strconv"
-	"time"
+	"github.com/stretchr/testify/require"
 	"io/ioutil"
-	"strings"
 	"os"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
 )
 
 func Test_indexed_segment(t *testing.T) {
@@ -21,7 +21,7 @@ func Test_indexed_segment(t *testing.T) {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		offset, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
-		should.Equal(lstore.Offset(i + 1), offset)
+		should.Equal(lstore.Offset(i+1), offset)
 	}
 	should.Nil(store.UpdateIndex(ctx))
 	should.Nil(store.RotateIndex(ctx))
@@ -34,7 +34,7 @@ func Test_indexed_segment(t *testing.T) {
 	})
 	should.Equal(260, len(collector.Rows))
 	for _, row := range collector.Rows {
-		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
+		should.Equal(row.IntValues[0]+1, int64(row.Offset))
 	}
 
 	for i := 260; i < 520; i++ {
@@ -52,7 +52,7 @@ func Test_indexed_segment(t *testing.T) {
 	})
 	should.Equal(520, len(collector.Rows))
 	for _, row := range collector.Rows {
-		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
+		should.Equal(row.IntValues[0]+1, int64(row.Offset))
 	}
 }
 
@@ -65,7 +65,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		offset, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
-		should.Equal(lstore.Offset(i + 1), offset)
+		should.Equal(lstore.Offset(i+1), offset)
 	}
 	should.Nil(store.UpdateIndex(ctx))
 	should.Nil(store.RotateIndex(ctx))
@@ -82,7 +82,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	})
 	should.Equal(260, len(collector.Rows))
 	for _, row := range collector.Rows {
-		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
+		should.Equal(row.IntValues[0]+1, int64(row.Offset))
 	}
 
 	for i := 260; i < 520; i++ {
@@ -100,7 +100,7 @@ func Test_reopen_indexed_segments(t *testing.T) {
 	})
 	should.Equal(520, len(collector.Rows))
 	for _, row := range collector.Rows {
-		should.Equal(row.IntValues[0] + 1, int64(row.Offset))
+		should.Equal(row.IntValues[0]+1, int64(row.Offset))
 	}
 }
 
@@ -111,11 +111,11 @@ func Test_auto_rotate_index(t *testing.T) {
 	cfg.UpdateIndexInterval = time.Millisecond * 100
 	cfg.IndexSegmentMaxEntriesCount = 256 * 64
 	store := testStore(cfg)
-	for i := 0; i < 256 * 64 * 4; i++ {
+	for i := 0; i < 256*64*4; i++ {
 		blobValue := lstore.Blob(strconv.Itoa(i))
 		offset, err := store.Append(ctx, intBlobEntry(int64(i), blobValue))
 		should.Nil(err)
-		should.Equal(lstore.Offset(i + 1), offset)
+		should.Equal(lstore.Offset(i+1), offset)
 	}
 	time.Sleep(time.Millisecond * 200)
 	infos, err := ioutil.ReadDir("/run/store")
@@ -145,7 +145,7 @@ func Test_remove_indexed_segment(t *testing.T) {
 		should.Nil(store.UpdateIndex(ctx))
 		should.Nil(store.RotateIndex(ctx))
 	}
-	should.Nil(store.Remove(ctx,1792))
+	should.Nil(store.Remove(ctx, 1792))
 
 	reader, err := store.NewReader(ctx)
 	should.Nil(err)

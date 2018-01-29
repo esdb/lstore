@@ -1,10 +1,10 @@
 package lstore
 
 import (
+	"context"
 	"github.com/v2pro/plz/countlog"
 	"os"
 	"sync/atomic"
-	"context"
 )
 
 func (appender *appender) BatchAppend(ctxObj context.Context, resultChan chan<- AppendResult, entries []*Entry) {

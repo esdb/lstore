@@ -1,8 +1,8 @@
 package lstore
 
 import (
-	"path"
 	"fmt"
+	"path"
 )
 
 const tailSegmentFileName = "tail.segment"

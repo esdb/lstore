@@ -1,8 +1,8 @@
 package lstore
 
 import (
-	"testing"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func Test_create_block(t *testing.T) {
@@ -30,9 +30,9 @@ func Test_block_search(t *testing.T) {
 
 	type TestCase struct {
 		startOffset Offset
-		input  []*Entry
-		filter Blob
-		output []Offset
+		input       []*Entry
+		filter      Blob
+		output      []Offset
 	}
 	testCases := []TestCase{
 		{
@@ -62,11 +62,10 @@ func Test_block_search(t *testing.T) {
 		},
 		{
 			startOffset: 2,
-			input: blobEntries("x", "x", "x", "x"),
-			filter: "x",
-			output: []Offset{2, 3},
+			input:       blobEntries("x", "x", "x", "x"),
+			filter:      "x",
+			output:      []Offset{2, 3},
 		},
-
 	}
 	for _, testCase := range testCases {
 		blk := newBlock(0, testCase.input)

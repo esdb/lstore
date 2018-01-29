@@ -1,8 +1,8 @@
 package lstore
 
 import (
-	"testing"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func Test_search_index_segment(t *testing.T) {
@@ -33,5 +33,5 @@ func Test_search_index_segment_with_16640(t *testing.T) {
 	segment.searchForward(ctx, segment.slotIndexReader, segment.blockReader, &SearchRequest{
 		0, dummyFilterInstance, collector,
 	})
-	should.Equal(blockLength * 65, len(collector.Offsets))
+	should.Equal(blockLength*65, len(collector.Offsets))
 }

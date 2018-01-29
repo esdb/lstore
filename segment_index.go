@@ -1,12 +1,12 @@
 package lstore
 
 import (
+	"fmt"
+	"github.com/esdb/gocodec"
 	"github.com/v2pro/plz/countlog"
 	"io/ioutil"
-	"github.com/esdb/gocodec"
-	"fmt"
-	"path"
 	"os"
+	"path"
 )
 
 const firstBlockSeq = 1

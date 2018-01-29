@@ -1,10 +1,10 @@
 package test
 
 import (
-	"testing"
-	"github.com/stretchr/testify/require"
-	"github.com/esdb/lstore"
 	"context"
+	"github.com/esdb/lstore"
+	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 var ctx = context.Background()
@@ -137,7 +137,7 @@ func Test_rotate_raw_chunk_child(t *testing.T) {
 	for i := 0; i < 65; i++ {
 		seq, err := store.Append(ctx, intEntry(1))
 		should.Nil(err)
-		should.Equal(lstore.Offset(i + 1), seq)
+		should.Equal(lstore.Offset(i+1), seq)
 	}
 	should.True(reader.RefreshTail(ctx))
 	collector = &lstore.OffsetsCollector{}
@@ -160,7 +160,7 @@ func Test_rotate_raw_chunk(t *testing.T) {
 	for i := 0; i < 4097; i++ {
 		seq, err := store.Append(ctx, intEntry(1))
 		should.Nil(err)
-		should.Equal(lstore.Offset(i + 1), seq)
+		should.Equal(lstore.Offset(i+1), seq)
 	}
 	should.True(reader.RefreshTail(ctx))
 	collector = &lstore.OffsetsCollector{}

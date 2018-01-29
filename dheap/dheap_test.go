@@ -1,10 +1,10 @@
 package dheap
 
 import (
-	"testing"
-	"os"
 	"github.com/stretchr/testify/require"
 	"github.com/v2pro/plz"
+	"os"
+	"testing"
 	"time"
 )
 
@@ -72,10 +72,10 @@ func Test_remove_large_file_block_seq(t *testing.T) {
 	os.Mkdir("/tmp/store", 0777)
 	mgr := New("/tmp/store", 4)
 	defer plz.Close(mgr)
-	mgr.WriteBuf(1024 * 1024 * 1024, []byte("hello"))
+	mgr.WriteBuf(1024*1024*1024, []byte("hello"))
 	_, err := os.Stat("/tmp/store/67108864")
 	should.NoError(err)
-	mgr.Remove(1024 * 1024 * 1024 + 1024)
+	mgr.Remove(1024*1024*1024 + 1024)
 	time.Sleep(time.Second)
 	_, err = os.Stat("/tmp/store/67108864")
 	should.Error(err)

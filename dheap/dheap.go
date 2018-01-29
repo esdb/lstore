@@ -1,18 +1,18 @@
 package dheap
 
 import (
-	"sync"
-	"github.com/edsrzf/mmap-go"
-	"os"
-	"github.com/v2pro/plz/countlog"
-	"fmt"
-	"path"
-	"github.com/v2pro/plz"
-	"math"
-	"io"
 	"errors"
+	"fmt"
+	"github.com/edsrzf/mmap-go"
+	"github.com/v2pro/plz"
+	"github.com/v2pro/plz/countlog"
+	"io"
 	"io/ioutil"
+	"math"
+	"os"
+	"path"
 	"strconv"
+	"sync"
 )
 
 // DiskManager is thread safe
@@ -159,7 +159,7 @@ func (mgr *DiskManager) MapWritableBuf(seq uint64, size uint32) ([]byte, error) 
 	return buf[:size], nil
 }
 
-func (mgr *DiskManager) flush(seq uint64) (error) {
+func (mgr *DiskManager) flush(seq uint64) error {
 	pageSeq := seq >> mgr.fileSizeInPowerOfTwo
 	writeMMap, err := mgr.openWriteMMap(pageSeq)
 	if err != nil {

@@ -1,9 +1,9 @@
 package test
 
 import (
-	"testing"
-	"github.com/stretchr/testify/require"
 	"github.com/esdb/lstore"
+	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func Test_raw_segment(t *testing.T) {

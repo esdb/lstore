@@ -1,10 +1,10 @@
 package lstore
 
 import (
-	"testing"
+	"github.com/esdb/biter"
 	"github.com/stretchr/testify/require"
 	"os"
-	"github.com/esdb/biter"
+	"testing"
 )
 
 func testSlotIndexManager(blockFileSizeInPowerOfTwo uint8) *mmapSlotIndexManager {

@@ -1,10 +1,10 @@
 package lz4
 
 import (
-	"testing"
+	"github.com/pierrec/lz4"
 	"github.com/stretchr/testify/require"
 	"io/ioutil"
-	"github.com/pierrec/lz4"
+	"testing"
 )
 
 func Test_VersionNumber(t *testing.T) {

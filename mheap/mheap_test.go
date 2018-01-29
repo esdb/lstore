@@ -1,9 +1,9 @@
 package mheap
 
 import (
-	"testing"
-	"github.com/stretchr/testify/require"
 	"github.com/esdb/gocodec"
+	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func Test_allocate(t *testing.T) {

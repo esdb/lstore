@@ -1,10 +1,10 @@
 package lstore
 
 import (
-	"testing"
-	"github.com/stretchr/testify/require"
-	"github.com/esdb/biter"
 	"fmt"
+	"github.com/esdb/biter"
+	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func Test_raw_chunk_with_1(t *testing.T) {

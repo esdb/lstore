@@ -1,13 +1,13 @@
 package test
 
 import (
-	"testing"
-	"github.com/stretchr/testify/require"
-	"runtime"
+	"fmt"
 	"github.com/esdb/lstore"
 	"github.com/rs/xid"
-	"fmt"
+	"github.com/stretchr/testify/require"
 	"math/rand"
+	"runtime"
+	"testing"
 )
 
 func Test_write_1_million(t *testing.T) {

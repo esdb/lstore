@@ -1,13 +1,13 @@
 package test
 
 import (
-	"github.com/esdb/lstore"
 	"context"
-	"os"
+	"github.com/esdb/lstore"
 	"github.com/v2pro/plz"
-	"testing"
 	"github.com/v2pro/plz/concurrent"
 	"github.com/v2pro/plz/countlog"
+	"os"
+	"testing"
 )
 
 func TestMain(m *testing.M) {
@@ -50,7 +50,7 @@ func intBlobEntry(intValue int64, blobValue lstore.Blob) *lstore.Entry {
 }
 
 type assertSearchForward struct {
-	cb lstore.SearchCallback
+	cb         lstore.SearchCallback
 	lastOffset lstore.Offset
 }
 
@@ -63,12 +63,12 @@ func (cb *assertSearchForward) HandleRow(offset lstore.Offset, entry *lstore.Ent
 }
 
 type assertContinuous struct {
-	cb lstore.SearchCallback
+	cb         lstore.SearchCallback
 	lastOffset lstore.Offset
 }
 
 func (cb *assertContinuous) HandleRow(offset lstore.Offset, entry *lstore.Entry) error {
-	if offset > 0 && offset != cb.lastOffset + 1 {
+	if offset > 0 && offset != cb.lastOffset+1 {
 		panic("not continuous")
 	}
 	cb.lastOffset = offset

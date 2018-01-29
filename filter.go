@@ -3,10 +3,10 @@ package lstore
 import (
 	"github.com/esdb/biter"
 	"github.com/esdb/pbloom"
-	"unsafe"
 	"github.com/esdb/plinear"
 	"github.com/v2pro/plz/countlog"
 	"math"
+	"unsafe"
 )
 
 type Filter interface {

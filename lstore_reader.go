@@ -2,9 +2,9 @@ package lstore
 
 import (
 	"context"
-	"github.com/v2pro/plz/countlog"
 	"errors"
 	"github.com/v2pro/plz"
+	"github.com/v2pro/plz/countlog"
 	"io"
 )
 

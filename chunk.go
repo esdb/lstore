@@ -3,8 +3,8 @@ package lstore
 import (
 	"github.com/esdb/biter"
 	"github.com/esdb/pbloom"
-	"unsafe"
 	"github.com/v2pro/plz/countlog"
+	"unsafe"
 )
 
 type chunkRoot struct {

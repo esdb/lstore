@@ -1,13 +1,13 @@
 package lstore
 
 import (
-	"github.com/v2pro/plz/countlog"
-	"time"
-	"errors"
 	"context"
-	"os"
+	"errors"
 	"github.com/v2pro/plz"
 	"github.com/v2pro/plz/concurrent"
+	"github.com/v2pro/plz/countlog"
+	"os"
+	"time"
 )
 
 type indexerCommand func(ctx *countlog.Context)
@@ -234,7 +234,7 @@ func (indexer *indexer) removeIndexedSegments(ctx *countlog.Context, removedSegm
 		err := os.Remove(segmentPath)
 		ctx.TraceCall("callee!os.Remove", err)
 	}
-	lastRemovedSegment := removedSegments[len(removedSegments) - 1]
+	lastRemovedSegment := removedSegments[len(removedSegments)-1]
 	indexer.slotIndexWriter.remove(lastRemovedSegment.tailSlotIndexSeq)
 	indexer.blockWriter.remove(lastRemovedSegment.tailBlockSeq)
 }

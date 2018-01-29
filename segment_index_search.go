@@ -1,8 +1,8 @@
 package lstore
 
 import (
-	"github.com/v2pro/plz/countlog"
 	"github.com/esdb/biter"
+	"github.com/v2pro/plz/countlog"
 )
 
 func (segment *indexSegment) searchForward(

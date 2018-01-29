@@ -1,15 +1,15 @@
 package lstore
 
 import (
-	"testing"
-	"github.com/stretchr/testify/require"
-	"github.com/v2pro/plz/countlog"
 	"context"
-	"github.com/esdb/biter"
-	"os"
-	"github.com/v2pro/plz/concurrent"
-	"github.com/v2pro/plz"
 	"fmt"
+	"github.com/esdb/biter"
+	"github.com/stretchr/testify/require"
+	"github.com/v2pro/plz"
+	"github.com/v2pro/plz/concurrent"
+	"github.com/v2pro/plz/countlog"
+	"os"
+	"testing"
 )
 
 func TestMain(m *testing.M) {
@@ -375,6 +375,7 @@ func Test_add_64x64x64x2_plus_1_blocks(t *testing.T) {
 	result = segment.search(3, segment.NewBlobValueFilter(0, "hello524288"))
 	should.Equal(biter.SetBits[2], result)
 }
+
 //
 //func Test_add_64x64x64x64_plus_1_blocks(t *testing.T) {
 //	blockLength = 2
