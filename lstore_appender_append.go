@@ -9,14 +9,14 @@ import (
 
 func (appender *appender) BatchAppend(ctxObj context.Context, resultChan chan<- AppendResult, entries []*Entry) {
 	ctx := countlog.Ctx(ctxObj)
-	appender.asyncExecute(ctx, func(ctx countlog.Context) {
+	appender.asyncExecute(ctx, func(ctx *countlog.Context) {
 		for _, entry := range entries {
 			appender.writeOne(ctx, resultChan, entry)
 		}
 	})
 }
 
-func (appender *appender) writeOne(ctx countlog.Context, resultChan chan<- AppendResult, entry *Entry) {
+func (appender *appender) writeOne(ctx *countlog.Context, resultChan chan<- AppendResult, entry *Entry) {
 	offset := Offset(appender.state.tailOffset)
 	err := appender.tryAppend(ctx, entry)
 	if err == nil {
@@ -45,7 +45,7 @@ func (appender *appender) writeOne(ctx countlog.Context, resultChan chan<- Appen
 func (appender *appender) Append(ctxObj context.Context, entry *Entry) (Offset, error) {
 	ctx := countlog.Ctx(ctxObj)
 	resultChan := make(chan AppendResult)
-	appender.asyncExecute(ctx, func(ctx countlog.Context) {
+	appender.asyncExecute(ctx, func(ctx *countlog.Context) {
 		appender.writeOne(ctx, resultChan, entry)
 	})
 	select {
@@ -58,7 +58,7 @@ func (appender *appender) Append(ctxObj context.Context, entry *Entry) (Offset, 
 	}
 }
 
-func (appender *appender) tryAppend(ctx countlog.Context, entry *Entry) error {
+func (appender *appender) tryAppend(ctx *countlog.Context, entry *Entry) error {
 	stream := appender.stream
 	stream.Reset(appender.writeBuf[:0])
 	size := stream.Marshal(*entry)
@@ -83,7 +83,7 @@ func (appender *appender) tryAppend(ctx countlog.Context, entry *Entry) error {
 	return nil
 }
 
-func (appender *appender) rotateTail(ctx countlog.Context) error {
+func (appender *appender) rotateTail(ctx *countlog.Context) error {
 	oldTailSegmentHeadOffset := appender.tailSegment.headOffset
 	err := appender.tailSegment.Close()
 	ctx.TraceCall("callee!tailSegment.Close", err)

@@ -6,7 +6,7 @@ import (
 )
 
 func (segment *indexSegment) searchForward(
-	ctx countlog.Context, slotIndexReader slotIndexReader, blockReader blockReader, req *SearchRequest) error {
+	ctx *countlog.Context, slotIndexReader slotIndexReader, blockReader blockReader, req *SearchRequest) error {
 	if req.StartOffset >= segment.tailOffset {
 		return nil
 	}
@@ -18,7 +18,7 @@ func (segment *indexSegment) searchForward(
 }
 
 func (segment *indexSegment) searchForwardAt(
-	ctx countlog.Context, slotIndexReader slotIndexReader, blockReader blockReader, req *SearchRequest,
+	ctx *countlog.Context, slotIndexReader slotIndexReader, blockReader blockReader, req *SearchRequest,
 	levelIndex *slotIndex, level level) error {
 	result := levelIndex.search(level, req.Filter)
 	result &= biter.SetBitsForwardUntil[*levelIndex.tailSlot]

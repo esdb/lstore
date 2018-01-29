@@ -89,7 +89,7 @@ func (chunk *chunk) add(entry *Entry) bool {
 	return false
 }
 
-func (chunk *chunk) searchForward(ctx countlog.Context, req *SearchRequest) error {
+func (chunk *chunk) searchForward(ctx *countlog.Context, req *SearchRequest) error {
 	rootResult := req.Filter.searchTinyIndex(chunk.pbfs)
 	rootResult &= biter.SetBitsForwardUntil[chunk.tailSlot]
 	delta := req.StartOffset - chunk.headOffset

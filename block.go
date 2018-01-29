@@ -87,7 +87,7 @@ func (blk *block) Hash(strategy *indexingStrategy) blockHash {
 	return blockHash
 }
 
-func (blk *block) scanForward(ctx countlog.Context, req *SearchRequest) error {
+func (blk *block) scanForward(ctx *countlog.Context, req *SearchRequest) error {
 	for _, beginSlot := range [4]biter.Slot{0, 64, 128, 192} {
 		mask := biter.SetAllBits
 		beginOffset := blk.startOffset + Offset(beginSlot)

@@ -59,7 +59,7 @@ func newIndexSegment(slotIndexWriter slotIndexWriter, prev *indexSegment) (*inde
 	}, nil
 }
 
-func openIndexSegment(ctx countlog.Context, indexedSegmentPath string) (*indexSegment, error) {
+func openIndexSegment(ctx *countlog.Context, indexedSegmentPath string) (*indexSegment, error) {
 	buf, err := ioutil.ReadFile(indexedSegmentPath)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func openIndexSegment(ctx countlog.Context, indexedSegmentPath string) (*indexSe
 	return segment, nil
 }
 
-func createIndexSegment(ctx countlog.Context, segmentPath string, segment *indexSegment) error {
+func createIndexSegment(ctx *countlog.Context, segmentPath string, segment *indexSegment) error {
 	stream := gocodec.NewStream(nil)
 	stream.Marshal(*segment)
 	ctx.TraceCall("callee!stream.Marshal", stream.Error)

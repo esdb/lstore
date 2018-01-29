@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-type removerCommand func(ctx countlog.Context)
+type removerCommand func(ctx *countlog.Context)
 
 type remover struct {
 	cfg          *removerConfig
@@ -19,7 +19,7 @@ type remover struct {
 	stream       *gocodec.Stream
 }
 
-func (store *Store) newRemover(ctx countlog.Context) (*remover, error) {
+func (store *Store) newRemover(ctx *countlog.Context) (*remover, error) {
 	cfg := store.cfg
 	remover := &remover{
 		cfg:          &cfg.removerConfig,
@@ -37,8 +37,7 @@ func (store *Store) newRemover(ctx countlog.Context) (*remover, error) {
 }
 
 func (remover *remover) start(executor *concurrent.UnboundedExecutor) {
-	executor.Go(func(ctxObj context.Context) {
-		ctx := countlog.Ctx(ctxObj)
+	executor.Go(func(ctx *countlog.Context) {
 		defer func() {
 			countlog.Info("event!indexer.stop")
 		}()
@@ -55,7 +54,7 @@ func (remover *remover) start(executor *concurrent.UnboundedExecutor) {
 	})
 }
 
-func (remover *remover) runCommand(ctx countlog.Context, cmd removerCommand) {
+func (remover *remover) runCommand(ctx *countlog.Context, cmd removerCommand) {
 	defer func() {
 		recovered := recover()
 		if recovered == concurrent.StopSignal {
@@ -66,7 +65,7 @@ func (remover *remover) runCommand(ctx countlog.Context, cmd removerCommand) {
 	cmd(ctx)
 }
 
-func (remover *remover) asyncExecute(ctx countlog.Context, cmd removerCommand) error {
+func (remover *remover) asyncExecute(ctx *countlog.Context, cmd removerCommand) error {
 	select {
 	case remover.commandQueue <- cmd:
 		return nil
@@ -78,13 +77,13 @@ func (remover *remover) asyncExecute(ctx countlog.Context, cmd removerCommand) e
 func (remover *remover) Remove(ctxObj context.Context, removingFrom Offset) error {
 	ctx := countlog.Ctx(ctxObj)
 	resultChan := make(chan error)
-	remover.asyncExecute(ctx, func(ctx countlog.Context) {
+	remover.asyncExecute(ctx, func(ctx *countlog.Context) {
 		resultChan <- remover.doRemove(ctx, removingFrom)
 	})
 	return <-resultChan
 }
 
-func (remover *remover) doRemove(ctx countlog.Context, removingFrom Offset) error {
+func (remover *remover) doRemove(ctx *countlog.Context, removingFrom Offset) error {
 	err := remover.writeTombstone(ctx, removingFrom)
 	if err != nil {
 		return err
@@ -98,7 +97,7 @@ func (remover *remover) doRemove(ctx countlog.Context, removingFrom Offset) erro
 	return nil
 }
 
-func (remover *remover) writeTombstone(ctx countlog.Context, removingOffset Offset) error {
+func (remover *remover) writeTombstone(ctx *countlog.Context, removingOffset Offset) error {
 	stream := remover.stream
 	stream.Reset(nil)
 	stream.Marshal(segmentHeader{

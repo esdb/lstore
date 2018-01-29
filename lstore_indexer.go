@@ -10,7 +10,7 @@ import (
 	"github.com/v2pro/plz/concurrent"
 )
 
-type indexerCommand func(ctx countlog.Context)
+type indexerCommand func(ctx *countlog.Context)
 
 type indexer struct {
 	cfg             *indexerConfig
@@ -22,7 +22,7 @@ type indexer struct {
 	indexingSegment *indexSegment
 }
 
-func (store *Store) newIndexer(ctx countlog.Context) (*indexer, error) {
+func (store *Store) newIndexer(ctx *countlog.Context) (*indexer, error) {
 	cfg := store.cfg
 	if cfg.UpdateIndexInterval == 0 {
 		cfg.UpdateIndexInterval = time.Millisecond * 100
@@ -48,8 +48,7 @@ func (indexer *indexer) Close() error {
 }
 
 func (indexer *indexer) start(executor *concurrent.UnboundedExecutor) {
-	executor.Go(func(ctxObj context.Context) {
-		ctx := countlog.Ctx(ctxObj)
+	executor.Go(func(ctx *countlog.Context) {
 		defer func() {
 			countlog.Info("event!indexer.stop")
 		}()
@@ -64,7 +63,7 @@ func (indexer *indexer) start(executor *concurrent.UnboundedExecutor) {
 			case cmd = <-indexer.commandQueue:
 			}
 			if cmd == nil {
-				cmd = func(ctx countlog.Context) {
+				cmd = func(ctx *countlog.Context) {
 					indexer.doUpdateIndex(ctx)
 				}
 			}
@@ -73,7 +72,7 @@ func (indexer *indexer) start(executor *concurrent.UnboundedExecutor) {
 	})
 }
 
-func (indexer *indexer) runCommand(ctx countlog.Context, cmd indexerCommand) {
+func (indexer *indexer) runCommand(ctx *countlog.Context, cmd indexerCommand) {
 	defer func() {
 		recovered := recover()
 		if recovered == concurrent.StopSignal {
@@ -85,7 +84,7 @@ func (indexer *indexer) runCommand(ctx countlog.Context, cmd indexerCommand) {
 	cmd(ctx)
 }
 
-func (indexer *indexer) asyncExecute(ctx countlog.Context, cmd indexerCommand) error {
+func (indexer *indexer) asyncExecute(ctx *countlog.Context, cmd indexerCommand) error {
 	select {
 	case indexer.commandQueue <- cmd:
 		return nil
@@ -97,7 +96,7 @@ func (indexer *indexer) asyncExecute(ctx countlog.Context, cmd indexerCommand) e
 func (indexer *indexer) UpdateIndex(ctxObj context.Context) error {
 	ctx := countlog.Ctx(ctxObj)
 	resultChan := make(chan error)
-	indexer.asyncExecute(ctx, func(ctx countlog.Context) {
+	indexer.asyncExecute(ctx, func(ctx *countlog.Context) {
 		resultChan <- indexer.doUpdateIndex(ctx)
 	})
 	return <-resultChan
@@ -106,13 +105,13 @@ func (indexer *indexer) UpdateIndex(ctxObj context.Context) error {
 func (indexer *indexer) RotateIndex(ctxObj context.Context) error {
 	ctx := countlog.Ctx(ctxObj)
 	resultChan := make(chan error)
-	indexer.asyncExecute(ctx, func(ctx countlog.Context) {
+	indexer.asyncExecute(ctx, func(ctx *countlog.Context) {
 		resultChan <- indexer.doRotateIndex(ctx)
 	})
 	return <-resultChan
 }
 
-func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
+func (indexer *indexer) doRotateIndex(ctx *countlog.Context) (err error) {
 	countlog.Debug("event!indexer.doRotateIndex")
 	oldIndexingSegment := indexer.indexingSegment
 	newIndexingSegment, err := newIndexSegment(indexer.slotIndexWriter, oldIndexingSegment)
@@ -143,7 +142,7 @@ func (indexer *indexer) doRotateIndex(ctx countlog.Context) (err error) {
 	return nil
 }
 
-func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
+func (indexer *indexer) doUpdateIndex(ctx *countlog.Context) (err error) {
 	updated := true
 	for updated {
 		updated, err = indexer.updateOnce(ctx)
@@ -164,7 +163,7 @@ func (indexer *indexer) doUpdateIndex(ctx countlog.Context) (err error) {
 	return nil
 }
 
-func (indexer *indexer) updateOnce(ctx countlog.Context) (updated bool, err error) {
+func (indexer *indexer) updateOnce(ctx *countlog.Context) (updated bool, err error) {
 	currentVersion := indexer.state.latest()
 	oldIndexingSegment := currentVersion.indexingSegment
 	oldIndexingTailOffset := oldIndexingSegment.tailOffset
@@ -216,7 +215,7 @@ func (indexer *indexer) updateOnce(ctx countlog.Context) (updated bool, err erro
 	return true, nil
 }
 
-func (indexer *indexer) saveIndexingSegment(ctx countlog.Context, indexingSegment *indexSegment) error {
+func (indexer *indexer) saveIndexingSegment(ctx *countlog.Context, indexingSegment *indexSegment) error {
 	err := createIndexSegment(ctx, indexer.cfg.IndexingSegmentTmpPath(), indexingSegment)
 	if err != nil {
 		return err
@@ -229,7 +228,7 @@ func (indexer *indexer) saveIndexingSegment(ctx countlog.Context, indexingSegmen
 	return nil
 }
 
-func (indexer *indexer) removeIndexedSegments(ctx countlog.Context, removedSegments []*indexSegment) {
+func (indexer *indexer) removeIndexedSegments(ctx *countlog.Context, removedSegments []*indexSegment) {
 	for _, removedSegment := range removedSegments {
 		segmentPath := indexer.cfg.IndexedSegmentPath(removedSegment.headOffset)
 		err := os.Remove(segmentPath)

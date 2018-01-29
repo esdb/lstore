@@ -5,10 +5,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/esdb/lstore"
 	"strconv"
-	"github.com/minio/minio/pkg/x/os"
 	"time"
 	"io/ioutil"
 	"strings"
+	"os"
 )
 
 func Test_indexed_segment(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"github.com/esdb/gocodec"
 )
 
-func (remover *remover) loadTombstone(ctx countlog.Context) error {
+func (remover *remover) loadTombstone(ctx *countlog.Context) error {
 	content, err := ioutil.ReadFile(remover.cfg.TombstoneSegmentPath())
 	if os.IsNotExist(err) {
 		return nil

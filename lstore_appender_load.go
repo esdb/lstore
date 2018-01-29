@@ -8,7 +8,7 @@ import (
 const firstOffset = 1
 
 func (appender *appender) loadedIndex(
-	ctx countlog.Context, indexedSegments []*indexSegment, indexingSegment *indexSegment) error {
+	ctx *countlog.Context, indexedSegments []*indexSegment, indexingSegment *indexSegment) error {
 	chunks, err := appender.loadChunks(ctx, indexingSegment.tailOffset)
 	if err != nil {
 		return err
@@ -17,7 +17,7 @@ func (appender *appender) loadedIndex(
 	return nil
 }
 
-func (appender *appender) loadChunks(ctx countlog.Context, indexingSegmentTailOffset Offset) ([]*chunk, error) {
+func (appender *appender) loadChunks(ctx *countlog.Context, indexingSegmentTailOffset Offset) ([]*chunk, error) {
 	tailSegment, entries, err := openTailSegment(
 		ctx, appender.cfg.TailSegmentPath(), appender.cfg.RawSegmentMaxSizeInBytes, firstOffset)
 	if err != nil {

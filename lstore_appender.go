@@ -10,7 +10,7 @@ import (
 	"github.com/esdb/biter"
 )
 
-type appenderCommand func(ctx countlog.Context)
+type appenderCommand func(ctx *countlog.Context)
 
 type appender struct {
 	*tailSegment
@@ -29,7 +29,7 @@ type AppendResult struct {
 	Error  error
 }
 
-func (store *Store) newAppender(ctx countlog.Context) (*appender, error) {
+func (store *Store) newAppender(ctx *countlog.Context) (*appender, error) {
 	cfg := store.cfg
 	if cfg.WriterCommandQueueLength == 0 {
 		cfg.WriterCommandQueueLength = 1024
@@ -61,8 +61,7 @@ func (appender *appender) Close() error {
 }
 
 func (appender *appender) start(executor *concurrent.UnboundedExecutor) {
-	executor.Go(func(ctxObj context.Context) {
-		ctx := countlog.Ctx(ctxObj)
+	executor.Go(func(ctx *countlog.Context) {
 		defer func() {
 			countlog.Info("event!appender.stop")
 		}()
@@ -81,14 +80,14 @@ func (appender *appender) start(executor *concurrent.UnboundedExecutor) {
 	})
 }
 
-func (appender *appender) asyncExecute(ctx countlog.Context, cmd appenderCommand) {
+func (appender *appender) asyncExecute(ctx *countlog.Context, cmd appenderCommand) {
 	select {
 	case appender.commandQueue <- cmd:
 	case <-ctx.Done():
 	}
 }
 
-func (appender *appender) runCommand(ctx countlog.Context, cmd appenderCommand) {
+func (appender *appender) runCommand(ctx *countlog.Context, cmd appenderCommand) {
 	defer func() {
 		recovered := recover()
 		if recovered == concurrent.StopSignal {
@@ -100,8 +99,8 @@ func (appender *appender) runCommand(ctx countlog.Context, cmd appenderCommand) 
 }
 
 func (appender *appender) removeRawSegments(
-	ctx countlog.Context, untilOffset Offset) {
-	appender.asyncExecute(ctx, func(ctx countlog.Context) {
+	ctx *countlog.Context, untilOffset Offset) {
+	appender.asyncExecute(ctx, func(ctx *countlog.Context) {
 		removedRawSegmentsCount := 0
 		for i, rawSegment := range appender.rawSegments {
 			if rawSegment.headOffset <= untilOffset {

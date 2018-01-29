@@ -16,7 +16,7 @@ type rawSegment struct {
 	path string
 }
 
-func openRawSegment(ctx countlog.Context, path string) (*rawSegment, []*Entry, error) {
+func openRawSegment(ctx *countlog.Context, path string) (*rawSegment, []*Entry, error) {
 	file, err := os.OpenFile(path, os.O_RDONLY, 0666)
 	ctx.TraceCall("callee!os.OpenFile", err)
 	if err != nil {
@@ -44,7 +44,7 @@ func openRawSegment(ctx countlog.Context, path string) (*rawSegment, []*Entry, e
 	return segment, entries, nil
 }
 
-func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator) ([]*Entry, error) {
+func (segment *rawSegment) loadRows(ctx *countlog.Context, iter *gocodec.Iterator) ([]*Entry, error) {
 	var rows []*Entry
 	for {
 		iter.Reset(iter.Buffer())
@@ -60,7 +60,7 @@ func (segment *rawSegment) loadRows(ctx countlog.Context, iter *gocodec.Iterator
 	}
 }
 
-func createRawSegment(ctx countlog.Context, segmentPath string, maxSize int64, headOffset Offset) (*os.File, error) {
+func createRawSegment(ctx *countlog.Context, segmentPath string, maxSize int64, headOffset Offset) (*os.File, error) {
 	os.MkdirAll(path.Dir(segmentPath), 0777)
 	file, err := os.OpenFile(segmentPath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {

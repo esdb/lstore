@@ -6,7 +6,7 @@ import (
 	"github.com/esdb/pbloom"
 )
 
-func (segment *indexSegment) addBlock(ctx countlog.Context,
+func (segment *indexSegment) addBlock(ctx *countlog.Context,
 	slotIndexWriter slotIndexWriter, blockWriter blockWriter, blk *block) error {
 	// hash will update block, so call it before write
 	blkHash := blk.Hash(slotIndexWriter.indexingStrategy())
@@ -75,7 +75,7 @@ func (segment *indexSegment) addBlock(ctx countlog.Context,
 	return segment.nextSlot(ctx, slotIndexWriter, indices)
 }
 
-func (segment *indexSegment) nextSlot(ctx countlog.Context, slotIndexWriter slotIndexWriter, indices []*slotIndex) error {
+func (segment *indexSegment) nextSlot(ctx *countlog.Context, slotIndexWriter slotIndexWriter, indices []*slotIndex) error {
 	level0index := indices[0]
 	newTailSlot := *level0index.tailSlot + 1
 	level0index.setTailSlot(newTailSlot)
